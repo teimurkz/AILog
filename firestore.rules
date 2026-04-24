@@ -1,0 +1,70 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: shipments
+    // Fields: truckId, driverName, origin, destination, status, departureDate, estimatedArrival, currentLocation, notes, createdBy
+    //
+    // Collection: trucks
+    // Fields: plateNumber, model, status
+    //
+    // Collection: shipments/{shipmentId}/logs
+    // Fields: timestamp, location, message, updatedBy
+    //
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == "ti07kz@gmail.com" ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
+    }
+
+    function isLogistics() {
+      return isAuthenticated() && (
+        isAdmin() ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'logistics'
+      );
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Validation helpers
+    function isValidShipment(data) {
+      return data.invoice_id is string && data.invoice_id.size() > 0 &&
+             data.route in ['Tehran - Almaty', 'Amol - Almaty'] &&
+             data.status in ['In Transit', 'Customs', 'Delivered', 'Delay'];
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /shipments/{shipmentId} {
+      allow read: if isAuthenticated();
+      allow create: if isLogistics() && isValidShipment(request.resource.data);
+      allow update: if isLogistics() && isValidShipment(request.resource.data);
+      allow delete: if isAdmin();
+      
+      match /logs/{logId} {
+        allow read: if isAuthenticated();
+        allow create: if isLogistics();
+      }
+    }
+
+    match /trucks/{truckId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "entities": {
+    "TruckShipment": {
+      "title": "Truck Shipment",
+      "description": "A logistics shipment record representing a truck journey.",
+      "type": "object",
+      "properties": {
+        "invoice_id": {
+          "type": "string",
+          "description": "The unique invoice identifier (e.g., Mehkaz 61)."
+        },
+        "route": {
+          "type": "string",
+          "enum": ["Tehran - Almaty", "Amol - Almaty"],
+          "description": "The shipment route."
+        },
+        "departure_date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The date the truck departed."
+        },
+        "est_travel_time": {
+          "type": "integer",
+          "description": "Estimated travel time in days."
+        },
+        "arrival_deadline": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Computed deadline for arrival."
+        },
+        "actual_arrival_date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The actual date of arrival."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["In Transit", "Customs", "Delivered", "Delay"],
+          "description": "Current status of the shipment."
+        },
+        "documents_url": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Links to documents in Firebase Storage."
+        },
+        "last_updated": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp."
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "UID of the user who created the record."
+        },
+        "items": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of goods being transported."
+        }
+      },
+      "required": ["invoice_id", "route", "departure_date", "est_travel_time", "status"]
+    },
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User profile with role-based access control.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "logistics", "viewer"]
+        }
+      },
+      "required": ["uid", "email", "displayName", "role"]
+    }
+  },
+  "firestore": {
+    "/shipments/{shipmentId}": {
+      "schema": "TruckShipment",
+      "description": "Collection of truck shipments."
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles and roles."
+    },
+    "/pending_ingestion/{emailId}": {
+      "schema": "object",
+      "description": "Emails waiting for AI processing."
+    },
+    "/config/{configId}": {
+      "schema": "object",
+      "description": "System configuration and integration tokens."
+    }
+  }
+}
