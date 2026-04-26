@@ -23,14 +23,16 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.email == "ti07kz@gmail.com" ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
       );
     }
 
     function isLogistics() {
       return isAuthenticated() && (
         isAdmin() ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'logistics'
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'logistics')
       );
     }
 
@@ -46,8 +48,11 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow get: if isAuthenticated();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role);
+      allow delete: if isAdmin();
     }
 
     match /shipments/{shipmentId} {

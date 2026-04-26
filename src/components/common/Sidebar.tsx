@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { auth } from '../../firebase';
-import { useLanguage } from '../../LanguageContext';
+import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Language } from '../../translations';
 import { cn } from '../../lib/utils';
@@ -20,9 +20,11 @@ import { Shield } from 'lucide-react';
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (t: string) => void;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
-export const Sidebar = ({ activeTab, setActiveTab }: SidebarProps) => {
+export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarProps) => {
   const { t, language, setLanguage, isRTL } = useLanguage();
   const { profile, isAdmin } = useAuth();
   
@@ -34,7 +36,7 @@ export const Sidebar = ({ activeTab, setActiveTab }: SidebarProps) => {
   ];
 
   if (isAdmin) {
-    menuItems.push({ id: 'users', icon: Shield, label: t('users') });
+    menuItems.push({ id: 'admin-tools', icon: Shield, label: 'Admin Panel' });
   }
 
   const languages: { id: Language; label: string; flag: string }[] = [
@@ -43,11 +45,27 @@ export const Sidebar = ({ activeTab, setActiveTab }: SidebarProps) => {
     { id: 'ru', label: 'Русский', flag: '🇷🇺' },
   ];
 
+  const handleTabClick = (id: string) => {
+    setActiveTab(id);
+    if (window.innerWidth < 1024) onClose();
+  };
+
   return (
-    <div className={cn(
-      "w-64 bg-slate-900 text-slate-300 flex flex-col h-screen fixed top-0",
-      isRTL ? "right-0" : "left-0"
-    )}>
+    <>
+      {/* Mobile Overlay */}
+      <div 
+        className={cn(
+          "fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 transition-opacity duration-300 lg:hidden",
+          isOpen ? "opacity-100 visible" : "opacity-0 invisible"
+        )}
+        onClick={onClose}
+      />
+
+      <div className={cn(
+        "w-64 bg-slate-900 text-slate-300 flex flex-col h-screen fixed top-0 z-50 transition-transform duration-300 transform lg:translate-x-0",
+        isRTL ? "right-0" : "left-0",
+        isOpen ? "translate-x-0" : (isRTL ? "translate-x-full" : "-translate-x-full")
+      )}>
       <div className="p-6 flex items-center gap-3 border-b border-slate-800">
         <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
           <Navigation className="w-5 h-5 text-white" />
@@ -57,9 +75,9 @@ export const Sidebar = ({ activeTab, setActiveTab }: SidebarProps) => {
       
       <nav className="flex-1 p-4 space-y-2">
         {menuItems.map((item) => (
-          <button
+            <button
             key={item.id}
-            onClick={() => setActiveTab(item.id)}
+            onClick={() => handleTabClick(item.id)}
             className={cn(
               "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200",
               activeTab === item.id 
@@ -119,5 +137,6 @@ export const Sidebar = ({ activeTab, setActiveTab }: SidebarProps) => {
         </button>
       </div>
     </div>
+    </>
   );
 };

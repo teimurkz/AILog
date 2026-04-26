@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { Truck } from 'lucide-react';
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { auth } from '../../firebase';
-import { useLanguage } from '../../LanguageContext';
+import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuth } from '../../contexts/AuthContext';
 
 export const AuthGuard = ({ children }: { children: React.ReactNode }) => {

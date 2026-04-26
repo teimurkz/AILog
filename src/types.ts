@@ -9,7 +9,9 @@ export interface Shipment {
   est_travel_time: number; // Days
   arrival_deadline: string; // Computed: departure_date + est_travel_time
   actual_arrival_date?: string;
+  customs_date?: string;
   status: ShipmentStatus;
+  status_message?: string;
   documents_url: string[]; // Links to Firebase Storage
   last_updated: string;
   createdBy: string;

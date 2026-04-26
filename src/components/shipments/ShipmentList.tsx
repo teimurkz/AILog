@@ -10,13 +10,15 @@ import {
   Package
 } from 'lucide-react';
 import { differenceInDays, parseISO, format } from 'date-fns';
-import { useLanguage } from '../../LanguageContext';
+import * as XLSX from 'xlsx';
+import { useLanguage } from '../../contexts/LanguageContext';
 import { Shipment, ShipmentStatus } from '../../types';
 import { cn } from '../../lib/utils';
-import { doc, updateDoc, deleteDoc, collection, addDoc } from 'firebase/firestore';
+import { doc, updateDoc, deleteDoc, collection } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../../firebase';
 import { isShipmentDelayed } from '../../utils/shipmentUtils';
 import { useAuth } from '../../contexts/AuthContext';
+import { FileSpreadsheet } from 'lucide-react';
 
 interface ShipmentListProps {
   shipments: Shipment[];
@@ -29,17 +31,37 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
   const { t, isRTL } = useLanguage();
   const { isAdmin, isLogistics } = useAuth();
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'invoiceAsc' | 'invoiceDesc' | 'departureDate'>('newest');
+  const [statusFilter, setStatusFilter] = useState<ShipmentStatus | 'All'>('All');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDelivering, setIsDelivering] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showBulkDeliverConfirm, setShowBulkDeliverConfirm] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
-  const filtered = shipments.filter(s => {
-    const matchesSearch = s.invoice_id.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = filterStatus ? filterStatus.includes(s.status) : s.status !== 'Delivered';
-    return matchesSearch && matchesStatus && !s.isArchived;
-  });
+  const filtered = shipments
+    .filter(s => {
+      const matchesSearch = s.invoice_id.toLowerCase().includes(search.toLowerCase());
+      const effectiveFilter = filterStatus ? filterStatus : (statusFilter !== 'All' ? [statusFilter as ShipmentStatus] : undefined);
+      const matchesStatus = effectiveFilter ? effectiveFilter.includes(s.status) : s.status !== 'Delivered';
+      return matchesSearch && matchesStatus && !s.isArchived;
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case 'newest':
+          return parseISO(b.last_updated).getTime() - parseISO(a.last_updated).getTime();
+        case 'oldest':
+          return parseISO(a.last_updated).getTime() - parseISO(b.last_updated).getTime();
+        case 'invoiceAsc':
+          return a.invoice_id.localeCompare(b.invoice_id);
+        case 'invoiceDesc':
+          return b.invoice_id.localeCompare(a.invoice_id);
+        case 'departureDate':
+          return parseISO(b.departure_date).getTime() - parseISO(a.departure_date).getTime();
+        default:
+          return 0;
+      }
+    });
 
   const toggleSelectAll = () => {
     if (selectedIds.size === filtered.length) {
@@ -92,23 +114,88 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
     }
   };
 
+  const handleExport = () => {
+    const exportData = filtered.map(s => ({
+      'Дата выезда а/м': format(parseISO(s.departure_date), 'dd.MM.yyyy'),
+      'инвойс': s.invoice_id,
+      'товар': s.items.join(', '),
+      'СВХ': s.customs_date ? format(parseISO(s.customs_date), 'dd.MM.yyyy') : '',
+      'Алматы': s.actual_arrival_date ? format(parseISO(s.actual_arrival_date), 'dd.MM.yyyy') : '',
+      'Статус': t(s.status as any)
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Shipments");
+    XLSX.writeFile(wb, `SilkRoad_CRM_Export_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+  };
+
   return (
     <div className="space-y-6">
-      <div className={cn("flex flex-col sm:flex-row items-center justify-between gap-4", isRTL && "flex-row-reverse")}>
-        <div className="relative w-full sm:w-96">
-          <Search className={cn("absolute top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400", isRTL ? "right-4" : "left-4")} />
-          <input 
-            type="text"
-            placeholder={t('searchPlaceholder')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className={cn(
-              "w-full bg-white border border-slate-200 rounded-2xl py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm",
-              isRTL ? "pr-12 pl-4 text-right" : "pl-12 pr-4 text-left"
+      <div className={cn("flex flex-col gap-4")}>
+        <div className={cn("flex flex-col md:flex-row items-center justify-between gap-4", isRTL && "md:flex-row-reverse")}>
+          <div className="relative w-full md:flex-1">
+            <Search className={cn("absolute top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400", isRTL ? "right-4" : "left-4")} />
+            <input 
+              type="text"
+              placeholder={t('searchPlaceholder')}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className={cn(
+                "w-full bg-white border border-slate-200 rounded-2xl py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm",
+                isRTL ? "pr-12 pl-4 text-right" : "pl-12 pr-4 text-left"
+              )}
+            />
+          </div>
+
+          <div className={cn("flex flex-wrap items-center gap-3 w-full md:w-auto", isRTL && "flex-row-reverse")}>
+            <div className="flex-1 md:flex-none">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className={cn(
+                  "w-full px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-sm font-bold rounded-xl outline-none focus:ring-2 focus:ring-blue-500 shadow-sm",
+                  isRTL && "text-right"
+                )}
+              >
+                <option value="newest">{t('newest')}</option>
+                <option value="oldest">{t('oldest')}</option>
+                <option value="invoiceAsc">{t('invoiceAsc')}</option>
+                <option value="invoiceDesc">{t('invoiceDesc')}</option>
+                <option value="departureDate">{t('departureDateSort')}</option>
+              </select>
+            </div>
+
+            {!filterStatus && (
+              <div className="flex-1 md:flex-none">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as any)}
+                  className={cn(
+                    "w-full px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-sm font-bold rounded-xl outline-none focus:ring-2 focus:ring-blue-500 shadow-sm",
+                    isRTL && "text-right"
+                  )}
+                >
+                  <option value="All">{t('all')}</option>
+                  <option value="In Transit">{t('In Transit')}</option>
+                  <option value="Customs">{t('Customs')}</option>
+                  <option value="Delay">{t('Delay')}</option>
+                  <option value="Delivered">{t('Delivered')}</option>
+                </select>
+              </div>
             )}
-          />
+          </div>
         </div>
-        <div className={cn("flex items-center gap-3 w-full sm:w-auto", isRTL && "flex-row-reverse")}>
+
+        <div className={cn("flex items-center gap-3 w-full justify-end flex-wrap", isRTL && "flex-row-reverse")}>
+          <button 
+            onClick={handleExport}
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-colors shadow-sm"
+          >
+            <FileSpreadsheet className="w-5 h-5" />
+            Excel
+          </button>
+          
           {selectedIds.size > 0 && isLogistics && (
             <>
               <button 
@@ -142,7 +229,8 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* Desktop View */}
+        <div className="hidden lg:block overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[800px]">
             <thead>
               <tr className={cn("bg-slate-50 border-b border-slate-100", isRTL && "flex-row-reverse")}>
@@ -209,7 +297,10 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
                           s.status === 'Delay' || isDelayed ? 'bg-red-500' :
                           s.status === 'Delivered' ? 'bg-emerald-500' : 'bg-slate-500'
                         )} />
-                        {isDelayed && s.status !== 'Delivered' ? t('delayed') : t(s.status as any)}
+                        {t(s.status as any)}
+                        {isDelayed && s.status !== 'Delivered' && (
+                          <span className="ml-1 text-[8px] opacity-75">({t('delayed')})</span>
+                        )}
                       </span>
                     </td>
                     <td className="px-6 py-4">
@@ -245,6 +336,70 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
               })}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile View */}
+        <div className="lg:hidden divide-y divide-slate-100">
+          {filtered.map((s) => {
+            const daysPassed = differenceInDays(new Date(), parseISO(s.departure_date));
+            const progress = Math.min(Math.max((daysPassed / s.est_travel_time) * 100, 0), 100);
+            const isDelayed = isShipmentDelayed(s);
+
+            return (
+              <div 
+                key={s.id} 
+                onClick={() => onSelect(s)}
+                className={cn(
+                  "p-4 hover:bg-slate-50 transition-colors active:bg-slate-100",
+                  isDelayed && s.status !== 'Delivered' && "bg-red-50/30"
+                )}
+              >
+                <div className={cn("flex items-start justify-between mb-3", isRTL && "flex-row-reverse")}>
+                  <div className={cn("flex items-center gap-3", isRTL && "flex-row-reverse")}>
+                    <input 
+                      type="checkbox" 
+                      checked={selectedIds.has(s.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggleSelect(s.id)}
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-slate-500 shrink-0">
+                      <Package className="w-4 h-4" />
+                    </div>
+                    <div className={cn("min-w-0", isRTL && "text-right")}>
+                      <p className="text-sm font-bold text-slate-900">{s.invoice_id}</p>
+                      <p className="text-xs text-slate-500 truncate">{s.route}</p>
+                    </div>
+                  </div>
+                  <ChevronRight className={cn("w-5 h-5 text-slate-300", isRTL && "rotate-180")} />
+                </div>
+                
+                <div className={cn("flex items-center justify-between", isRTL && "flex-row-reverse")}>
+                  <span className={cn(
+                    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
+                    s.status === 'In Transit' ? 'bg-blue-50 text-blue-600' :
+                    s.status === 'Customs' ? 'bg-indigo-50 text-indigo-600' :
+                    s.status === 'Delay' || isDelayed ? 'bg-red-50 text-red-600' :
+                    s.status === 'Delivered' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-600'
+                  )}>
+                    {t(s.status as any)}
+                    {isDelayed && s.status !== 'Delivered' && (
+                      <span className="ml-1 text-[8px] opacity-75">({t('delayed')})</span>
+                    )}
+                  </span>
+                  <div className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
+                    <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div 
+                        className={cn("h-full", isDelayed && s.status !== 'Delivered' ? 'bg-red-500' : 'bg-blue-600')}
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-500">{Math.round(progress)}%</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 

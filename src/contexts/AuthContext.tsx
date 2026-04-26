@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { UserProfile } from '../types';
 
@@ -21,17 +21,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let unsubProfile: (() => void) | null = null;
+
     const unsubAuth = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       
+      if (unsubProfile) {
+        unsubProfile();
+        unsubProfile = null;
+      }
+
       if (u) {
-        // Subscribe to user profile
         const userDocRef = doc(db, 'users', u.uid);
-        const unsubProfile = onSnapshot(userDocRef, async (docSnap) => {
-          if (docSnap.exists()) {
-            setProfile(docSnap.data() as UserProfile);
-          } else {
-            // Create profile if it doesn't exist
+        
+        // Initial check and creation
+        try {
+          const docSnap = await getDoc(userDocRef);
+          if (!docSnap.exists()) {
             const initialRole = u.email === 'ti07kz@gmail.com' ? 'admin' : 'viewer';
             const newProfile: UserProfile = {
               uid: u.uid,
@@ -42,26 +48,42 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             await setDoc(userDocRef, newProfile);
             setProfile(newProfile);
           }
+        } catch (err) {
+          console.error("Error checking/creating user profile:", err);
+        }
+
+        // Subscribe to user profile
+        unsubProfile = onSnapshot(userDocRef, async (snap) => {
+          if (snap.exists()) {
+            const data = snap.data() as UserProfile;
+            setProfile(data);
+            
+            // Auto-heal super admin role
+            if (u.email === 'ti07kz@gmail.com' && data.role !== 'admin') {
+              await updateDoc(userDocRef, { role: 'admin' });
+            }
+          }
           setLoading(false);
         });
-
-        return () => unsubProfile();
       } else {
         setProfile(null);
         setLoading(false);
       }
     });
 
-    return () => unsubAuth();
+    return () => {
+      unsubAuth();
+      if (unsubProfile) unsubProfile();
+    };
   }, []);
 
   const value = {
     user,
     profile,
     loading,
-    isAdmin: profile?.role === 'admin',
-    isLogistics: profile?.role === 'logistics' || profile?.role === 'admin',
-    isViewer: profile?.role === 'viewer'
+    isAdmin: profile?.role === 'admin' || user?.email === 'ti07kz@gmail.com',
+    isLogistics: profile?.role === 'logistics' || profile?.role === 'admin' || user?.email === 'ti07kz@gmail.com',
+    isViewer: profile?.role === 'viewer' && user?.email !== 'ti07kz@gmail.com'
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

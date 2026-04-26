@@ -28,7 +28,7 @@ import {
 } from 'firebase/firestore';
 import { ref, getDownloadURL, uploadBytesResumable, deleteObject } from 'firebase/storage';
 import { db, auth, storage, handleFirestoreError, OperationType } from '../../firebase';
-import { useLanguage } from '../../LanguageContext';
+import { useLanguage } from '../../contexts/LanguageContext';
 import { Shipment, ShipmentLog, ShipmentStatus } from '../../types';
 import { cn } from '../../lib/utils';
 import { isShipmentDelayed } from '../../utils/shipmentUtils';
@@ -44,6 +44,7 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
   const { isAdmin, isLogistics } = useAuth();
   const [logs, setLogs] = useState<ShipmentLog[]>([]);
   const [newLog, setNewLog] = useState('');
+  const [statusMessage, setStatusMessage] = useState(shipment.status_message || '');
   const [newStatus, setNewStatus] = useState<ShipmentStatus>(shipment.status);
   const [newDepartureDate, setNewDepartureDate] = useState(format(parseISO(shipment.departure_date), 'yyyy-MM-dd'));
   const [uploading, setUploading] = useState(false);
@@ -72,10 +73,6 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
     try {
       // Check if status changed
       if (newStatus !== shipment.status) {
-        if (newStatus === 'Delay' && daysPassed < 14) {
-          alert(t('delayStatusRestriction')); // Fallback alert, though UI should prevent this
-          return;
-        }
         const statusLog = {
           shipmentId: shipment.id,
           timestamp: now,
@@ -121,6 +118,7 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
 
       await updateDoc(doc(db, 'shipments', shipment.id), {
         status: newStatus,
+        status_message: statusMessage,
         last_updated: now
       });
 
@@ -226,21 +224,21 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
 
   return (
     <div className="space-y-6">
-      <div className={cn("flex items-center justify-between gap-4", isRTL && "flex-row-reverse")}>
-        <div className={cn("flex items-center gap-4", isRTL && "flex-row-reverse")}>
-          <button onClick={onBack} className="p-2 hover:bg-white rounded-xl transition-colors">
-            <ChevronRight className={cn("w-6 h-6 text-slate-600", isRTL ? "" : "rotate-180")} />
+      <div className={cn("flex flex-col sm:flex-row sm:items-center justify-between gap-4", isRTL && "sm:flex-row-reverse")}>
+        <div className={cn("flex items-center gap-2 sm:gap-4", isRTL && "flex-row-reverse")}>
+          <button onClick={onBack} className="p-2 hover:bg-white rounded-xl transition-colors shrink-0">
+            <ChevronRight className={cn("w-5 h-5 sm:w-6 sm:h-6 text-slate-600", isRTL ? "" : "rotate-180")} />
           </button>
           <div className={isRTL ? "text-right" : "text-left"}>
-            <h2 className="text-2xl font-bold text-slate-900">{shipment.invoice_id}</h2>
-            <p className="text-slate-500">{shipment.route}</p>
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 truncate max-w-[200px] sm:max-w-none">{shipment.invoice_id}</h2>
+            <p className="text-xs sm:text-sm text-slate-500 truncate">{shipment.route}</p>
           </div>
         </div>
-        <div className={cn("flex items-center gap-4", isRTL && "flex-row-reverse")}>
+        <div className={cn("flex items-center gap-2 sm:gap-4 w-full sm:w-auto", isRTL && "flex-row-reverse")}>
           {isAdmin && (
             <button
               onClick={() => setShowDeleteConfirm(true)}
-              className="p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+              className="p-2 sm:p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
               title={t('delete')}
             >
               <Trash2 className="w-5 h-5" />
@@ -249,9 +247,9 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
           {shipment.status !== 'Delivered' && isLogistics && (
             <button
               onClick={markAsDelivered}
-              className="px-6 py-2.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-900/10 flex items-center gap-2"
+              className="flex-1 sm:flex-none px-4 sm:px-6 py-2 sm:py-2.5 bg-emerald-600 text-white font-bold text-sm sm:text-base rounded-xl hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-900/10 flex items-center justify-center gap-2"
             >
-              <CheckCircle2 className="w-5 h-5" />
+              <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5" />
               {t('delivered')}
             </button>
           )}
@@ -260,55 +258,56 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
-            <div className={cn("flex items-center justify-between mb-8", isRTL && "flex-row-reverse")}>
+          <div className="bg-white p-4 sm:p-8 rounded-2xl shadow-sm border border-slate-100">
+            <div className={cn("flex flex-col sm:flex-row items-center justify-between mb-8 gap-6 sm:gap-0", isRTL && "sm:flex-row-reverse")}>
               <div className="text-center">
-                <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-2">
-                  <MapPin className="w-6 h-6 text-blue-600" />
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-2">
+                  <MapPin className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
                 </div>
                 <p className="text-sm font-bold text-slate-900">{shipment.route.split(' - ')[0]}</p>
-                <p className="text-xs text-slate-500">{t('departureDate')}: {format(parseISO(shipment.departure_date), 'MMM d, yyyy')}</p>
+                <p className="text-[10px] sm:text-xs text-slate-500">{t('departureDate')}: {format(parseISO(shipment.departure_date), 'MMM d')}</p>
               </div>
-              <div className="flex-1 px-8 relative">
-                <div className="h-0.5 w-full bg-slate-100 absolute top-6 left-0" />
+              <div className="flex-1 w-full sm:w-auto px-4 sm:px-8 relative py-4 sm:py-0">
+                <div className="h-0.5 w-full bg-slate-100 absolute top-10 sm:top-6 left-0" />
                 <div 
-                  className={cn("h-0.5 absolute top-6 left-0 transition-all duration-1000", isDelayed ? 'bg-red-500' : 'bg-blue-600')}
+                  className={cn("h-0.5 absolute top-10 sm:top-6 left-0 transition-all duration-1000", isDelayed ? 'bg-red-500' : 'bg-blue-600')}
                   style={{ width: `${progress}%` }}
                 />
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 flex flex-col items-center">
-                  <Truck className={cn("w-12 h-12 bg-white p-2 rounded-full shadow-sm border border-slate-100 mb-2", isDelayed ? 'text-red-600' : 'text-blue-600')} />
-                  <p className={cn("text-[10px] font-bold uppercase tracking-widest whitespace-nowrap", isDelayed ? 'text-red-600' : 'text-blue-600')}>
-                    {isDelayed ? t('delayed') : t('intransit')}
+                <div className="absolute top-4 sm:top-0 left-1/2 -translate-x-1/2 flex flex-col items-center">
+                  <Truck className={cn("w-10 h-10 sm:w-12 sm:h-12 bg-white p-2 rounded-full shadow-sm border border-slate-100 mb-2", isDelayed ? 'text-red-600' : 'text-blue-600')} />
+                  <p className={cn("text-[10px] font-bold uppercase tracking-widest whitespace-nowrap", isDelayed && shipment.status !== 'Delivered' ? 'text-red-600' : 'text-blue-600')}>
+                    {t(shipment.status as any)}
+                    {isDelayed && shipment.status !== 'Delivered' && ` (${t('delayed')})`}
                   </p>
                 </div>
               </div>
               <div className="text-center">
-                <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-2">
-                  <Navigation className="w-6 h-6 text-slate-400" />
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-2">
+                  <Navigation className="w-5 h-5 sm:w-6 sm:h-6 text-slate-400" />
                 </div>
                 <p className="text-sm font-bold text-slate-900">{shipment.route.split(' - ')[1]}</p>
-                <p className="text-xs text-slate-500">Deadline: {format(parseISO(shipment.arrival_deadline), 'MMM d')}</p>
+                <p className="text-[10px] sm:text-xs text-slate-500">Deadline: {format(parseISO(shipment.arrival_deadline), 'MMM d')}</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 bg-slate-50 rounded-xl">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+              <div className="p-3 sm:p-4 bg-slate-50 rounded-xl">
                 <div className={cn("flex items-center gap-2 text-slate-500 mb-1", isRTL && "flex-row-reverse")}>
-                  <FileText className="w-4 h-4" />
+                  <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   <span className="text-xs font-medium">{t('truckId')}</span>
                 </div>
                 <p className={cn("text-sm font-bold text-slate-900", isRTL && "text-right")}>{shipment.invoice_id}</p>
               </div>
-              <div className="p-4 bg-slate-50 rounded-xl relative group">
+              <div className="p-3 sm:p-4 bg-slate-50 rounded-xl relative group">
                 <div className={cn("flex items-center justify-between mb-1", isRTL && "flex-row-reverse")}>
                   <div className={cn("flex items-center gap-2 text-slate-500", isRTL && "flex-row-reverse")}>
-                    <Calendar className="w-4 h-4" />
+                    <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     <span className="text-xs font-medium">{t('departureDate')}</span>
                   </div>
                   {isLogistics && (
                     <button 
                       onClick={() => setIsEditingDate(!isEditingDate)}
-                      className="text-[10px] font-bold text-blue-600 hover:text-blue-700 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="text-[10px] font-bold text-blue-600 hover:text-blue-700 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                     >
                       {t('editDate')}
                     </button>
@@ -327,17 +326,55 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
                   </p>
                 )}
               </div>
-              <div className="p-4 bg-slate-50 rounded-xl">
+              <div className="p-3 sm:p-4 bg-slate-50 rounded-xl">
                 <div className={cn("flex items-center gap-2 text-slate-500 mb-1", isRTL && "flex-row-reverse")}>
-                  <Clock className="w-4 h-4" />
+                  <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   <span className="text-xs font-medium">{t('timeElapsed')}</span>
                 </div>
                 <p className={cn("text-sm font-bold text-slate-900", isRTL && "text-right")}>
                   {daysPassed} {t('daysPassed')}
                 </p>
-                <p className={cn("text-xs text-slate-500", isRTL && "text-right")}>{t('target')}</p>
               </div>
             </div>
+
+            {(shipment.customs_date || shipment.actual_arrival_date) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-6 pt-6 border-t border-slate-100">
+                {shipment.customs_date && (
+                  <div className="p-3 sm:p-4 bg-indigo-50/50 rounded-xl border border-indigo-100">
+                    <div className={cn("flex items-center gap-2 text-indigo-600 mb-1", isRTL && "flex-row-reverse")}>
+                      <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                      <span className="text-xs font-bold uppercase tracking-wider">{t('customs')} (СВХ)</span>
+                    </div>
+                    <p className={cn("text-sm font-bold text-slate-900", isRTL && "text-right")}>
+                      {format(parseISO(shipment.customs_date), 'yyyy-MM-dd')}
+                    </p>
+                  </div>
+                )}
+                {shipment.actual_arrival_date && (
+                  <div className="p-3 sm:p-4 bg-emerald-50/50 rounded-xl border border-emerald-100">
+                    <div className={cn("flex items-center gap-2 text-emerald-600 mb-1", isRTL && "flex-row-reverse")}>
+                      <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                      <span className="text-xs font-bold uppercase tracking-wider">{t('delivered')} (Алматы)</span>
+                    </div>
+                    <p className={cn("text-sm font-bold text-slate-900", isRTL && "text-right")}>
+                      {format(parseISO(shipment.actual_arrival_date), 'yyyy-MM-dd')}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {shipment.status_message && (
+              <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 mb-6">
+                <div className={cn("flex items-center gap-2 text-blue-700 mb-2", isRTL && "flex-row-reverse")}>
+                  <AlertCircle className="w-5 h-5" />
+                  <h4 className="font-bold">{t('currentStatusMessage')}</h4>
+                </div>
+                <p className={cn("text-sm text-blue-800 leading-relaxed font-medium", isRTL && "text-right")}>
+                  {shipment.status_message}
+                </p>
+              </div>
+            )}
 
             {shipment.items && shipment.items.length > 0 && (
               <div className="mt-6 pt-6 border-t border-slate-100">
@@ -455,17 +492,22 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
                     <option value="In Transit">{t('In Transit')}</option>
                     <option value="Customs">{t('Customs')}</option>
                     <option value="Delivered">{t('Delivered')}</option>
-                    <option 
-                      value="Delay" 
-                      disabled={daysPassed < 14}
-                      title={daysPassed < 14 ? "Status 'Delay' can only be selected after 14 days in transit" : ""}
-                    >
-                      {t('Delay')} {daysPassed < 14 && `(< 14 ${t('daysPassed')})`}
+                    <option value="Delay">
+                      {t('Delay')}
                     </option>
                   </select>
                 </div>
                 <div>
-                  <label className={cn("block text-xs font-bold text-slate-500 uppercase mb-1.5", isRTL && "text-right")}>{t('statusMessage')}</label>
+                   <label className={cn("block text-xs font-bold text-slate-500 uppercase mb-1.5", isRTL && "text-right")}>{t('statusMessage')}</label>
+                   <textarea
+                     value={statusMessage}
+                     onChange={(e) => setStatusMessage(e.target.value)}
+                     placeholder="..."
+                     className={cn("w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm h-24 resize-none mb-4", isRTL && "text-right")}
+                   />
+                 </div>
+                 <div>
+                  <label className={cn("block text-xs font-bold text-slate-500 uppercase mb-1.5", isRTL && "text-right")}>{t('journeyLog')}</label>
                   <textarea
                     value={newLog}
                     onChange={(e) => setNewLog(e.target.value)}

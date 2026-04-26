@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { Navigation, AlertCircle, CheckCircle2, Clock, MapPin, Truck as TruckIcon, ChevronRight } from 'lucide-react';
 import { differenceInDays, parseISO, format } from 'date-fns';
-import { useLanguage } from '../../LanguageContext';
+import { useLanguage } from '../../contexts/LanguageContext';
 import { Shipment } from '../../types';
 import { cn } from '../../lib/utils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -79,16 +79,19 @@ export const Dashboard = ({ shipments, onSelect }: DashboardProps) => {
                     <p className="text-sm font-bold text-slate-900 truncate">{s.invoice_id}</p>
                     <p className="text-xs text-slate-500 truncate">{s.route}</p>
                   </div>
-                  <div className={isRTL ? "text-left" : "text-right"}>
-                    <p className={cn(
-                      "text-[10px] font-bold uppercase tracking-widest",
-                      s.status === 'Delivered' ? 'text-emerald-600' : 
-                      isDelayed ? 'text-red-600' : 'text-blue-600'
-                    )}>
-                      {isDelayed && s.status !== 'Delivered' ? t('delayed') : t(s.status as any)}
-                    </p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">{format(parseISO(s.last_updated), 'MMM d, HH:mm')}</p>
-                  </div>
+                      <div className={isRTL ? "text-left" : "text-right"}>
+                        <p className={cn(
+                          "text-[10px] font-bold uppercase tracking-widest",
+                          s.status === 'Delivered' ? 'text-emerald-600' : 
+                          isDelayed ? 'text-red-600' : 'text-blue-600'
+                        )}>
+                          {t(s.status as any)}
+                          {isDelayed && s.status !== 'Delivered' && (
+                            <span className="ml-1 text-[8px] opacity-75">({t('delayed')})</span>
+                          )}
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{format(parseISO(s.last_updated), 'MMM d, HH:mm')}</p>
+                      </div>
                 </div>
               );
             })}
