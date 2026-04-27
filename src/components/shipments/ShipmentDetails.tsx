@@ -13,7 +13,8 @@ import {
   Calendar, 
   X,
   AlertCircle,
-  Package
+  Package,
+  Loader2
 } from 'lucide-react';
 import { format, parseISO, differenceInDays, addDays } from 'date-fns';
 import { 
@@ -71,8 +72,20 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
     const now = new Date().toISOString();
     
     try {
+      const updateData: any = {
+        status: newStatus,
+        status_message: statusMessage,
+        last_updated: now
+      };
+
       // Check if status changed
       if (newStatus !== shipment.status) {
+        if (newStatus === 'Customs') {
+          updateData.customs_date = now;
+        } else if (newStatus === 'Delivered') {
+          updateData.actual_arrival_date = now;
+        }
+
         const statusLog = {
           shipmentId: shipment.id,
           timestamp: now,
@@ -98,10 +111,8 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
         };
         await addDoc(collection(db, logPath), dateLog);
         
-        await updateDoc(doc(db, 'shipments', shipment.id), {
-          departure_date: departure.toISOString(),
-          arrival_deadline: arrivalDeadline
-        });
+        updateData.departure_date = departure.toISOString();
+        updateData.arrival_deadline = arrivalDeadline;
       }
 
       if (newLog) {
@@ -116,11 +127,7 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
         setNewLog('');
       }
 
-      await updateDoc(doc(db, 'shipments', shipment.id), {
-        status: newStatus,
-        status_message: statusMessage,
-        last_updated: now
-      });
+      await updateDoc(doc(db, 'shipments', shipment.id), updateData);
 
       setIsEditingDate(false);
     } catch (err) {
@@ -209,7 +216,8 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
   };
 
   const handleDelete = async () => {
-    if (!isAdmin) return;
+    const canDelete = isAdmin || (isLogistics && shipment.createdBy === auth.currentUser?.uid);
+    if (!canDelete) return;
     try {
       await deleteDoc(doc(db, 'shipments', shipment.id));
       onBack();
@@ -235,7 +243,7 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
           </div>
         </div>
         <div className={cn("flex items-center gap-2 sm:gap-4 w-full sm:w-auto", isRTL && "flex-row-reverse")}>
-          {isAdmin && (
+          {(isAdmin || (isLogistics && shipment.createdBy === auth.currentUser?.uid)) && (
             <button
               onClick={() => setShowDeleteConfirm(true)}
               className="p-2 sm:p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
@@ -373,6 +381,36 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
                 <p className={cn("text-sm text-blue-800 leading-relaxed font-medium", isRTL && "text-right")}>
                   {shipment.status_message}
                 </p>
+              </div>
+            )}
+
+            {(shipment.customs_date || shipment.actual_arrival_date) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                {shipment.customs_date && (
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{t('customsInDate')}</p>
+                    <p className="text-sm font-bold text-slate-700">{format(parseISO(shipment.customs_date), 'dd.MM.yyyy HH:mm')}</p>
+                  </div>
+                )}
+                {shipment.actual_arrival_date && (
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{t('warehouseArrivalDate')}</p>
+                    <p className="text-sm font-bold text-slate-700">{format(parseISO(shipment.actual_arrival_date), 'dd.MM.yyyy HH:mm')}</p>
+                  </div>
+                )}
+                {shipment.customs_date && shipment.actual_arrival_date && (
+                  <div className="sm:col-span-2 bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
+                    <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-1">{t('customsDuration')}</p>
+                    <p className="text-sm font-bold text-indigo-700">
+                      {(() => {
+                        const start = parseISO(shipment.customs_date);
+                        const end = parseISO(shipment.actual_arrival_date);
+                        const diff = differenceInDays(end, start);
+                        return `${diff} ${t('days')}`;
+                      })()}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 

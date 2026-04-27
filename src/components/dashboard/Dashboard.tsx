@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Navigation, AlertCircle, CheckCircle2, Clock, MapPin, Truck as TruckIcon, ChevronRight } from 'lucide-react';
+import { Navigation, AlertCircle, CheckCircle2, Clock, MapPin, Truck as TruckIcon, ChevronRight, Package } from 'lucide-react';
 import { differenceInDays, parseISO, format } from 'date-fns';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { Shipment } from '../../types';
@@ -21,6 +21,8 @@ export const Dashboard = ({ shipments, onSelect }: DashboardProps) => {
     { label: t('delayed'), value: shipments.filter(s => isShipmentDelayed(s)).length, icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
     { label: t('delivered'), value: shipments.filter(s => s.status === 'Delivered').length, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { label: t('avgDelay'), value: 0, icon: Clock, color: 'text-slate-600', bg: 'bg-slate-50' },
+    { label: t('averageCustomsDuration'), value: 0, icon: MapPin, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+    { label: t('itemsInTransit'), value: 0, icon: Package, color: 'text-amber-600', bg: 'bg-amber-50' },
   ];
 
   // Calculate Avg Delay
@@ -33,22 +35,46 @@ export const Dashboard = ({ shipments, onSelect }: DashboardProps) => {
     stats[3].value = Math.round(totalDelay / deliveredShipments.length);
   }
 
+  // Calculate Avg Customs Duration
+  const clearedShipments = shipments.filter(s => s.customs_date && s.actual_arrival_date);
+  if (clearedShipments.length > 0) {
+    const totalCustoms = clearedShipments.reduce((acc, s) => {
+      const duration = Math.max(0, differenceInDays(parseISO(s.actual_arrival_date!), parseISO(s.customs_date!)));
+      return acc + duration;
+    }, 0);
+    stats[4].value = Math.round(totalCustoms / clearedShipments.length);
+  }
+
+  // Calculate total unique items in transit
+  const transitShipments = shipments.filter(s => s.status !== 'Delivered');
+  const itemsMap = new Map<string, number>();
+  transitShipments.forEach(s => {
+    s.items?.forEach(item => {
+      const normalizedItem = item.trim();
+      if (normalizedItem) {
+        itemsMap.set(normalizedItem, (itemsMap.get(normalizedItem) || 0) + 1);
+      }
+    });
+  });
+  const sortedItems = Array.from(itemsMap.entries()).sort((a, b) => b[1] - a[1]);
+  stats[5].value = sortedItems.length;
+
   return (
     <div className="space-y-8">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 sm:gap-6">
         {stats.map((stat, i) => (
           <motion.div
             key={stat.label}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
-            className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"
+            className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-100"
           >
-            <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center mb-4", stat.bg)}>
-              <stat.icon className={cn("w-6 h-6", stat.color)} />
+            <div className={cn("w-10 h-10 sm:w-12 h-12 rounded-xl flex items-center justify-center mb-3 sm:mb-4", stat.bg)}>
+              <stat.icon className={cn("w-5 h-5 sm:w-6 h-6", stat.color)} />
             </div>
-            <p className={cn("text-slate-500 text-sm font-medium", isRTL && "text-right")}>{stat.label}</p>
-            <p className={cn("text-2xl font-bold text-slate-900 mt-1", isRTL && "text-right")}>{stat.value}</p>
+            <p className={cn("text-slate-500 text-[10px] sm:text-sm font-medium uppercase tracking-wider sm:normal-case sm:tracking-normal", isRTL && "text-right")}>{stat.label}</p>
+            <p className={cn("text-xl sm:text-2xl font-bold text-slate-900 mt-1", isRTL && "text-right")}>{stat.value}</p>
           </motion.div>
         ))}
       </div>
@@ -120,6 +146,28 @@ export const Dashboard = ({ shipments, onSelect }: DashboardProps) => {
             </ResponsiveContainer>
           </div>
         </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        <h3 className={cn("text-lg font-bold text-slate-900 mb-6", isRTL && "text-right")}>{t('totalGoodsInTransit')}</h3>
+        {sortedItems.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {sortedItems.map(([item, count]) => (
+              <div key={item} className={cn("bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col", isRTL && "text-right")}>
+                <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wider">{t('items')}</p>
+                <div className={cn("flex items-center justify-between gap-2", isRTL && "flex-row-reverse")}>
+                  <span className="text-sm font-bold text-slate-700 truncate">{item}</span>
+                  <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full">x{count}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+            <Package className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+            <p className="text-slate-500 font-medium text-sm">{t('noGoodsInTransit')}</p>
+          </div>
+        )}
       </div>
     </div>
   );

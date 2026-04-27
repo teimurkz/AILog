@@ -31,7 +31,7 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
   const { t, isRTL } = useLanguage();
   const { isAdmin, isLogistics } = useAuth();
   const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'invoiceAsc' | 'invoiceDesc' | 'departureDate'>('newest');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'invoiceAsc' | 'invoiceDesc' | 'departureDate' | 'itemsAsc' | 'itemsDesc'>('newest');
   const [statusFilter, setStatusFilter] = useState<ShipmentStatus | 'All'>('All');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDelivering, setIsDelivering] = useState(false);
@@ -41,7 +41,9 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
 
   const filtered = shipments
     .filter(s => {
-      const matchesSearch = s.invoice_id.toLowerCase().includes(search.toLowerCase());
+      const searchTerms = search.toLowerCase();
+      const matchesSearch = s.invoice_id.toLowerCase().includes(searchTerms) || 
+                           s.items.some(item => item.toLowerCase().includes(searchTerms));
       const effectiveFilter = filterStatus ? filterStatus : (statusFilter !== 'All' ? [statusFilter as ShipmentStatus] : undefined);
       const matchesStatus = effectiveFilter ? effectiveFilter.includes(s.status) : s.status !== 'Delivered';
       return matchesSearch && matchesStatus && !s.isArchived;
@@ -58,6 +60,10 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
           return b.invoice_id.localeCompare(a.invoice_id);
         case 'departureDate':
           return parseISO(b.departure_date).getTime() - parseISO(a.departure_date).getTime();
+        case 'itemsAsc':
+          return a.items.join(', ').localeCompare(b.items.join(', '));
+        case 'itemsDesc':
+          return b.items.join(', ').localeCompare(a.items.join(', '));
         default:
           return 0;
       }
@@ -163,6 +169,8 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
                 <option value="invoiceAsc">{t('invoiceAsc')}</option>
                 <option value="invoiceDesc">{t('invoiceDesc')}</option>
                 <option value="departureDate">{t('departureDateSort')}</option>
+                <option value="itemsAsc">{t('itemsAsc')}</option>
+                <option value="itemsDesc">{t('itemsDesc')}</option>
               </select>
             </div>
 
@@ -243,6 +251,7 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
                   />
                 </th>
                 <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('truckId')}</th>
+                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('items')}</th>
                 <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('route')}</th>
                 <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('status')}</th>
                 <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('progress')}</th>
@@ -277,6 +286,20 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
                           <Package className="w-4 h-4" />
                         </div>
                         <span className="text-sm font-bold text-slate-900">{s.invoice_id}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-wrap gap-1">
+                        {s.items.slice(0, 2).map((item, idx) => (
+                          <span key={idx} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded-lg truncate max-w-[100px]">
+                            {item}
+                          </span>
+                        ))}
+                        {s.items.length > 2 && (
+                          <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-lg leading-none flex items-center">
+                            +{s.items.length - 2}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-600">
@@ -369,6 +392,18 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
                     <div className={cn("min-w-0", isRTL && "text-right")}>
                       <p className="text-sm font-bold text-slate-900">{s.invoice_id}</p>
                       <p className="text-xs text-slate-500 truncate">{s.route}</p>
+                      <div className={cn("flex flex-wrap gap-1 mt-1", isRTL && "justify-end")}>
+                        {s.items.slice(0, 3).map((item, idx) => (
+                          <span key={idx} className="text-[9px] text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                            {item}
+                          </span>
+                        ))}
+                        {s.items.length > 3 && (
+                          <span className="text-[9px] text-blue-500 font-bold">
+                            +{s.items.length - 3}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <ChevronRight className={cn("w-5 h-5 text-slate-300", isRTL && "rotate-180")} />

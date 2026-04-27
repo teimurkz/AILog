@@ -3,16 +3,28 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { UserProfile } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import { useUsers } from '../../hooks/useUsers';
-import { User as UserIcon, Settings, Lock } from 'lucide-react';
+import { User as UserIcon, Settings, Lock, Trash2, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { motion, AnimatePresence } from 'motion/react';
 
 export const UserManagement = () => {
-  const { users, loading, changeUserRole } = useUsers();
+  const { users, loading, changeUserRole, removeUser } = useUsers();
   const { t, isRTL } = useLanguage();
   const { user: currentUser } = useAuth();
+  const [userToDelete, setUserToDelete] = React.useState<UserProfile | null>(null);
 
   const handleRoleChange = async (uid: string, newRole: UserProfile['role']) => {
     await changeUserRole(uid, newRole);
+  };
+
+  const handleDeleteUser = async () => {
+    if (!userToDelete) return;
+    try {
+      await removeUser(userToDelete.uid);
+      setUserToDelete(null);
+    } catch (error) {
+      console.error('Failed to delete user', error);
+    }
   };
 
   if (loading) {
@@ -53,6 +65,7 @@ export const UserManagement = () => {
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">User</th>
                   <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider hidden sm:table-cell">Email</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">{t('role')}</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">{t('action')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -93,6 +106,17 @@ export const UserManagement = () => {
                         )}
                       </div>
                     </td>
+                    <td className="px-6 py-4">
+                      {user.uid !== currentUser?.uid && (
+                        <button
+                          onClick={() => setUserToDelete(user)}
+                          className="p-2 border border-slate-100 rounded-xl hover:bg-red-50 hover:text-red-600 transition-all"
+                          title={t('delete')}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -100,6 +124,40 @@ export const UserManagement = () => {
           </div>
         )}
       </div>
+
+      {/* Delete User Confirmation Modal */}
+      <AnimatePresence>
+        {userToDelete && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden p-6"
+            >
+              <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center mb-4 mx-auto">
+                <AlertCircle className="w-6 h-6 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 text-center mb-2">{t('deleteUser')}</h3>
+              <p className="text-slate-500 text-center text-sm mb-6">{t('confirmDeleteUser')}</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setUserToDelete(null)}
+                  className="flex-1 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors"
+                >
+                  {t('cancel')}
+                </button>
+                <button
+                  onClick={handleDeleteUser}
+                  className="flex-1 py-2.5 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-colors"
+                >
+                  {t('delete')}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

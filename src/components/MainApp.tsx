@@ -40,10 +40,10 @@ export const MainApp = () => {
       />
       
       <main className={cn(
-        "flex-1 p-4 sm:p-8 transition-all duration-300 w-full min-h-screen",
+        "flex-1 p-4 sm:p-6 lg:p-8 transition-all duration-300 w-full min-h-screen",
         isRTL ? "lg:mr-64" : "lg:ml-64"
       )}>
-        <header className={cn("flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4", isRTL && "sm:flex-row-reverse")}>
+        <header className={cn("flex flex-col sm:flex-row sm:items-center justify-between mb-6 sm:mb-8 gap-4", isRTL && "sm:flex-row-reverse")}>
           <div className={cn("flex items-center justify-between w-full sm:w-auto", isRTL && "flex-row-reverse")}>
             <div className={isRTL ? "text-right" : "text-left"}>
               <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { UserProfile } from '../types';
 
@@ -27,5 +27,14 @@ export const useUsers = () => {
     }
   };
 
-  return { users, loading, changeUserRole };
+  const removeUser = async (uid: string) => {
+    try {
+      await deleteDoc(doc(db, 'users', uid));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `users/${uid}`);
+      throw error;
+    }
+  };
+
+  return { users, loading, changeUserRole, removeUser };
 };
