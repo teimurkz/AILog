@@ -13,7 +13,16 @@ export const db = initializeFirestore(app, {
 }, firebaseConfig.firestoreDatabaseId);
 
 export const auth = getAuth(app);
-export const storage = getStorage(app);
+let storageInstance: any = null;
+try {
+  if (firebaseConfig && (firebaseConfig as any).storageBucket) {
+    storageInstance = getStorage(app);
+  }
+} catch (e) {
+  // Suppress warning if storage service is not provisioned
+}
+
+export const storage = storageInstance;
 
 export enum OperationType {
   CREATE = 'create',
@@ -52,7 +61,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
       emailVerified: auth.currentUser?.emailVerified,
       isAnonymous: auth.currentUser?.isAnonymous,
       tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
+      providerInfo: auth.currentUser?.providerData.map((provider: any) => ({
         providerId: provider.providerId,
         displayName: provider.displayName,
         email: provider.email,

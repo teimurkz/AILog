@@ -116,6 +116,30 @@ export const WarehouseAutoMailing: React.FC = () => {
     }
   };
 
+  const handleSetQuickTime = async (offsetMinutes: number = 1) => {
+    setSending(true);
+    setSendSuccessMsg(null);
+    setSendErrorMsg(null);
+    try {
+      const res = await fetch('/api/mailing/set-quick-time', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ offsetMinutes })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSendSuccessMsg(data.message || `Время рассылки установлено на ${data.sendTime}!`);
+        fetchData();
+      } else {
+        setSendErrorMsg(data.error || 'Ошибка установки быстрого времени');
+      }
+    } catch (e: any) {
+      setSendErrorMsg(e.message || 'Ошибка сервера');
+    } finally {
+      setSending(false);
+    }
+  };
+
   // Load Data
   const fetchData = async () => {
     setLoading(true);
@@ -1026,10 +1050,36 @@ export const WarehouseAutoMailing: React.FC = () => {
                   <option value="daily">Ежедневно (в фиксированное время)</option>
                   <option value="workdays">По рабочим дням (Пн-Пт в выбранное время)</option>
                   <option value="weekly">Раз в неделю (по Понедельникам)</option>
+                  <option value="test_interval">🧪 Тестовый режим (Каждые N минут для быстрой проверки)</option>
                   <option value="on_change">⚡ Авто-триггер при изменении в Гугл Таблице</option>
                   <option value="manual">Только по вашей кнопке (Ручной запуск)</option>
                 </select>
               </div>
+
+              {settings.scheduleType === 'test_interval' && (
+                <div className="p-3 bg-purple-50 dark:bg-purple-950/40 rounded-xl border border-purple-200 dark:border-purple-800 text-xs text-purple-900 dark:text-purple-200 space-y-2">
+                  <label className="block font-bold flex items-center gap-1.5 text-purple-900 dark:text-purple-300">
+                    <Sparkles className="w-4 h-4 text-purple-600" />
+                    <span>Интервал регулярной отправки для тестов:</span>
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[1, 2, 5, 10, 15].map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setSettings({ ...settings, intervalMinutes: m })}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          (settings.intervalMinutes || 1) === m
+                            ? 'bg-purple-600 text-white shadow-sm'
+                            : 'bg-white dark:bg-slate-800 text-purple-900 dark:text-purple-200 border border-purple-300 dark:border-purple-700 hover:bg-purple-100'
+                        }`}
+                      >
+                        Каждые {m} мин
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Timezone Selector */}
               <div>
@@ -1051,7 +1101,7 @@ export const WarehouseAutoMailing: React.FC = () => {
               </div>
 
               {(settings.scheduleType === 'daily' || settings.scheduleType === 'workdays' || settings.scheduleType === 'weekly') && (
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
                     Время отправки писем:
                   </label>
@@ -1079,6 +1129,16 @@ export const WarehouseAutoMailing: React.FC = () => {
                       ))}
                     </div>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSetQuickTime(1)}
+                    disabled={sending}
+                    className="w-full py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>⚡ Установить [Текущее время + 1 мин] для быстрой проверки</span>
+                  </button>
                 </div>
               )}
 

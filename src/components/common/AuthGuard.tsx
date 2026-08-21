@@ -21,6 +21,8 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
       console.error("Firebase Auth Error:", err);
       if (err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-blocked') {
         setError(t('authBlockedMessage'));
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setError('Домен localhost / IP не добавлен в список авторизованных доменов OAuth в Консоли Firebase (Authentication -> Settings -> Authorized domains). Пожалуйста, воспользуйтесь кнопкой "Войти как гость (Демо)" ниже.');
       } else {
         setError(err.message || t('signInError'));
       }
@@ -64,24 +66,30 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
         {error && (
           <div className="mb-6 p-4 bg-amber-50 rounded-xl border border-amber-200 text-left text-xs text-amber-900 flex gap-2.5">
             <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-            <div className="space-y-1">
+            <div className="space-y-2 w-full">
               <p className="font-semibold text-amber-950">{t('authBlockedTitle')}</p>
               <p className="leading-relaxed">{error}</p>
+              <button
+                onClick={handleGuestSignIn}
+                disabled={authLoading}
+                className="mt-2 w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 text-white font-semibold rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                ⚡ Войти в систему без Google (Демо-доступ)
+              </button>
             </div>
           </div>
         )}
 
         <div className="space-y-3">
           <button
-            onClick={handleGoogleSignIn}
+            onClick={handleGuestSignIn}
             disabled={authLoading}
-            className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-blue-500/10"
+            className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-emerald-500/10 text-sm"
           >
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/layout/google.svg" className="w-5 h-5 bg-white rounded-full p-0.5" alt="Google" />
-            {t('signInGoogle')}
+            ⚡ {t('signInGuest')} (Полный доступ)
           </button>
 
-          <div className="relative py-2">
+          <div className="relative py-1">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-slate-200"></div>
             </div>
@@ -91,11 +99,12 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
           </div>
 
           <button
-            onClick={handleGuestSignIn}
+            onClick={handleGoogleSignIn}
             disabled={authLoading}
-            className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 text-slate-700 font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer border border-slate-200 text-sm"
+            className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 text-slate-700 font-medium rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer border border-slate-200 text-xs"
           >
-            {t('signInGuest')}
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/layout/google.svg" className="w-4 h-4 bg-white rounded-full p-0.5" alt="Google" />
+            {t('signInGoogle')}
           </button>
         </div>
       </motion.div>

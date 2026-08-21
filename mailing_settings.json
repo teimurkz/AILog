@@ -1,0 +1,24 @@
+{
+  "enabled": true,
+  "scheduleType": "daily",
+  "sendTime": "09:00",
+  "timezone": "Asia/Almaty",
+  "scheduleDays": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "emailSubject": "📊 Ежедневный отчет: Остатки товаров на складах",
+  "emailBody": "Добрый день!\n\nНаправляем актуальный свежий файл Excel с остатками товаров и движением паллет по всем складам компании.\n\nС уважением,\nАвтоматическая система складского учета",
+  "attachFormat": "xlsx",
+  "includeAnalyticsSummary": true,
+  "smtpHost": "",
+  "smtpPort": 587,
+  "smtpSecure": false,
+  "smtpUser": "",
+  "smtpPass": "t.farajov@mehkaz.kz",
+  "smtpFrom": "",
+  "smtpConfigured": true
+}

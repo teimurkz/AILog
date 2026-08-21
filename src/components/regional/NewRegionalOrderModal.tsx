@@ -54,7 +54,7 @@ interface NewRegionalOrderModalProps {
     comments?: string;
     createdByEmail?: string;
     createdByName?: string;
-  }) => Promise<void>;
+  }) => Promise<any> | void;
 }
 
 const POPULAR_CITIES = [
@@ -80,7 +80,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
   onSubmit,
 }) => {
   const { t } = useLanguage();
-  const { authUser, profile } = useAuth();
+  const { user: authUser, profile } = useAuth();
   const { savedContacts, addSavedContact, deleteSavedContact } = useSavedDeliveryContacts();
 
   // Destination City

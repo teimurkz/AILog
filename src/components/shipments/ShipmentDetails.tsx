@@ -143,6 +143,12 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
     setUploading(true);
     setUploadProgress(0);
     
+    if (!storage) {
+      alert('Хранилище файлов (Firebase Storage) временно недоступно.');
+      setUploading(false);
+      return;
+    }
+
     try {
       const storageRef = ref(storage, `Invoices/${shipment.invoice_id}/${file.name}`);
       const uploadTask = uploadBytesResumable(storageRef, file);
@@ -183,11 +189,13 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
 
     try {
       // Try to delete from storage first
-      try {
-        const fileRef = ref(storage, fileToDelete);
-        await deleteObject(fileRef);
-      } catch (storageErr) {
-        console.warn('File not found in storage, proceeding to remove from Firestore', storageErr);
+      if (storage) {
+        try {
+          const fileRef = ref(storage, fileToDelete);
+          await deleteObject(fileRef);
+        } catch (storageErr) {
+          console.warn('File not found in storage, proceeding to remove from Firestore', storageErr);
+        }
       }
 
       const updatedUrls = (shipment.documents_url || []).filter(u => u !== fileToDelete);

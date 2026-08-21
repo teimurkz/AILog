@@ -260,8 +260,9 @@ export const StampOnScans = () => {
 
         const renderContext = {
           canvasContext: context,
+          canvas,
           viewport: viewport
-        };
+        } as any;
 
         await page.render(renderContext).promise;
       } catch (err) {
