@@ -11,6 +11,7 @@ interface AuthContextType {
   isAdmin: boolean;
   isLogistics: boolean;
   isViewer: boolean;
+  isRegionalManager: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -38,7 +39,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         try {
           const docSnap = await getDoc(userDocRef);
           if (!docSnap.exists()) {
-            const initialRole = u.email === 'ti07kz@gmail.com' ? 'admin' : 'viewer';
+            const initialRole = (u.email === 'ti07kz@gmail.com' || u.isAnonymous) ? 'admin' : 'viewer';
             const newProfile: UserProfile = {
               uid: u.uid,
               email: u.email || '',
@@ -58,8 +59,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             const data = snap.data() as UserProfile;
             setProfile(data);
             
-            // Auto-heal super admin role
-            if (u.email === 'ti07kz@gmail.com' && data.role !== 'admin') {
+            // Auto-heal super admin/demo role
+            if ((u.email === 'ti07kz@gmail.com' || u.isAnonymous) && data.role !== 'admin') {
               await updateDoc(userDocRef, { role: 'admin' });
             }
           }
@@ -83,7 +84,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     loading,
     isAdmin: profile?.role === 'admin' || user?.email === 'ti07kz@gmail.com',
     isLogistics: profile?.role === 'logistics' || profile?.role === 'admin' || user?.email === 'ti07kz@gmail.com',
-    isViewer: profile?.role === 'viewer' && user?.email !== 'ti07kz@gmail.com'
+    isViewer: profile?.role === 'viewer' && user?.email !== 'ti07kz@gmail.com',
+    isRegionalManager: profile?.role === 'regional_manager' && user?.email !== 'ti07kz@gmail.com'
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

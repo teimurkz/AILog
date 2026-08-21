@@ -59,7 +59,7 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isLogistics() && isValidShipment(request.resource.data);
       allow update: if isLogistics() && isValidShipment(request.resource.data);
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || (isLogistics() && resource.data.createdBy == request.auth.uid);
       
       match /logs/{logId} {
         allow read: if isAuthenticated();
@@ -67,9 +67,40 @@ service cloud.firestore {
       }
     }
 
+    match /regional_orders/{orderId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAdmin() || isLogistics() || (isAuthenticated() && resource.data.createdByEmail == request.auth.token.email);
+    }
+
+    match /saved_delivery_contacts/{contactId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
+
+    match /saved_trucks/{truckId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
+
     match /trucks/{truckId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
+    }
+
+    match /warehouse_change_logs/{logId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated();
+    }
+
+    match /warehouse_snapshots/{snapId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated();
     }
   }
 }

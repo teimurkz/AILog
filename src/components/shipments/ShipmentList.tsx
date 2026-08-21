@@ -6,19 +6,23 @@ import {
   CheckCircle2, 
   AlertCircle, 
   ChevronRight, 
+  ChevronDown,
+  ChevronUp,
   Trash2,
-  Package
+  Package,
+  Upload,
+  Clock,
+  FileSpreadsheet
 } from 'lucide-react';
 import { differenceInDays, parseISO, format } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { Shipment, ShipmentStatus } from '../../types';
 import { cn } from '../../lib/utils';
-import { doc, updateDoc, deleteDoc, collection } from 'firebase/firestore';
+import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../../firebase';
-import { isShipmentDelayed } from '../../utils/shipmentUtils';
 import { useAuth } from '../../contexts/AuthContext';
-import { FileSpreadsheet } from 'lucide-react';
+import { ExcelImport } from '../admin/ExcelImport';
 
 interface ShipmentListProps {
   shipments: Shipment[];
@@ -34,16 +38,32 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'invoiceAsc' | 'invoiceDesc' | 'departureDate' | 'itemsAsc' | 'itemsDesc'>('newest');
   const [statusFilter, setStatusFilter] = useState<ShipmentStatus | 'All'>('All');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [isDelivering, setIsDelivering] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showBulkDeliverConfirm, setShowBulkDeliverConfirm] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [showExcelImport, setShowExcelImport] = useState(false);
+
+  const toggleExpand = (id: string) => {
+    const next = new Set(expandedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setExpandedIds(next);
+  };
 
   const filtered = shipments
     .filter(s => {
       const searchTerms = search.toLowerCase();
-      const matchesSearch = s.invoice_id.toLowerCase().includes(searchTerms) || 
-                           s.items.some(item => item.toLowerCase().includes(searchTerms));
+      const matchesSearch = 
+        s.invoice_id.toLowerCase().includes(searchTerms) || 
+        (s.driver_name || '').toLowerCase().includes(searchTerms) ||
+        (s.driver_phone || '').toLowerCase().includes(searchTerms) ||
+        (s.plate_number || '').toLowerCase().includes(searchTerms) ||
+        (s.goods || '').toLowerCase().includes(searchTerms) ||
+        (s.destination || '').toLowerCase().includes(searchTerms) ||
+        (s.items || []).some(item => item.toLowerCase().includes(searchTerms));
+
       const effectiveFilter = filterStatus ? filterStatus : (statusFilter !== 'All' ? [statusFilter as ShipmentStatus] : undefined);
       const matchesStatus = effectiveFilter ? effectiveFilter.includes(s.status) : s.status !== 'Delivered';
       return matchesSearch && matchesStatus && !s.isArchived;
@@ -61,9 +81,9 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
         case 'departureDate':
           return parseISO(b.departure_date).getTime() - parseISO(a.departure_date).getTime();
         case 'itemsAsc':
-          return a.items.join(', ').localeCompare(b.items.join(', '));
+          return (a.items || []).join(', ').localeCompare((b.items || []).join(', '));
         case 'itemsDesc':
-          return b.items.join(', ').localeCompare(a.items.join(', '));
+          return (b.items || []).join(', ').localeCompare((a.items || []).join(', '));
         default:
           return 0;
       }
@@ -122,18 +142,26 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
 
   const handleExport = () => {
     const exportData = filtered.map(s => ({
-      'Дата выезда а/м': format(parseISO(s.departure_date), 'dd.MM.yyyy'),
-      'инвойс': s.invoice_id,
-      'товар': s.items.join(', '),
-      'СВХ': s.customs_date ? format(parseISO(s.customs_date), 'dd.MM.yyyy') : '',
-      'Алматы': s.actual_arrival_date ? format(parseISO(s.actual_arrival_date), 'dd.MM.yyyy') : '',
+      'Order Name': s.invoice_id,
+      'Неделя': s.week || '',
+      'Тип': s.shipment_type || '',
+      'Назначение': s.destination || s.route || '',
+      'Груз': s.goods || (s.items || []).join(', '),
+      'Водитель': s.driver_name || '',
+      'Телефон': s.driver_phone || '',
+      'Госномер': s.plate_number || '',
+      'L DATE (Загрузка)': s.loading_date || (s.departure_date ? format(parseISO(s.departure_date), 'dd.MM.yyyy') : ''),
+      'Ex Border Date': s.ex_border_date || '',
+      'A To Destination Customs (СВХ)': s.customs_arrival_date || (s.customs_date ? format(parseISO(s.customs_date), 'dd.MM.yyyy') : ''),
+      'Unl Date (Выгрузка)': s.unl_date || (s.actual_arrival_date ? format(parseISO(s.actual_arrival_date), 'dd.MM.yyyy') : ''),
+      'T.T (Время в пути)': s.transit_time || '',
       'Статус': t(s.status as any)
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Shipments");
-    XLSX.writeFile(wb, `SilkRoad_CRM_Export_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+    XLSX.writeFile(wb, `SilkRoad_Shipments_${format(new Date(), 'yyyyMMdd')}.xlsx`);
   };
 
   return (
@@ -225,16 +253,43 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
             </>
           )}
           {!filterStatus && isLogistics && (
-            <button 
-              onClick={onNew}
-              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-900/10"
-            >
-              <Plus className="w-5 h-5" />
-              {t('newShipment')}
-            </button>
+            <>
+              <button 
+                onClick={() => setShowExcelImport(!showExcelImport)}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2.5 font-semibold rounded-xl transition-all shadow-lg",
+                  showExcelImport 
+                    ? "bg-slate-700 hover:bg-slate-800 text-white shadow-slate-900/10" 
+                    : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-950/10"
+                )}
+              >
+                <Upload className="w-5 h-5" />
+                {t('importExcel')}
+              </button>
+              <button 
+                onClick={onNew}
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-900/10"
+              >
+                <Plus className="w-5 h-5" />
+                {t('newShipment')}
+              </button>
+            </>
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {showExcelImport && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <ExcelImport />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         {/* Desktop View */}
@@ -250,111 +305,183 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
                     className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
                 </th>
-                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('truckId')}</th>
-                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('items')}</th>
-                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('route')}</th>
-                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('status')}</th>
-                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('progress')}</th>
-                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('lastUpdate')}</th>
-                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right", isRTL && "text-left")}>{t('action')}</th>
+                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('orderName')}</th>
+                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('loadingDate')}</th>
+                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('transitTime')}</th>
+                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('customsArrival')}</th>
+                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right", isRTL && "text-left")}>{t('shipmentDetails')}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-slate-100">
               {filtered.map((s) => {
+                const isExpanded = expandedIds.has(s.id);
                 const daysPassed = differenceInDays(new Date(), parseISO(s.departure_date));
-                const progress = Math.min(Math.max((daysPassed / s.est_travel_time) * 100, 0), 100);
-                const isDelayed = isShipmentDelayed(s);
+                const loadingDateDisplay = s.loading_date || (s.departure_date ? format(parseISO(s.departure_date), 'dd.MM.yyyy') : '-');
+                const ttDisplay = s.transit_time ? `${s.transit_time} дн.` : `${daysPassed} дн.`;
+                
+                const hasCustomsArrival = !!s.customs_arrival_date || s.status === 'Customs' || !!s.customs_date;
+                const isDelivered = s.status === 'Delivered' || !!s.unl_date || !!s.actual_arrival_date;
 
                 return (
-                  <tr key={s.id} className={cn(
-                    "hover:bg-slate-50/50 transition-colors group", 
-                    isRTL && "flex-row-reverse",
-                    isDelayed && s.status !== 'Delivered' && "bg-red-50/30 hover:bg-red-50/50",
-                    selectedIds.has(s.id) && "bg-blue-50/30"
-                  )}>
-                    <td className="px-6 py-4">
-                      <input 
-                        type="checkbox" 
-                        checked={selectedIds.has(s.id)}
-                        onChange={() => toggleSelect(s.id)}
-                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className={cn("flex items-center gap-3", isRTL && "flex-row-reverse")}>
-                        <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-slate-500">
-                          <Package className="w-4 h-4" />
+                  <React.Fragment key={s.id}>
+                    <tr 
+                      onClick={() => toggleExpand(s.id)}
+                      className={cn(
+                        "hover:bg-slate-50/80 transition-colors cursor-pointer group", 
+                        isRTL && "flex-row-reverse",
+                        selectedIds.has(s.id) && "bg-blue-50/30",
+                        isExpanded && "bg-blue-50/20"
+                      )}
+                    >
+                      <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                        <input 
+                          type="checkbox" 
+                          checked={selectedIds.has(s.id)}
+                          onChange={() => toggleSelect(s.id)}
+                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className={cn("flex items-center gap-3", isRTL && "flex-row-reverse")}>
+                          <div className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center font-bold">
+                            <Package className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">{s.invoice_id}</p>
+                            {s.shipment_type && <p className="text-[11px] text-slate-400 font-medium">{s.shipment_type}</p>}
+                          </div>
                         </div>
-                        <span className="text-sm font-bold text-slate-900">{s.invoice_id}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-wrap gap-1">
-                        {s.items.slice(0, 2).map((item, idx) => (
-                          <span key={idx} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded-lg truncate max-w-[100px]">
-                            {item}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-semibold text-slate-700">
+                        {loadingDateDisplay}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-semibold text-slate-700">
+                        {ttDisplay}
+                      </td>
+                      <td className="px-6 py-4">
+                        {isDelivered ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            {t('unloaded')} ({s.unl_date || (s.actual_arrival_date ? format(parseISO(s.actual_arrival_date), 'dd.MM') : t('delivered'))})
                           </span>
-                        ))}
-                        {s.items.length > 2 && (
-                          <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-lg leading-none flex items-center">
-                            +{s.items.length - 2}
+                        ) : hasCustomsArrival ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+                            {t('arrivedCustoms')} ({s.customs_arrival_date || (s.customs_date ? format(parseISO(s.customs_date), 'dd.MM') : t('customs'))})
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-100">
+                            <Clock className="w-3.5 h-3.5 text-amber-600" />
+                            {t('inTransitCustoms')}
                           </span>
                         )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {s.route}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={cn(
-                        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                        s.status === 'In Transit' ? 'bg-blue-50 text-blue-600' :
-                        s.status === 'Customs' ? 'bg-indigo-50 text-indigo-600' :
-                        s.status === 'Delay' || isDelayed ? 'bg-red-50 text-red-600' :
-                        s.status === 'Delivered' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-600'
-                      )}>
-                        <div className={cn(
-                          "w-1.5 h-1.5 rounded-full",
-                          s.status === 'In Transit' ? 'bg-blue-500' :
-                          s.status === 'Customs' ? 'bg-indigo-500' :
-                          s.status === 'Delay' || isDelayed ? 'bg-red-500' :
-                          s.status === 'Delivered' ? 'bg-emerald-500' : 'bg-slate-500'
-                        )} />
-                        {t(s.status as any)}
-                        {isDelayed && s.status !== 'Delivered' && (
-                          <span className="ml-1 text-[8px] opacity-75">({t('delayed')})</span>
-                        )}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="w-32">
-                        <div className={cn("flex justify-between text-[10px] font-bold text-slate-400 mb-1", isRTL && "flex-row-reverse")}>
-                          <span>{Math.round(progress)}%</span>
-                          <span>{daysPassed} {t('daysPassed')}</span>
-                        </div>
-                        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                          <div 
+                      </td>
+                      <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => toggleExpand(s.id)}
                             className={cn(
-                              "h-full transition-all duration-500",
-                              isDelayed && s.status !== 'Delivered' ? 'bg-red-500' : 'bg-blue-600'
+                              "px-3 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1",
+                              isExpanded ? "bg-blue-600 text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                             )}
-                            style={{ width: `${progress}%` }}
-                          />
+                          >
+                            {isExpanded ? (
+                              <>{t('collapse')} <ChevronUp className="w-4 h-4" /></>
+                            ) : (
+                              <>{t('expandDetails')} <ChevronDown className="w-4 h-4" /></>
+                            )}
+                          </button>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-500">
-                      {format(parseISO(s.last_updated), 'MMM d, HH:mm')}
-                    </td>
-                    <td className={cn("px-6 py-4 text-right", isRTL && "text-left")}>
-                      <button 
-                        onClick={() => onSelect(s)}
-                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                      >
-                        <ChevronRight className={cn("w-5 h-5", isRTL && "rotate-180")} />
-                      </button>
-                    </td>
-                  </tr>
+                      </td>
+                    </tr>
+
+                    {/* Expanded Row Details */}
+                    {isExpanded && (
+                      <tr className="bg-slate-50/50">
+                        <td colSpan={6} className="px-6 py-4">
+                          <motion.div 
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                              <div className="flex items-center gap-3">
+                                <span className="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-bold rounded-lg">
+                                  Order Name: {s.invoice_id}
+                                </span>
+                                {s.week && (
+                                  <span className="text-xs font-semibold text-slate-500">
+                                    {t('week')}: {s.week}
+                                  </span>
+                                )}
+                              </div>
+                              <button 
+                                onClick={() => onSelect(s)}
+                                className="px-4 py-2 bg-slate-900 text-white font-bold text-xs rounded-xl hover:bg-slate-800 transition-colors flex items-center gap-2"
+                              >
+                                <span>{t('fullCardDocs')}</span>
+                                <ChevronRight className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('shipmentType')}</p>
+                                <p className="text-xs font-bold text-slate-800 mt-0.5">{s.shipment_type || '-'}</p>
+                              </div>
+                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('destination')}</p>
+                                <p className="text-xs font-bold text-slate-800 mt-0.5">{s.destination || s.route || '-'}</p>
+                              </div>
+                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('goods')}</p>
+                                <p className="text-xs font-bold text-slate-800 mt-0.5">{s.goods || (s.items && s.items.length > 0 ? s.items.join(', ') : '-')}</p>
+                              </div>
+                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('driver')}</p>
+                                <p className="text-xs font-bold text-slate-800 mt-0.5">{s.driver_name || '-'}</p>
+                              </div>
+
+                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('driverPhone')}</p>
+                                <p className="text-xs font-bold text-slate-800 mt-0.5">{s.driver_phone || '-'}</p>
+                              </div>
+                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('plateNumber')}</p>
+                                <p className="text-xs font-bold text-slate-800 mt-0.5">{s.plate_number || '-'}</p>
+                              </div>
+                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('loadingDate')}</p>
+                                <p className="text-xs font-bold text-slate-800 mt-0.5">{s.loading_date || (s.departure_date ? format(parseISO(s.departure_date), 'dd.MM.yyyy') : '-')}</p>
+                              </div>
+                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('exBorderDate')}</p>
+                                <p className="text-xs font-bold text-slate-800 mt-0.5">{s.ex_border_date || '-'}</p>
+                              </div>
+
+                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('customsArrival')}</p>
+                                <p className="text-xs font-bold text-slate-800 mt-0.5">{s.customs_arrival_date || (s.customs_date ? format(parseISO(s.customs_date), 'dd.MM.yyyy') : '-')}</p>
+                              </div>
+                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('unlDate')}</p>
+                                <p className="text-xs font-bold text-slate-800 mt-0.5">{s.unl_date || (s.actual_arrival_date ? format(parseISO(s.actual_arrival_date), 'dd.MM.yyyy') : '-')}</p>
+                              </div>
+                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('transitTime')}</p>
+                                <p className="text-xs font-bold text-slate-800 mt-0.5">{s.transit_time ? `${s.transit_time} ${t('days')}` : `${daysPassed} ${t('days')}`}</p>
+                              </div>
+                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('currentStatus')}</p>
+                                <p className="text-xs font-bold text-blue-600 mt-0.5">{t(s.status as any)}</p>
+                              </div>
+                            </div>
+                          </motion.div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -364,21 +491,20 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
         {/* Mobile View */}
         <div className="lg:hidden divide-y divide-slate-100">
           {filtered.map((s) => {
+            const isExpanded = expandedIds.has(s.id);
             const daysPassed = differenceInDays(new Date(), parseISO(s.departure_date));
-            const progress = Math.min(Math.max((daysPassed / s.est_travel_time) * 100, 0), 100);
-            const isDelayed = isShipmentDelayed(s);
+            const loadingDateDisplay = s.loading_date || (s.departure_date ? format(parseISO(s.departure_date), 'dd.MM.yyyy') : '-');
+            const ttDisplay = s.transit_time ? `${s.transit_time} дн.` : `${daysPassed} дн.`;
+            const hasCustomsArrival = !!s.customs_arrival_date || s.status === 'Customs' || !!s.customs_date;
+            const isDelivered = s.status === 'Delivered' || !!s.unl_date || !!s.actual_arrival_date;
 
             return (
-              <div 
-                key={s.id} 
-                onClick={() => onSelect(s)}
-                className={cn(
-                  "p-4 hover:bg-slate-50 transition-colors active:bg-slate-100",
-                  isDelayed && s.status !== 'Delivered' && "bg-red-50/30"
-                )}
-              >
-                <div className={cn("flex items-start justify-between mb-3", isRTL && "flex-row-reverse")}>
-                  <div className={cn("flex items-center gap-3", isRTL && "flex-row-reverse")}>
+              <div key={s.id} className="p-4 space-y-3">
+                <div 
+                  onClick={() => toggleExpand(s.id)}
+                  className="flex items-start justify-between cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
                     <input 
                       type="checkbox" 
                       checked={selectedIds.has(s.id)}
@@ -386,52 +512,87 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
                       onChange={() => toggleSelect(s.id)}
                       className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                     />
-                    <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-slate-500 shrink-0">
-                      <Package className="w-4 h-4" />
+                    <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 font-bold shrink-0">
+                      <Package className="w-5 h-5" />
                     </div>
-                    <div className={cn("min-w-0", isRTL && "text-right")}>
+                    <div>
                       <p className="text-sm font-bold text-slate-900">{s.invoice_id}</p>
-                      <p className="text-xs text-slate-500 truncate">{s.route}</p>
-                      <div className={cn("flex flex-wrap gap-1 mt-1", isRTL && "justify-end")}>
-                        {s.items.slice(0, 3).map((item, idx) => (
-                          <span key={idx} className="text-[9px] text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
-                            {item}
-                          </span>
-                        ))}
-                        {s.items.length > 3 && (
-                          <span className="text-[9px] text-blue-500 font-bold">
-                            +{s.items.length - 3}
-                          </span>
-                        )}
+                      <p className="text-xs text-slate-500">Загрузка: {loadingDateDisplay} | Путь: {ttDisplay}</p>
+                    </div>
+                  </div>
+                  <button className="p-1.5 text-slate-400 hover:text-blue-600">
+                    {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  {isDelivered ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      Выгружен ({s.unl_date || 'Доставлен'})
+                    </span>
+                  ) : hasCustomsArrival ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                      <CheckCircle2 className="w-3 h-3 text-indigo-600" />
+                      На СВХ ({s.customs_arrival_date || 'СВХ'})
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-100">
+                      <Clock className="w-3 h-3 text-amber-600" />
+                      В пути
+                    </span>
+                  )}
+
+                  <button 
+                    onClick={() => toggleExpand(s.id)}
+                    className="text-xs font-bold text-blue-600 hover:underline"
+                  >
+                    {isExpanded ? 'Свернуть' : 'Провалиться'}
+                  </button>
+                </div>
+
+                {isExpanded && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="bg-slate-50 p-4 rounded-xl space-y-3 pt-3 border border-slate-100"
+                  >
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Водитель</p>
+                        <p className="font-semibold text-slate-800">{s.driver_name || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Телефон</p>
+                        <p className="font-semibold text-slate-800">{s.driver_phone || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Госномер</p>
+                        <p className="font-semibold text-slate-800">{s.plate_number || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Груз</p>
+                        <p className="font-semibold text-slate-800">{s.goods || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Граница</p>
+                        <p className="font-semibold text-slate-800">{s.ex_border_date || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Приход СВХ</p>
+                        <p className="font-semibold text-slate-800">{s.customs_arrival_date || '-'}</p>
                       </div>
                     </div>
-                  </div>
-                  <ChevronRight className={cn("w-5 h-5 text-slate-300", isRTL && "rotate-180")} />
-                </div>
-                
-                <div className={cn("flex items-center justify-between", isRTL && "flex-row-reverse")}>
-                  <span className={cn(
-                    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                    s.status === 'In Transit' ? 'bg-blue-50 text-blue-600' :
-                    s.status === 'Customs' ? 'bg-indigo-50 text-indigo-600' :
-                    s.status === 'Delay' || isDelayed ? 'bg-red-50 text-red-600' :
-                    s.status === 'Delivered' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-600'
-                  )}>
-                    {t(s.status as any)}
-                    {isDelayed && s.status !== 'Delivered' && (
-                      <span className="ml-1 text-[8px] opacity-75">({t('delayed')})</span>
-                    )}
-                  </span>
-                  <div className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
-                    <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div 
-                        className={cn("h-full", isDelayed && s.status !== 'Delivered' ? 'bg-red-500' : 'bg-blue-600')}
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                    <span className="text-[10px] font-bold text-slate-500">{Math.round(progress)}%</span>
-                  </div>
-                </div>
+
+                    <button 
+                      onClick={() => onSelect(s)}
+                      className="w-full py-2 bg-slate-900 text-white font-bold text-xs rounded-lg hover:bg-slate-800 transition-colors flex items-center justify-center gap-1 mt-2"
+                    >
+                      <span>Полная карточка & Документы</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </motion.div>
+                )}
               </div>
             );
           })}

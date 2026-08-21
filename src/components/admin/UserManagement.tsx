@@ -94,11 +94,13 @@ export const UserManagement = () => {
                             user.uid === currentUser?.uid ? "opacity-60 cursor-not-allowed bg-slate-100 text-slate-500 border-slate-200" :
                             user.role === 'admin' ? "bg-red-50 text-red-700 border-red-100" :
                             user.role === 'logistics' ? "bg-blue-50 text-blue-700 border-blue-100" :
+                            user.role === 'regional_manager' ? "bg-purple-50 text-purple-700 border-purple-100" :
                             "bg-slate-50 text-slate-700 border-slate-100"
                           )}
                         >
                           <option value="admin">{t('admin')}</option>
                           <option value="logistics">{t('logistics')}</option>
+                          <option value="regional_manager">{t('regionalManager')}</option>
                           <option value="viewer">{t('viewer')}</option>
                         </select>
                         {user.uid === currentUser?.uid && (

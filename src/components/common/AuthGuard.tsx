@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Truck } from 'lucide-react';
-import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { Truck, AlertCircle, ArrowUpRight } from 'lucide-react';
+import { signInWithPopup, GoogleAuthProvider, signInAnonymously } from 'firebase/auth';
 import { auth } from '../../firebase';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -9,6 +9,38 @@ import { useAuth } from '../../contexts/AuthContext';
 export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
   const { t } = useLanguage();
+  const [error, setError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    setError(null);
+    setAuthLoading(true);
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (err: any) {
+      console.error("Firebase Auth Error:", err);
+      if (err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-blocked') {
+        setError(t('authBlockedMessage'));
+      } else {
+        setError(err.message || t('signInError'));
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleGuestSignIn = async () => {
+    setError(null);
+    setAuthLoading(true);
+    try {
+      await signInAnonymously(auth);
+    } catch (err: any) {
+      console.error("Guest Sign-in Error:", err);
+      setError(t('guestSignInError'));
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -27,14 +59,45 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
           <Truck className="w-8 h-8 text-blue-600" />
         </div>
         <h1 className="text-2xl font-bold text-slate-900 mb-2">{t('appName')}</h1>
-        <p className="text-slate-500 mb-8">{t('appDescription')}</p>
-        <button
-          onClick={() => signInWithPopup(auth, new GoogleAuthProvider())}
-          className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
-        >
-          <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/layout/google.svg" className="w-5 h-5 bg-white rounded-full p-0.5" alt="Google" />
-          {t('signInGoogle')}
-        </button>
+        <p className="text-slate-500 mb-6">{t('appDescription')}</p>
+
+        {error && (
+          <div className="mb-6 p-4 bg-amber-50 rounded-xl border border-amber-200 text-left text-xs text-amber-900 flex gap-2.5">
+            <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold text-amber-950">{t('authBlockedTitle')}</p>
+              <p className="leading-relaxed">{error}</p>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          <button
+            onClick={handleGoogleSignIn}
+            disabled={authLoading}
+            className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-blue-500/10"
+          >
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/layout/google.svg" className="w-5 h-5 bg-white rounded-full p-0.5" alt="Google" />
+            {t('signInGoogle')}
+          </button>
+
+          <div className="relative py-2">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200"></div>
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-white px-2 text-slate-400 font-medium">{t('or')}</span>
+            </div>
+          </div>
+
+          <button
+            onClick={handleGuestSignIn}
+            disabled={authLoading}
+            className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 text-slate-700 font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer border border-slate-200 text-sm"
+          >
+            {t('signInGuest')}
+          </button>
+        </div>
       </motion.div>
     </div>
   );

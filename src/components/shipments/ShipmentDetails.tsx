@@ -414,6 +414,66 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
               </div>
             )}
 
+            {/* Detailed Order Name Info Grid */}
+            <div className="mt-6 pt-6 border-t border-slate-100">
+              <h4 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <Package className="w-4 h-4 text-blue-600" />
+                <span>{t('orderName')}: {shipment.invoice_id}</span>
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('week')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.week || '-'}</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('shipmentType')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.shipment_type || '-'}</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('destination')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.destination || shipment.route || '-'}</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('goods')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.goods || (shipment.items && shipment.items.length > 0 ? shipment.items.join(', ') : '-')}</p>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('driver')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.driver_name || '-'}</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('driverPhone')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.driver_phone || '-'}</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('plateNumber')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.plate_number || '-'}</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('loadingDate')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.loading_date || (shipment.departure_date ? format(parseISO(shipment.departure_date), 'dd.MM.yyyy') : '-')}</p>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('exBorderDate')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.ex_border_date || '-'}</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('customsArrival')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.customs_arrival_date || (shipment.customs_date ? format(parseISO(shipment.customs_date), 'dd.MM.yyyy') : '-')}</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('unlDate')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.unl_date || (shipment.actual_arrival_date ? format(parseISO(shipment.actual_arrival_date), 'dd.MM.yyyy') : '-')}</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('transitTime')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.transit_time ? `${shipment.transit_time} ${t('days')}` : `${daysPassed} ${t('days')}`}</p>
+                </div>
+              </div>
+            </div>
+
             {shipment.items && shipment.items.length > 0 && (
               <div className="mt-6 pt-6 border-t border-slate-100">
                 <div className={cn("flex items-center gap-2 text-slate-500 mb-4", isRTL && "flex-row-reverse")}>

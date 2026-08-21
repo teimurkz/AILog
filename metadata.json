@@ -1,5 +1,8 @@
 {
   "name": "Silk Road Logistics CRM",
-  "description": "A specialized CRM for tracking truck shipments from Iran to Almaty, featuring real-time journey monitoring and fleet management.",
-  "requestFramePermissions": []
+  "description": "Specialized logistics and warehouse management CRM with PDF document stamping, real-time Google Sheets inventory tracking, and automated Excel stock table mailing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

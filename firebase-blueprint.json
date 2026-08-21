@@ -74,9 +74,60 @@
         }
       },
       "required": ["uid", "email", "displayName", "role"]
+    },
+    "RegionalTruckOrder": {
+      "title": "Regional Truck Order",
+      "description": "Truck order requests placed for shipping goods to regional destinations.",
+      "type": "object",
+      "properties": {
+        "orderNumber": { "type": "string" },
+        "destinationCity": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "shipmentDate": { "type": "string" },
+        "truckType": { "type": "string" },
+        "managerName": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["new", "assigned", "loading", "dispatched", "delivered", "cancelled"]
+        }
+      },
+      "required": ["destinationCity", "invoiceNumber", "shipmentDate", "managerName", "status"]
+    },
+    "WarehouseChangeLog": {
+      "title": "Warehouse Change Log",
+      "description": "Log of modifications, additions, and deletions in Google Sheets warehouse data.",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string" },
+        "warehouseId": { "type": "string" },
+        "warehouseName": { "type": "string" },
+        "product": { "type": "string" },
+        "invNumber": { "type": "string" },
+        "changeType": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "oldValue": { "type": "string" },
+        "newValue": { "type": "string" },
+        "palletDelta": { "type": "number" },
+        "author": { "type": "string" },
+        "source": { "type": "string" }
+      },
+      "required": ["timestamp", "warehouseName", "changeType", "title"]
     }
   },
   "firestore": {
+    "/warehouse_change_logs/{logId}": {
+      "schema": "WarehouseChangeLog",
+      "description": "Collection of warehouse Google Sheets change logs."
+    },
+    "/warehouse_snapshots/{snapId}": {
+      "schema": "object",
+      "description": "Snapshots of warehouse state for diffing."
+    },
+    "/regional_orders/{orderId}": {
+      "schema": "RegionalTruckOrder",
+      "description": "Collection of regional truck dispatch orders."
+    },
     "/shipments/{shipmentId}": {
       "schema": "TruckShipment",
       "description": "Collection of truck shipments."
