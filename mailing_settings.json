@@ -14,11 +14,11 @@
   "emailBody": "Добрый день!\n\nНаправляем актуальный свежий файл Excel с остатками товаров и движением паллет по всем складам компании.\n\nС уважением,\nАвтоматическая система складского учета",
   "attachFormat": "xlsx",
   "includeAnalyticsSummary": true,
-  "smtpHost": "",
+  "smtpHost": "smtp.gmail.com",
   "smtpPort": 587,
   "smtpSecure": false,
-  "smtpUser": "",
-  "smtpPass": "t.farajov@mehkaz.kz",
-  "smtpFrom": "",
+  "smtpUser": "ti07kz@gmail.com",
+  "smtpPass": "apsx qnty ysrv jluz",
+  "smtpFrom": "\"Складской Учет (Silk Road)\" <ti07kz@gmail.com>",
   "smtpConfigured": true
 }

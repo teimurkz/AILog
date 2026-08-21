@@ -1,5 +1,19 @@
 [
   {
+    "id": "mail-log-1787312706021-y8v8",
+    "timestamp": "2026-08-21T11:45:06.016Z",
+    "recipientsCount": 2,
+    "recipientEmails": [
+      "t.farajov@mehkaz.kz",
+      "ti07kz@gmail.com"
+    ],
+    "status": "failed",
+    "fileName": "Warehouse_Stock_Report_2026-08-21.xlsx",
+    "fileSize": "20.1 KB",
+    "triggerSource": "automatic",
+    "errorMessage": "Invalid login: 535-5.7.8 Username and Password not accepted. For more information, go to\n535 5.7.8  https://support.google.com/mail/?p=BadCredentials 2adb3069b0e04-5b478860203sm1932343e87.34 - gsmtp"
+  },
+  {
     "id": "mail-log-1787312650370-8fnp",
     "timestamp": "2026-08-21T11:44:10.362Z",
     "recipientsCount": 2,
