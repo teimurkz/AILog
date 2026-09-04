@@ -4,6 +4,7 @@ import {
   getMailingSubscribers,
   saveMailingSubscribers,
   getMailingSettings,
+  saveMailingSettings,
   addMailingLog
 } from "./mailing.service.js";
 import { sendMailWithResilience } from "./email.service.js";
@@ -11,6 +12,8 @@ import { getZonedTime } from "../utils/helpers.js";
 
 let lastAutoSentKey = '';
 let lastIntervalSentTime = 0;
+let isDispatching = false;
+let isPolling = false;
 
 export function resetAutoSentKey() {
   lastAutoSentKey = '';
@@ -157,19 +160,28 @@ export async function executeMailingDispatch(options: {
 export function startBackgroundSheetsPolling() {
   console.log("📊 [Sheets Poller] Фоновая проверка обновлений Google Таблиц запущена (каждые 60 сек)...");
   setInterval(async () => {
+    if (isPolling) return;
+    isPolling = true;
     try {
       await getWarehouseData(true, () => {
         getMailingSettings().then(currentSettings => {
           if (currentSettings && (currentSettings.enabled === true || String(currentSettings.enabled) === 'true') && currentSettings.scheduleType === 'on_change') {
+            if (isDispatching) {
+              console.log("⏳ [Sheets Poller] Пропуск on_change отправки - уже выполняется другая отправка.");
+              return;
+            }
             console.log(`🔔 Обнаружены изменения в Google Таблицах. Запуск авто-рассылки (on_change)...`);
-            executeMailingDispatch({ triggerSource: 'on_change' }).catch(err => {
-              console.error("Error in on_change mailing dispatch:", err);
-            });
+            isDispatching = true;
+            executeMailingDispatch({ triggerSource: 'on_change' })
+              .catch(err => console.error("Error in on_change mailing dispatch:", err))
+              .finally(() => { isDispatching = false; });
           }
         });
       });
     } catch (err: any) {
       console.error("[Sheets Poller] Ошибка фоновой проверки Google Таблиц:", err?.message || err);
+    } finally {
+      isPolling = false;
     }
   }, 60000);
 }
@@ -178,6 +190,11 @@ export function startMailingScheduler() {
   console.log("⏰ [Mailing Scheduler] Автоматическая служба рассылки запущена (проверка каждые 15 сек)...");
   
   setInterval(async () => {
+    // If a dispatch is currently running, skip to avoid parallel overlapping executions
+    if (isDispatching) {
+      return;
+    }
+
     try {
       const settings = await getMailingSettings();
       if (!settings || settings.enabled === false || String(settings.enabled) === 'false' || settings.scheduleType === 'manual') {
@@ -203,11 +220,18 @@ export function startMailingScheduler() {
         if (nowMs - lastIntervalSentTime >= intervalMs) {
           console.log(`🚀 [Cron Scheduler] Сработал тестовый интервал (каждые ${intervalMinutes} мин). Запуск отправки...`);
           lastIntervalSentTime = nowMs;
-          const result = await executeMailingDispatch({ triggerSource: `test_interval_${intervalMinutes}m` });
-          if (result.success) {
-            console.log(`✅ [Cron Scheduler] Тестовая авто-рассылка успешно отправлена!`);
-          } else {
-            console.error(`❌ [Cron Scheduler] Ошибка тестовой рассылки:`, result.error);
+          isDispatching = true;
+          try {
+            const result = await executeMailingDispatch({ triggerSource: `test_interval_${intervalMinutes}m` });
+            if (result.success) {
+              console.log(`✅ [Cron Scheduler] Тестовая авто-рассылка успешно отправлена!`);
+            } else {
+              console.error(`❌ [Cron Scheduler] Ошибка тестовой рассылки:`, result.error);
+            }
+          } catch (intErr) {
+            console.error("❌ [Cron Scheduler] Ошибка выполнения тестового интервала:", intErr);
+          } finally {
+            isDispatching = false;
           }
         }
         return;
@@ -216,10 +240,19 @@ export function startMailingScheduler() {
       // Scheduled Exact Time Modes ('daily', 'workdays', 'weekly', 'custom')
       const normTarget = (settings.sendTime || '09:00').trim().slice(0, 5).padStart(5, '0');
       const normCurrent = currentHHmm.trim().slice(0, 5).padStart(5, '0');
-
       const sendKey = `${todayDateStr}_${normTarget}_${settings.scheduleType}`;
 
-      if (lastAutoSentKey === sendKey) {
+      // Check in-memory key and persisted key to prevent duplicate sends on same day/time
+      if (lastAutoSentKey === sendKey || settings.lastAutoSentKey === sendKey) {
+        return;
+      }
+
+      // If already sent today for standard daily/workday/weekly schedules, don't re-send
+      if (
+        (settings.scheduleType === 'daily' || settings.scheduleType === 'workdays' || settings.scheduleType === 'weekly' || settings.scheduleType === 'custom') &&
+        settings.lastAutoSentDate === todayDateStr &&
+        settings.lastAutoSentTime === normTarget
+      ) {
         return;
       }
 
@@ -228,8 +261,8 @@ export function startMailingScheduler() {
       const targetMinutes = (tH || 0) * 60 + (tM || 0);
       const currentMinutes = (cH || 0) * 60 + (cM || 0);
 
-      // Window check: target time reached and not passed by more than 5 mins
-      const inTimeWindow = (currentMinutes >= targetMinutes) && (currentMinutes <= targetMinutes + 5);
+      // Window check: target time reached and not passed by more than 4 mins
+      const inTimeWindow = (currentMinutes >= targetMinutes) && (currentMinutes <= targetMinutes + 4);
       if (!inTimeWindow) {
         return;
       }
@@ -255,18 +288,40 @@ export function startMailingScheduler() {
         return;
       }
 
+      // 🔒 CRITICAL: Lock immediately BEFORE starting async dispatch and persist to prevent concurrent intervals or server restarts from duplicating!
+      isDispatching = true;
+      lastAutoSentKey = sendKey;
+
+      try {
+        await saveMailingSettings({
+          ...settings,
+          lastAutoSentKey: sendKey,
+          lastAutoSentDate: todayDateStr,
+          lastAutoSentTime: normTarget,
+          lastSentTimestamp: new Date().toISOString()
+        });
+      } catch (saveErr) {
+        console.warn("Could not persist auto-send lock:", saveErr);
+      }
+
       console.log(`🚀 [Cron Scheduler] Наступило время рассылки (${normCurrent} по часовому поясу ${tz}). Запуск отправки...`);
 
-      const result = await executeMailingDispatch({ triggerSource: 'automatic' });
-      if (result.success) {
-        lastAutoSentKey = sendKey;
-        console.log(`✅ [Cron Scheduler] Успешно отправлена авто-рассылка:`, result.message);
-      } else {
-        console.error(`❌ [Cron Scheduler] Ошибка отправки авто-рассылки:`, result.error || result.message);
+      try {
+        const result = await executeMailingDispatch({ triggerSource: 'automatic' });
+        if (result.success) {
+          console.log(`✅ [Cron Scheduler] Успешно отправлена авто-рассылка:`, result.message);
+        } else {
+          console.error(`❌ [Cron Scheduler] Ошибка отправки авто-рассылки:`, result.error || result.message);
+        }
+      } catch (dispatchErr) {
+        console.error("❌ [Cron Scheduler] Исключение при отправке авто-рассылки:", dispatchErr);
+      } finally {
+        isDispatching = false;
       }
 
     } catch (schedErr) {
       console.error("Error in background mailing scheduler:", schedErr);
+      isDispatching = false;
     }
   }, 15000);
 }

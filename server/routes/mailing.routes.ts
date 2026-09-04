@@ -106,9 +106,21 @@ router.post("/settings", async (req, res) => {
   try {
     const newSettings = req.body;
     const current = await getMailingSettings();
+    
+    // Check if time schedule parameters actually changed
+    const scheduleChanged =
+      newSettings.sendTime !== undefined && newSettings.sendTime !== current.sendTime ||
+      newSettings.scheduleType !== undefined && newSettings.scheduleType !== current.scheduleType ||
+      newSettings.timezone !== undefined && newSettings.timezone !== current.timezone;
+
     const updated = { ...current, ...newSettings };
+
+    if (scheduleChanged) {
+      updated.lastAutoSentKey = '';
+      resetAutoSentKey();
+    }
+
     await saveMailingSettings(updated);
-    resetAutoSentKey();
     res.json({ success: true, settings: updated });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to save settings" });
@@ -134,7 +146,10 @@ router.post("/set-quick-time", async (req, res) => {
     const updated = {
       ...currentSettings,
       sendTime: quickTimeStr,
-      enabled: true
+      enabled: true,
+      lastAutoSentKey: '',
+      lastAutoSentDate: '',
+      lastAutoSentTime: ''
     };
 
     await saveMailingSettings(updated);
