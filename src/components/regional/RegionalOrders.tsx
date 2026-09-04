@@ -35,9 +35,13 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { useToast } from '../../contexts/ToastContext';
+import { MessageSquare } from 'lucide-react';
 import { useRegionalOrders, playNotificationSound, triggerBrowserPush } from '../../hooks/useRegionalOrders';
 import { RegionalTruckOrder, RegionalOrderStatus, InvoiceItem, DeliveryPoint } from '../../types';
 import { NewRegionalOrderModal } from './NewRegionalOrderModal';
+import { RouteMapModal } from './RouteMapModal';
+import { generateWhatsAppLink, buildWhatsAppStatusMessage } from '../../utils/whatsapp';
 
 const STATUS_CONFIG: Record<RegionalOrderStatus, { label: string; bg: string; text: string; border: string; icon: React.FC<{ className?: string }> }> = {
   new: {
@@ -101,11 +105,50 @@ export const RegionalOrders: React.FC = () => {
     return isAdmin || isLogistics || (!!user?.email && order.createdByEmail === user.email);
   };
 
+  const { showSuccess, showError } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+
+  const handleToggleSelectOrder = (id: string) => {
+    setSelectedOrderIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllOrders = (filteredList: RegionalTruckOrder[]) => {
+    if (selectedOrderIds.length === filteredList.length) {
+      setSelectedOrderIds([]);
+    } else {
+      setSelectedOrderIds(filteredList.map(o => o.id));
+    }
+  };
+
+  const handleBulkStatusChange = async (newStatus: RegionalOrderStatus) => {
+    if (selectedOrderIds.length === 0) return;
+    try {
+      await Promise.all(selectedOrderIds.map(id => updateOrderStatus(id, newStatus)));
+      showSuccess(`Обновлен статус для ${selectedOrderIds.length} заказов!`);
+      setSelectedOrderIds([]);
+    } catch (e: any) {
+      showError(e.message || 'Ошибка обновления статусов');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedOrderIds.length === 0) return;
+    if (!confirm(`Вы действительно хотите удалить выбранные (${selectedOrderIds.length}) заявки?`)) return;
+    try {
+      await Promise.all(selectedOrderIds.map(id => deleteOrder(id)));
+      showSuccess(`Удалено ${selectedOrderIds.length} заказов`);
+      setSelectedOrderIds([]);
+    } catch (e: any) {
+      showError(e.message || 'Ошибка удаления заказов');
+    }
+  };
 
   // Push Permission State
   const [pushPermission, setPushPermission] = useState<NotificationPermission>(() => {
@@ -144,6 +187,7 @@ export const RegionalOrders: React.FC = () => {
 
   // Modal for Assigning Truck / Updating Details
   const [editingOrder, setEditingOrder] = useState<RegionalTruckOrder | null>(null);
+  const [selectedMapOrder, setSelectedMapOrder] = useState<RegionalTruckOrder | null>(null);
   const [assignedTruckPlate, setAssignedTruckPlate] = useState('');
   const [assignedDriver, setAssignedDriver] = useState('');
   const [editStatus, setEditStatus] = useState<RegionalOrderStatus>('new');
@@ -550,6 +594,14 @@ export const RegionalOrders: React.FC = () => {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-700/60 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  <th className="py-3.5 px-3 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedOrderIds.length === filteredOrders.length && filteredOrders.length > 0}
+                      onChange={() => handleSelectAllOrders(filteredOrders)}
+                      className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                  </th>
                   <th className="py-3.5 px-4">№ Заявки</th>
                   <th className="py-3.5 px-4">Дата отгрузки</th>
                   <th className="py-3.5 px-4">Направление</th>
@@ -567,8 +619,19 @@ export const RegionalOrders: React.FC = () => {
                   return (
                     <tr 
                       key={order.id}
-                      className="hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors"
+                      className={`hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors ${
+                        selectedOrderIds.includes(order.id) ? 'bg-blue-50/60 dark:bg-blue-950/30' : ''
+                      }`}
                     >
+                      {/* Checkbox */}
+                      <td className="py-3.5 px-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedOrderIds.includes(order.id)}
+                          onChange={() => handleToggleSelectOrder(order.id)}
+                          className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                      </td>
                       {/* Order Number */}
                       <td className="py-3.5 px-4">
                         <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-700/70 text-slate-900 dark:text-white font-mono font-bold border border-slate-200 dark:border-slate-600 shadow-2xs whitespace-nowrap">
@@ -718,6 +781,28 @@ export const RegionalOrders: React.FC = () => {
                       <td className="py-3.5 px-4 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button
+                            onClick={() => setSelectedMapOrder(order)}
+                            className="px-2 py-1 text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1"
+                            title="Открыть карту маршрута и GPS трэкинг водителя"
+                          >
+                            <Map className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                            <span>Карта & GPS</span>
+                          </button>
+
+                          {order.recipientPhone && (
+                            <a
+                              href={generateWhatsAppLink(order.recipientPhone, buildWhatsAppStatusMessage(order))}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 rounded-lg transition-colors flex items-center gap-1"
+                              title="Отправить статус в WhatsApp"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                              <span className="hidden xl:inline">WhatsApp</span>
+                            </a>
+                          )}
+
+                          <button
                             onClick={() => handleOpenEdit(order)}
                             className="px-2.5 py-1 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1"
                             title="Управлять статусом и назначить фуру"
@@ -860,6 +945,13 @@ export const RegionalOrders: React.FC = () => {
                         </button>
 
                         <div className="ml-auto flex items-center gap-1">
+                          <button
+                            onClick={() => setSelectedMapOrder(order)}
+                            className="p-1 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 rounded-lg transition-colors"
+                            title="Карта & GPS"
+                          >
+                            <Map className="w-3.5 h-3.5" />
+                          </button>
                           {canDeleteOrder(order) && (
                             <button
                               onClick={(e) => {
@@ -1337,6 +1429,71 @@ export const RegionalOrders: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Floating Bulk Actions Bar */}
+      <AnimatePresence>
+        {selectedOrderIds.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 50, scale: 0.9 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 text-white backdrop-blur-md px-5 py-3 rounded-2xl shadow-2xl border border-slate-700 flex flex-wrap items-center gap-3"
+          >
+            <div className="flex items-center gap-2 text-xs font-bold border-r border-slate-700 pr-4">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
+              <span>Выбрано: {selectedOrderIds.length} заказов</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">Статус:</span>
+              <button
+                onClick={() => handleBulkStatusChange('assigned')}
+                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+              >
+                Машина назначена
+              </button>
+              <button
+                onClick={() => handleBulkStatusChange('dispatched')}
+                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+              >
+                Отправлено / В пути
+              </button>
+              <button
+                onClick={() => handleBulkStatusChange('delivered')}
+                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+              >
+                Выгружено
+              </button>
+            </div>
+
+            {(isAdmin || isLogistics) && (
+              <button
+                onClick={handleBulkDelete}
+                className="ml-2 p-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                title="Удалить выбранные"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span className="hidden sm:inline">Удалить</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => setSelectedOrderIds([])}
+              className="text-slate-400 hover:text-white p-1 ml-2 cursor-pointer"
+              title="Сбросить выбор"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal 4: Interactive Route Map & Driver GPS Tracking */}
+      <RouteMapModal
+        isOpen={!!selectedMapOrder}
+        onClose={() => setSelectedMapOrder(null)}
+        order={selectedMapOrder}
+      />
     </div>
   );
 };

@@ -5,11 +5,13 @@ import path from "path";
 import warehouseRoutes from "./routes/warehouse.routes.js";
 import mailingRoutes from "./routes/mailing.routes.js";
 import invoiceRoutes from "./routes/invoice.routes.js";
+import driverRoutes from "./routes/driver.routes.js";
 
 import {
   startBackgroundSheetsPolling,
   startMailingScheduler
 } from "./services/scheduler.service.js";
+import { startTelegramBotPolling } from "./services/telegram.service.js";
 
 async function startServer() {
   const app = express();
@@ -21,6 +23,7 @@ async function startServer() {
   app.use("/api/warehouses", warehouseRoutes);
   app.use("/api/mailing", mailingRoutes);
   app.use("/api/parse-invoice", invoiceRoutes);
+  app.use("/api/driver", driverRoutes);
 
   // Vite middleware for development / static serving for production
   if (process.env.NODE_ENV !== "production") {
@@ -37,9 +40,10 @@ async function startServer() {
     });
   }
 
-  // Start background schedulers
+  // Start background schedulers & Telegram Bot
   startBackgroundSheetsPolling();
   startMailingScheduler();
+  startTelegramBotPolling();
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);

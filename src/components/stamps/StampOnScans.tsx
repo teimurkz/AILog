@@ -743,7 +743,32 @@ export const StampOnScans = () => {
                 {/* Individual Page Checkboxes */}
                 {numPages > 1 && (
                   <div className="pt-2 border-t border-slate-200">
-                    <p className="text-[11px] font-bold text-slate-500 mb-2">Выберите листы вручную:</p>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[11px] font-bold text-slate-500">Выберите листы документа:</p>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPages(Array.from({ length: numPages }, (_, i) => i + 1))}
+                          className="px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 rounded border border-blue-200"
+                        >
+                          Все ({numPages})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPages([1])}
+                          className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded border border-slate-200"
+                        >
+                          1-я
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPages([numPages])}
+                          className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded border border-slate-200"
+                        >
+                          ПОСЛЕДНЯЯ
+                        </button>
+                      </div>
+                    </div>
                     <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-1">
                       {Array.from({ length: numPages }, (_, i) => i + 1).map((pNum) => {
                         const isChecked = selectedPages.includes(pNum);

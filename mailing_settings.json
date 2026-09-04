@@ -1,7 +1,7 @@
 {
   "enabled": true,
   "scheduleType": "daily",
-  "sendTime": "16:47",
+  "sendTime": "09:00",
   "timezone": "Asia/Almaty",
   "scheduleDays": [
     1,
