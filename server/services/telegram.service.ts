@@ -43,7 +43,7 @@ const activeChatOrderMap = new Map<number, string>();
 let lastGlobalLocation: DriverLocation | null = null;
 
 // Telegram Bot Credentials
-export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "8923191579:AAFdypJwZ5l6vy8yIuYqH4WGM_tXJEn9bZo";
+export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "8923191579:AAHboGVIDEFIG-KKOy42lieweakH9uHt58c";
 export const TELEGRAM_BOT_USERNAME = "SilkRoadDriverBot";
 
 import { KAZAKHSTAN_ROADS } from "../config/kazakhstanRoads.js";
