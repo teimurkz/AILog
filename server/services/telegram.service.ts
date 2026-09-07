@@ -914,7 +914,7 @@ function buildOrderSelectionKeyboard(orders: RegionalOrderSummary[]) {
 function buildSelectedOrderKeyboard(order: RegionalOrderSummary) {
   return {
     keyboard: [
-      [{ text: `🚚 ВЫЕХАЛ В РЕЙС (${order.orderNumber})`, request_location: true }],
+      [{ text: `📍 Разрешить геопозицию и начать рейс`, request_location: true }],
       [{ text: "🔄 Выбрать другой рейс" }]
     ],
     resize_keyboard: true,
@@ -925,8 +925,8 @@ function buildSelectedOrderKeyboard(order: RegionalOrderSummary) {
 function buildInTransitKeyboard(order: RegionalOrderSummary) {
   return {
     keyboard: [
-      [{ text: "📍 Обновить геопозицию в пути", request_location: true }],
-      [{ text: "🏁 Груз доставлен (Завершить)" }, { text: "🔄 Сменить рейс" }]
+      [{ text: "🏁 Груз доставлен (Завершить)" }],
+      [{ text: "🔄 Сменить рейс" }]
     ],
     resize_keyboard: true,
     one_time_keyboard: false
@@ -1031,14 +1031,15 @@ export function startTelegramBotPolling() {
                 msgId,
                 `✅ <b>Выбран рейс: ${matched.orderNumber}</b>\n` +
                 `🛣️ <b>Маршрут:</b> ${matched.originCity || 'Алматы'} ➔ <b>${matched.destinationCity}</b>\n\n` +
-                `Нажмите кнопку ниже: <b>«🚚 ВЫЕХАЛ В РЕЙС»</b> 👇`
+                `📍 Для запуска GPS-отслеживания рейса нажмите кнопку внизу экрана 👇`
               );
             }
 
             // Send bottom departure button
             await sendTelegramMessage(
               chatId,
-              `👇 Нажмите большую кнопку внизу экрана для подтверждения выезда и включения GPS:`,
+              `👇 Нажмите кнопку <b>«📍 Разрешить геопозицию и начать рейс»</b> внизу экрана.\n` +
+              `После подтверждения начнется непрерывное отслеживание фуры по маршруту до прибытия:`,
               buildSelectedOrderKeyboard(matched)
             );
             chatLastMessageTime.set(chatId, Date.now());
@@ -1213,21 +1214,21 @@ export function startTelegramBotPolling() {
             // In transit GPS update: short confirmation
             await sendTelegramMessage(
               chatId,
-              `📍 <b>Геопозиция обновлена!</b>\n` +
+              `📍 <b>Координаты обновлены!</b>\n` +
               `Скорость: ${speedCalculated} км/ч\n` +
-              `Координаты успешно переданы диспетчеру и отображаются на карте CRM. 🛣️`,
+              `Фура на связи, слежка продолжается. 🛣️`,
               buildInTransitKeyboard(selectedOrder)
             );
           } else {
             // First time departure confirmation
             await sendTelegramMessage(
               chatId,
-              `🟢 <b>Рейс начат! Отслеживание активно.</b>\n\n` +
+              `🟢 <b>Разрешение получено! Рейс начат.</b>\n\n` +
               `📦 <b>Рейс:</b> ${selectedOrder.orderNumber}\n` +
               `🛣️ <b>Маршрут:</b> ${selectedOrder.originCity || 'Алматы'} ➔ <b>${selectedOrder.destinationCity}</b>\n` +
               `👤 <b>Водитель:</b> ${driverTitle}\n\n` +
-              `📍 Начальные координаты получены. Логист видит движение вашей фуры на карте в CRM!\n\n` +
-              `💡 <i>Нажимайте кнопку «📍 Обновить геопозицию в пути» внизу экрана для передачи свежей точки, либо включите непрерывную трансляцию через 📎 (Скрепка ➔ Геопозиция ➔ Транслировать геопозицию).</i>\n\n` +
+              `🛰️ <b>GPS-отслеживание активировано:</b> диспетчер видит перемещение фуры по маршруту на карте в CRM.\n` +
+              `Слежка продолжается непрерывно до прибытия и нажатия кнопки «Груз доставлен».\n\n` +
               `Удачной дороги! 🛣️`,
               buildInTransitKeyboard(selectedOrder)
             );
@@ -1248,6 +1249,7 @@ export function startTelegramBotPolling() {
               activeChatOrderMap.set(chatId, matched.orderNumber);
               linkOrderNumberToId(matched.id, matched.orderNumber);
               chatTripActive.set(chatId, false);
+              saveSessionsToCache();
 
               await sendTelegramMessage(
                 chatId,
@@ -1322,7 +1324,7 @@ export function startTelegramBotPolling() {
               chatId,
               `✅ <b>Выбран рейс: ${matchedOrder.orderNumber}</b>\n` +
               `🛣️ <b>Направление:</b> ${matchedOrder.originCity || 'Алматы'} ➔ <b>${matchedOrder.destinationCity}</b>\n\n` +
-              `Нажмите кнопку <b>«🚚 ВЫЕХАЛ В РЕЙС»</b> ниже для старта отслеживания 👇`,
+              `Нажмите кнопку <b>«📍 Разрешить геопозицию и начать рейс»</b> ниже 👇`,
               buildSelectedOrderKeyboard(matchedOrder)
             );
             chatLastMessageTime.set(chatId, Date.now());
@@ -1423,7 +1425,7 @@ export function startTelegramBotPolling() {
             await sendTelegramMessage(
               chatId,
               `🏁 <b>Рейс успешно завершён!</b>\n` +
-              `Груз доставлен в город ${finishedOrder?.destinationCity || ''}. Спасибо за работу! 🚛✨\n\n` +
+              `Груз доставлен в город ${finishedOrder?.destinationCity || ''}. Отслеживание рейса остановлено. Спасибо за работу! 🚛✨\n\n` +
               (nextOrders.length > 0 ? `Выберите следующий доступный рейс:` : `На данный момент нет новых заявок, ожидающих назначения фуры.`),
               buildOrderSelectionInlineKeyboard(nextOrders)
             );

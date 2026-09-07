@@ -1,25 +1,15 @@
 [
   {
-    "id": "D2KN1IES7j8ptNhKU8TG",
-    "orderNumber": "REG-2262",
-    "destinationCity": "Астана",
-    "originCity": "Алматы",
-    "status": "dispatched",
-    "assignedDriver": "Давид Байрамов (@blackDava)",
-    "assignedTruckPlate": "",
-    "dispatchedAt": "2026-09-07T07:09:34.458Z",
-    "currentLat": 43.362806,
-    "currentLng": 76.895112,
-    "speed": 68
-  },
-  {
     "id": "EMWLCdjGiHMewXMDLquK",
     "orderNumber": "REG-4825",
     "destinationCity": "Астана",
     "originCity": "Алматы",
     "status": "delivered",
     "assignedDriver": "+7 777 933 9046‬ (Роман)",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "currentLat": 51.1694,
+    "currentLng": 71.4491,
+    "speed": 0
   },
   {
     "id": "Zut9CnNeGHe7qUN2vQO1",

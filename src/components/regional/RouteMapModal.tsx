@@ -259,8 +259,7 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
   const truckPlate = order.assignedTruckPlate || 'Не указан';
   const botLink = `https://t.me/${botUsername}?start=${encodeURIComponent(order.orderNumber || order.id)}`;
   const webTrackerLink = `${window.location.origin}/gps?order=${encodeURIComponent(order.orderNumber || order.id)}`;
-  const driverPhoneClean = (order.recipientPhone || '').replace(/[^0-9]/g, '');
-  const whatsappShareUrl = `https://wa.me/${driverPhoneClean}?text=${encodeURIComponent(`Здравствуйте! Включите пожалуйста GPS-мониторинг для рейса ${order.orderNumber}: ${webTrackerLink} (откройте ссылку на телефоне и нажмите «Начать трансляцию в пути» либо в Telegram-боте @${botUsername} выберите «Транслировать геопозицию» через скрепку 📎).`)}`;
+  const whatsappShareUrl = `https://wa.me/${driverPhoneClean}?text=${encodeURIComponent(`Здравствуйте! Подтвердите выезд по рейсу ${order.orderNumber}: в Telegram-боте @${botUsername} выберите заявку и нажмите «Разрешить геопозицию» (либо откройте мобильный трекер: ${webTrackerLink}).`)}`;
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(webTrackerLink);
@@ -758,22 +757,14 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                   </a>
                 </div>
 
-                {/* Critical Live Location Instruction Box for Telegram */}
+                {/* Telegram Bot Instructions Box */}
                 <div className="p-3.5 bg-blue-950/60 border border-blue-800/80 rounded-xl text-xs text-blue-200 space-y-1.5">
                   <div className="flex items-center gap-1.5 font-bold text-blue-300">
                     <Zap className="w-4 h-4 text-amber-400" />
-                    <span>Как водителю включить движение в пути через Telegram:</span>
+                    <span>Автоматическое GPS-отслеживание через Telegram:</span>
                   </div>
                   <p className="text-[11px] leading-relaxed text-slate-300">
-                    Обычная кнопка внизу чата отправляет точку <strong>только 1 раз</strong>. Чтобы фура <strong>непрерывно двигалась на карте</strong>, водитель в чате с ботом должен:
-                  </p>
-                  <ol className="text-[11px] text-blue-200 space-y-1 pl-4 list-decimal">
-                    <li>Нажать скрепку 📎 (или «+» на iPhone) возле поля ввода.</li>
-                    <li>Выбрать 📍 <strong>«Геолокация»</strong> ➔ <strong>«Транслировать мою геопозицию»</strong>.</li>
-                    <li>Выбрать срок: <strong>8 часов</strong> (на время рейса).</li>
-                  </ol>
-                  <p className="text-[10px] text-slate-400 italic">
-                    Telegram будет сам передавать изменения координат в фоне во время движения.
+                    Водителю не нужно ничего настраивать вручную. В боте @{botUsername} он просто выбирает рейс и нажимает <strong>«📍 Разрешить геопозицию и начать рейс»</strong>. Слежка по трассе включается автоматически и идет непрерывно до нажатия кнопки «Груз доставлен».
                   </p>
                 </div>
               </div>

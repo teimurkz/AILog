@@ -6,3 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
+server/data/driver_locations.json
+server/data/driver_sessions.json
