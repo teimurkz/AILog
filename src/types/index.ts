@@ -100,6 +100,13 @@ export interface RegionalTruckOrder {
   status: RegionalOrderStatus;
   assignedTruckPlate?: string;
   assignedDriver?: string;
+  dispatchedAt?: string;
+  currentLat?: number;
+  currentLng?: number;
+  speed?: number;
+  heading?: number;
+  lastGpsUpdate?: string;
+  locationHistory?: Array<{ lat: number; lng: number; timestamp?: string }>;
   createdAt: string;
   createdByEmail?: string;
   createdByName?: string;

@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   RefreshCw
 } from 'lucide-react';
+import { KAZAKHSTAN_ROADS } from '../../utils/kazakhstanRoads';
 
 export const DriverGpsTracker: React.FC = () => {
   const [orderId, setOrderId] = useState<string>('all');
@@ -57,6 +58,10 @@ export const DriverGpsTracker: React.FC = () => {
     }
   };
 
+  const [isSimulating, setIsSimulating] = useState<boolean>(false);
+  const simIntervalRef = useRef<any>(null);
+  const simIndexRef = useRef<number>(0);
+
   // Send coordinates directly to backend
   const sendLocation = async (lat: number, lng: number, spdKmh: number, heading?: number | null) => {
     try {
@@ -65,10 +70,12 @@ export const DriverGpsTracker: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId,
+          orderNumber: orderId,
           lat,
           lng,
           speed: spdKmh,
           heading: heading || undefined,
+          status: 'dispatched',
           driverPhone: 'Мобильный Веб-Трекер'
         })
       });
@@ -142,11 +149,53 @@ export const DriverGpsTracker: React.FC = () => {
     watchIdRef.current = id;
   };
 
+  // Office test simulation along highway road
+  const startSimulation = () => {
+    stopTracking();
+    setIsSimulating(true);
+    setIsTracking(true);
+    requestWakeLock();
+    setErrorMsg(null);
+
+    const road = KAZAKHSTAN_ROADS.astana;
+    simIndexRef.current = Math.floor(road.length * 0.1); // start 10% along highway
+
+    const stepSimulation = () => {
+      simIndexRef.current = (simIndexRef.current + 3) % road.length;
+      const pt = road[simIndexRef.current];
+      const nextPt = road[(simIndexRef.current + 1) % road.length];
+      
+      // Calculate heading
+      const dLon = nextPt.lng - pt.lng;
+      const y = Math.sin(dLon) * Math.cos(nextPt.lat);
+      const x = Math.cos(pt.lat) * Math.sin(nextPt.lat) - Math.sin(pt.lat) * Math.cos(nextPt.lat) * Math.cos(dLon);
+      const headingDeg = Math.round((Math.atan2(y, x) * 180 / Math.PI + 360) % 360);
+
+      setCurrentLat(pt.lat);
+      setCurrentLng(pt.lng);
+      setSpeed(72);
+      setAccuracy(5);
+      sendLocation(pt.lat, pt.lng, 72, headingDeg);
+    };
+
+    stepSimulation();
+    simIntervalRef.current = setInterval(stepSimulation, 3000);
+  };
+
+  const stopSimulation = () => {
+    if (simIntervalRef.current) {
+      clearInterval(simIntervalRef.current);
+      simIntervalRef.current = null;
+    }
+    setIsSimulating(false);
+  };
+
   const stopTracking = () => {
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
+    stopSimulation();
     releaseWakeLock();
     setIsTracking(false);
   };
@@ -155,6 +204,9 @@ export const DriverGpsTracker: React.FC = () => {
     return () => {
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+      if (simIntervalRef.current) {
+        clearInterval(simIntervalRef.current);
       }
       releaseWakeLock();
     };
@@ -261,7 +313,7 @@ export const DriverGpsTracker: React.FC = () => {
         )}
 
         {/* BIG ACTION BUTTON */}
-        <div>
+        <div className="space-y-2.5">
           {!isTracking ? (
             <button
               onClick={startTracking}
@@ -279,6 +331,24 @@ export const DriverGpsTracker: React.FC = () => {
               <span>ОСТАНОВИТЬ ТРЕКИНГ</span>
             </button>
           )}
+
+          {/* Office Test Simulation Mode Button */}
+          {!isTracking ? (
+            <button
+              onClick={startSimulation}
+              className="w-full py-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+              title="Проверить движение фуры по трассе прямо из офиса"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>🧪 Тест движения в пути (72 км/ч без машины)</span>
+            </button>
+          ) : isSimulating ? (
+            <div className="text-center">
+              <span className="text-[11px] font-bold text-amber-400 bg-amber-950/60 border border-amber-800/80 px-3 py-1 rounded-full">
+                ⚡ Режим офисной симуляции активен (72 км/ч)
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
 

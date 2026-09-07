@@ -736,9 +736,17 @@ export const RegionalOrders: React.FC = () => {
 
                       {/* Status & Assigned Truck */}
                       <td className="py-3.5 px-4">
-                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold ${cfg.bg} ${cfg.text} ${cfg.border} border`}>
-                          <StatusIcon className="w-3.5 h-3.5" />
-                          <span>{cfg.label}</span>
+                        <div className="flex items-center flex-wrap gap-1">
+                          <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold ${cfg.bg} ${cfg.text} ${cfg.border} border`}>
+                            <StatusIcon className="w-3.5 h-3.5" />
+                            <span>{cfg.label}</span>
+                          </div>
+                          {order.status === 'dispatched' && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 animate-pulse">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                              <span>GPS онлайн</span>
+                            </span>
+                          )}
                         </div>
 
                         {order.assignedTruckPlate ? (

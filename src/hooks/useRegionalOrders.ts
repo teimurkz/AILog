@@ -139,6 +139,13 @@ export const useRegionalOrders = () => {
           status: (data.status as RegionalOrderStatus) || 'new',
           assignedTruckPlate: data.assignedTruckPlate || '',
           assignedDriver: data.assignedDriver || '',
+          dispatchedAt: data.dispatchedAt,
+          currentLat: data.currentLat,
+          currentLng: data.currentLng,
+          speed: data.speed,
+          heading: data.heading,
+          lastGpsUpdate: data.lastGpsUpdate,
+          locationHistory: Array.isArray(data.locationHistory) ? data.locationHistory : undefined,
           createdAt: data.createdAt || new Date().toISOString(),
           createdByEmail: data.createdByEmail || '',
           createdByName: data.createdByName || '',
@@ -218,11 +225,30 @@ export const useRegionalOrders = () => {
     const path = 'regional_orders';
     try {
       const orderRef = doc(db, path, orderId);
+      const isDispatched = status === 'dispatched';
+      const now = new Date().toISOString();
+
       await updateDoc(orderRef, {
         status,
         ...(assignedData || {}),
-        updatedAt: new Date().toISOString(),
+        ...(isDispatched ? { dispatchedAt: now } : {}),
+        updatedAt: now,
       });
+
+      // Synchronize backend GPS state
+      if (isDispatched) {
+        fetch('/api/driver/location', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId,
+            status: 'dispatched',
+            lat: 43.2389,
+            lng: 76.8897,
+            speed: 68
+          })
+        }).catch(() => {});
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, path);
       throw error;

@@ -24,6 +24,8 @@ import {
   MessageCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
 import { LeafletRouteMap } from './LeafletRouteMap';
 import { RegionalTruckOrder } from '../../types';
 import { KAZAKHSTAN_ROADS } from '../../utils/kazakhstanRoads';
@@ -153,7 +155,7 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
 
             setInterval(async () => {
               try {
-                const res = await fetch('/api/driver/location/${order.id}?destinationCity=${encodeURIComponent(dest)}');
+                const res = await fetch('/api/driver/location/${order.id}?destinationCity=${encodeURIComponent(dest)}&orderNumber=${encodeURIComponent(orderNum)}&status=${encodeURIComponent(order.status || "")}');
                 if (res.ok) {
                   const data = await res.json();
                   marker.setLatLng([data.currentLat, data.currentLng]);
@@ -176,7 +178,13 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
   const fetchLocationData = async () => {
     if (!order) return;
     try {
-      const res = await fetch(`/api/driver/location/${order.id}?destinationCity=${encodeURIComponent(order.destinationCity)}`);
+      const params = new URLSearchParams({
+        destinationCity: order.destinationCity || 'Астана',
+        orderNumber: order.orderNumber || '',
+        status: order.status || '',
+        dispatchedAt: (order as any).dispatchedAt || order.updatedAt || ''
+      });
+      const res = await fetch(`/api/driver/location/${order.id}?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setRouteData(data);
@@ -189,7 +197,36 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
     }
   };
 
-  // Auto-refresh GPS coordinates every 3 seconds while modal is open
+  // 1. Real-time Cloud Firestore Document Listener (Instant update when driver sends GPS or marks in transit)
+  useEffect(() => {
+    if (!isOpen || !order?.id) return;
+
+    const unsub = onSnapshot(doc(db, 'regional_orders', order.id), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        if (d.currentLat && d.currentLng) {
+          setRouteData(prev => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              currentLat: d.currentLat,
+              currentLng: d.currentLng,
+              speed: d.speed !== undefined ? d.speed : prev.speed,
+              locationHistory: Array.isArray(d.locationHistory) && d.locationHistory.length > 0
+                ? d.locationHistory
+                : prev.locationHistory
+            };
+          });
+        }
+      }
+    }, (err) => {
+      console.warn("Firestore snapshot notice:", err);
+    });
+
+    return () => unsub();
+  }, [isOpen, order?.id]);
+
+  // 2. Auto-refresh GPS coordinates every 3 seconds while modal is open
   useEffect(() => {
     if (isOpen && order) {
       fetchLocationData();
@@ -214,6 +251,33 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
     navigator.clipboard.writeText(webTrackerLink);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);
+  };
+
+  // Mark order in transit directly from map modal
+  const handleMarkInTransit = async () => {
+    if (!order?.id) return;
+    try {
+      await updateDoc(doc(db, 'regional_orders', order.id), {
+        status: 'dispatched',
+        dispatchedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      await fetch('/api/driver/location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          lat: routeData?.currentLat || 43.2389,
+          lng: routeData?.currentLng || 76.8897,
+          speed: 68,
+          status: 'dispatched'
+        })
+      });
+      fetchLocationData();
+    } catch (err) {
+      console.warn("Error marking in transit:", err);
+    }
   };
 
   // Simulate advancing truck along the actual highway road
@@ -246,10 +310,12 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId: order.id,
+          orderNumber: order.orderNumber,
           driverPhone: order.recipientPhone || '+77015551234',
           lat: simulatedLat,
           lng: simulatedLng,
-          speed: Math.floor(70 + Math.random() * 15)
+          speed: Math.floor(70 + Math.random() * 15),
+          status: 'dispatched'
         })
       });
       fetchLocationData();
@@ -436,6 +502,16 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                       <MessageCircle className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">Трекер в WhatsApp</span>
                     </a>
+                    {order.status !== 'dispatched' && (
+                      <button
+                        onClick={handleMarkInTransit}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                        title="Перевести статус заказа в 'В пути' и активировать трекинг"
+                      >
+                        <Truck className="w-3.5 h-3.5" />
+                        <span>🚚 Отметить «В пути»</span>
+                      </button>
+                    )}
                     <button
                       onClick={handleSimulateGPS}
                       className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
