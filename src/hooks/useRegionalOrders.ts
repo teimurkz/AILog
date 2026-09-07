@@ -11,7 +11,7 @@ import {
   getDocs,
   serverTimestamp
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { RegionalTruckOrder, RegionalOrderStatus } from '../types';
 
 export const playNotificationSound = () => {
@@ -182,27 +182,60 @@ export const useRegionalOrders = () => {
       setOrders(fetched);
       setLoading(false);
 
-      // Keep backend server informed about all regional orders for Telegram bot
+      // Keep backend server informed about all regional orders for Telegram bot & get pending updates
       if (fetched.length > 0) {
-        fetch('/api/driver/sync-orders', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            orders: fetched.map(o => ({
-              id: o.id,
-              orderNumber: o.orderNumber,
-              destinationCity: o.destinationCity,
-              originCity: o.originCity || 'Алматы',
-              status: o.status,
-              assignedDriver: o.assignedDriver,
-              assignedTruckPlate: o.assignedTruckPlate,
-              dispatchedAt: o.dispatchedAt,
-              currentLat: o.currentLat,
-              currentLng: o.currentLng,
-              speed: o.speed
-            }))
-          })
-        }).catch(() => {});
+        const syncToServer = async () => {
+          try {
+            const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => undefined) : undefined;
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+
+            const res = await fetch('/api/driver/sync-orders', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                orders: fetched.map(o => ({
+                  id: o.id,
+                  orderNumber: o.orderNumber,
+                  destinationCity: o.destinationCity,
+                  originCity: o.originCity || 'Алматы',
+                  status: o.status,
+                  assignedDriver: o.assignedDriver,
+                  assignedTruckPlate: o.assignedTruckPlate,
+                  dispatchedAt: o.dispatchedAt,
+                  currentLat: o.currentLat,
+                  currentLng: o.currentLng,
+                  speed: o.speed
+                }))
+              })
+            });
+
+            if (res.ok) {
+              const resData = await res.json();
+              if (Array.isArray(resData?.pendingUpdates) && resData.pendingUpdates.length > 0) {
+                const ackIds: string[] = [];
+                for (const item of resData.pendingUpdates) {
+                  const targetDoc = fetched.find(o => o.id === item.orderId || o.orderNumber === item.orderId);
+                  if (targetDoc) {
+                    await updateDoc(doc(db, 'regional_orders', targetDoc.id), {
+                      ...item.updates,
+                      updatedAt: new Date().toISOString()
+                    }).catch(() => {});
+                    ackIds.push(item.orderId);
+                  }
+                }
+                if (ackIds.length > 0) {
+                  fetch('/api/driver/ack-sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderIds: ackIds })
+                  }).catch(() => {});
+                }
+              }
+            }
+          } catch (e) {}
+        };
+        syncToServer();
       }
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, path);
@@ -211,6 +244,79 @@ export const useRegionalOrders = () => {
 
     return unsubscribe;
   }, []);
+
+  // Continuous background sync: periodically pull Telegram driver GPS and actions from server and persist to Firestore
+  useEffect(() => {
+    let isCancelled = false;
+
+    const pullDriverUpdates = async () => {
+      try {
+        const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => undefined) : undefined;
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const res = await fetch('/api/driver/pending-sync', { headers });
+        if (!res.ok) return;
+
+        const data = await res.json();
+        const pending = data?.pending;
+        if (Array.isArray(pending) && pending.length > 0) {
+          const committedIds: string[] = [];
+
+          for (const item of pending) {
+            if (isCancelled) break;
+            const targetId = item.orderId;
+            if (!targetId) continue;
+
+            // 1. Immediately reflect in local state for 0ms delay in UI
+            setOrders(prev => prev.map(o => {
+              if (o.id.toLowerCase() === targetId.toLowerCase() || o.orderNumber.toLowerCase() === targetId.toLowerCase()) {
+                return {
+                  ...o,
+                  ...item.updates
+                };
+              }
+              return o;
+            }));
+
+            // 2. Commit to Cloud Firestore using authenticated user credentials
+            try {
+              let realDocId = targetId;
+              const match = orders.find(o => 
+                o.id.toLowerCase() === targetId.toLowerCase() || 
+                o.orderNumber.toLowerCase() === targetId.toLowerCase()
+              );
+              if (match?.id) realDocId = match.id;
+
+              await updateDoc(doc(db, 'regional_orders', realDocId), {
+                ...item.updates,
+                updatedAt: new Date().toISOString()
+              });
+              committedIds.push(item.orderId);
+            } catch (err) {
+              console.warn("Firestore update error:", err);
+            }
+          }
+
+          if (committedIds.length > 0) {
+            await fetch('/api/driver/ack-sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ orderIds: committedIds })
+            }).catch(() => {});
+          }
+        }
+      } catch (err) {}
+    };
+
+    const interval = setInterval(pullDriverUpdates, 3000);
+    pullDriverUpdates();
+
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+    };
+  }, [orders]);
 
   const addOrder = async (orderData: Omit<RegionalTruckOrder, 'id' | 'orderNumber' | 'createdAt' | 'status'>) => {
     const path = 'regional_orders';

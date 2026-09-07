@@ -53,5 +53,9 @@ if (!admin.apps.length) {
   admin.initializeApp(initOptions);
 }
 
+export const isFirebaseAdminConfigured: boolean = Boolean(admin.apps.length && admin.app().options.credential);
+export const firebaseProjectId: string = firebaseConfig.projectId || "logisticsapp-216d5";
+export const firestoreDatabaseId: string = firebaseConfig.firestoreDatabaseId || "ai-studio-12b741bf-685d-4d79-a3b0-c771090926cd";
+export const firebaseApiKey: string = firebaseConfig.apiKey || "";
 export const db = getFirestore(admin.app(), firebaseConfig.firestoreDatabaseId);
 export { admin };

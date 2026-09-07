@@ -76,7 +76,36 @@ export function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lo
   return Math.round(R * c * 10) / 10;
 }
 
-import { db } from "../config/firebase.js";
+import { db, isFirebaseAdminConfigured, firebaseProjectId, firestoreDatabaseId } from "../config/firebase.js";
+
+export interface PendingSyncItem {
+  orderId: string;
+  orderNumber?: string;
+  updates: Record<string, any>;
+  timestamp: string;
+}
+
+const pendingFirestoreSyncMap = new Map<string, PendingSyncItem>();
+let cachedUserAuthToken: string | null = null;
+
+export function setCachedUserToken(token: string) {
+  if (token && token.trim().length > 10) {
+    cachedUserAuthToken = token.trim();
+  }
+}
+
+export function getPendingFirestoreUpdates(): PendingSyncItem[] {
+  return Array.from(pendingFirestoreSyncMap.values());
+}
+
+export function acknowledgePendingSync(orderIds: string[]) {
+  if (!Array.isArray(orderIds)) return;
+  for (const id of orderIds) {
+    pendingFirestoreSyncMap.delete(id);
+    const clean = id.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
+    pendingFirestoreSyncMap.delete(clean);
+  }
+}
 
 // Multi-key alias mapping (orderId -> orderNumber and vice versa)
 const orderAliasMap = new Map<string, string>();
@@ -208,66 +237,129 @@ export function updateCachedOrderStatus(orderNumberOrId: string, status: string,
 }
 
 
-// Sync location or status updates directly to Cloud Firestore
+// Sync location or status updates directly to Cloud Firestore or queue for authenticated client sync
 export async function syncOrderToFirestore(orderIdOrNumber: string, updates: Record<string, any>) {
   try {
     if (!orderIdOrNumber || orderIdOrNumber === 'all') return;
     
-    // Clean string for matching
     const trimmed = orderIdOrNumber.trim();
     const cleanUpper = trimmed.toUpperCase();
+    const queueKey = trimmed.toLowerCase();
 
-    // 1. Try direct doc ref by ID
-    const docRef = db.collection('regional_orders').doc(trimmed);
-    const docSnap = await docRef.get();
-    if (docSnap.exists) {
-      await docRef.update({
-        ...updates,
-        updatedAt: new Date().toISOString()
-      });
-      console.log(`🔥 [Firestore] Updated regional_orders/${trimmed}`);
-      return;
-    }
-
-    // 2. Query by exact orderNumber (e.g. REG-1002 or 1002)
-    const q1 = await db.collection('regional_orders')
-      .where('orderNumber', '==', cleanUpper)
-      .limit(1)
-      .get();
-    if (!q1.empty) {
-      await q1.docs[0].ref.update({
-        ...updates,
-        updatedAt: new Date().toISOString()
-      });
-      console.log(`🔥 [Firestore] Updated regional_orders matching orderNumber=${cleanUpper}`);
-      return;
-    }
-
-    // 3. Try with or without 'REG-' prefix
-    const altNum = cleanUpper.startsWith('REG-') ? cleanUpper.replace('REG-', '') : `REG-${cleanUpper}`;
-    const q2 = await db.collection('regional_orders')
-      .where('orderNumber', '==', altNum)
-      .limit(1)
-      .get();
-    if (!q2.empty) {
-      await q2.docs[0].ref.update({
-        ...updates,
-        updatedAt: new Date().toISOString()
-      });
-      console.log(`🔥 [Firestore] Updated regional_orders matching orderNumber=${altNum}`);
-      return;
-    }
-
-    // 4. Save to dedicated driver_locations collection as fallback
-    const locRef = db.collection('driver_locations').doc(trimmed.toLowerCase());
-    await locRef.set({
-      ...updates,
+    // 1. Queue update so authenticated browser CRM client can commit it to Firestore
+    pendingFirestoreSyncMap.set(queueKey, {
       orderId: trimmed,
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
-    console.log(`🔥 [Firestore] Saved driver_locations/${trimmed.toLowerCase()}`);
+      updates: {
+        ...updates,
+        updatedAt: new Date().toISOString()
+      },
+      timestamp: new Date().toISOString()
+    });
+
+    // 2. If Firebase Admin is initialized with credentials, use Admin SDK
+    if (isFirebaseAdminConfigured) {
+      try {
+        const docRef = db.collection('regional_orders').doc(trimmed);
+        const docSnap = await docRef.get();
+        if (docSnap.exists) {
+          await docRef.update({
+            ...updates,
+            updatedAt: new Date().toISOString()
+          });
+          pendingFirestoreSyncMap.delete(queueKey);
+          console.log(`🔥 [Firestore Admin] Updated regional_orders/${trimmed}`);
+          return;
+        }
+
+        const q1 = await db.collection('regional_orders')
+          .where('orderNumber', '==', cleanUpper)
+          .limit(1)
+          .get();
+        if (!q1.empty) {
+          await q1.docs[0].ref.update({
+            ...updates,
+            updatedAt: new Date().toISOString()
+          });
+          pendingFirestoreSyncMap.delete(queueKey);
+          console.log(`🔥 [Firestore Admin] Updated regional_orders matching orderNumber=${cleanUpper}`);
+          return;
+        }
+      } catch (err: any) {
+        console.warn(`⚠️ [Firestore Admin Notice]`, err.message);
+      }
+    }
+
+    // 3. If client passed JWT token, use direct Firestore REST API
+    if (cachedUserAuthToken) {
+      try {
+        let targetDocId = trimmed;
+        const matched = activeOrdersList.find(o => 
+          o.id.toLowerCase() === trimmed.toLowerCase() || 
+          o.orderNumber.toLowerCase() === trimmed.toLowerCase()
+        );
+        if (matched?.id) {
+          targetDocId = matched.id;
+        }
+
+        const fields: Record<string, any> = {};
+        const updateMaskFields: string[] = [];
+
+        for (const [key, val] of Object.entries(updates)) {
+          if (val === undefined) continue;
+          updateMaskFields.push(key);
+          if (typeof val === 'number') {
+            fields[key] = Number.isInteger(val) ? { integerValue: String(val) } : { doubleValue: val };
+          } else if (typeof val === 'string') {
+            fields[key] = { stringValue: val };
+          } else if (typeof val === 'boolean') {
+            fields[key] = { booleanValue: val };
+          } else if (Array.isArray(val)) {
+            fields[key] = {
+              arrayValue: {
+                values: val.map(item => ({
+                  mapValue: {
+                    fields: {
+                      lat: { doubleValue: item.lat || 0 },
+                      lng: { doubleValue: item.lng || 0 },
+                      ...(item.timestamp ? { timestamp: { stringValue: item.timestamp } } : {})
+                    }
+                  }
+                }))
+              }
+            };
+          }
+        }
+
+        updateMaskFields.push('updatedAt');
+        fields.updatedAt = { stringValue: new Date().toISOString() };
+
+        const maskQuery = updateMaskFields.map(f => `updateMask.fieldPaths=${encodeURIComponent(f)}`).join('&');
+        const restUrl = `https://firestore.googleapis.com/v1/projects/${firebaseProjectId}/databases/${firestoreDatabaseId}/documents/regional_orders/${targetDocId}?${maskQuery}`;
+
+        const res = await fetch(restUrl, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${cachedUserAuthToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ fields })
+        });
+
+        if (res.ok) {
+          pendingFirestoreSyncMap.delete(queueKey);
+          console.log(`🔥 [Firestore REST] Synced regional_orders/${targetDocId}`);
+          return;
+        } else if (res.status === 401) {
+          cachedUserAuthToken = null;
+        }
+      } catch (err: any) {
+        // Fallback to queue
+      }
+    }
+
+    console.log(`📦 [GPS Stored] Order ${trimmed} saved in server cache & queued for CRM client Firestore commit`);
   } catch (err: any) {
-    console.warn(`⚠️ [Firestore Sync Notice] Could not sync order ${orderIdOrNumber}:`, err.message);
+    console.warn(`⚠️ [Firestore Sync Error] ${err.message}`);
   }
 }
 
@@ -347,9 +439,19 @@ export function updateDriverLocation(location: DriverLocation, status?: string):
     }
   }
 
+  // Also immediately update activeOrdersList and local cache file
+  updateCachedOrderStatus(location.orderId, status || 'dispatched', {
+    currentLat: location.lat,
+    currentLng: location.lng,
+    speed: calculatedSpeed,
+    heading: location.heading || 0,
+    lastGpsUpdate: now.toISOString(),
+    locationHistory: history.slice(-50)
+  });
+
   lastGlobalLocation = updated;
 
-  // Sync to Cloud Firestore in background
+  // Sync to Cloud Firestore in background (or queue for client commit)
   syncOrderToFirestore(location.orderId, {
     currentLat: location.lat,
     currentLng: location.lng,
@@ -378,7 +480,7 @@ export function getDriverLocation(
     linkOrderNumberToId(orderId, orderNumber);
   }
 
-  // Lookup saved location for exact orderId, cleanId, orderNumber, alias or global fallback
+  // Lookup saved location for exact orderId, cleanId, orderNumber, alias
   let saved = driverLocationsMap.get(orderId) 
     || driverLocationsMap.get(cleanId)
     || (cleanOrderNum ? driverLocationsMap.get(cleanOrderNum) : null)
@@ -388,25 +490,32 @@ export function getDriverLocation(
   if (!saved && alias) {
     saved = driverLocationsMap.get(alias);
   }
-  
-  // If global location was recently received from real Telegram/web GPS, prioritize it
-  if (lastGlobalLocation) {
-    if (!saved) {
+
+  // Also check activeOrdersList for cached GPS if driverLocationsMap was empty on server restart
+  if (!saved) {
+    const cachedOrder = activeOrdersList.find(o => 
+      o.id === orderId || 
+      (orderNumber && o.orderNumber === orderNumber) ||
+      o.id.toLowerCase() === cleanId ||
+      (cleanOrderNum && o.orderNumber.toLowerCase() === cleanOrderNum)
+    );
+    if (cachedOrder && cachedOrder.currentLat && cachedOrder.currentLng) {
       saved = {
-        ...lastGlobalLocation,
-        orderId
+        orderId: cachedOrder.id,
+        driverPhone: cachedOrder.assignedDriver || '',
+        lat: cachedOrder.currentLat,
+        lng: cachedOrder.currentLng,
+        speed: cachedOrder.speed ?? 68,
+        heading: 0,
+        updatedAt: cachedOrder.dispatchedAt || new Date().toISOString(),
+        history: cachedOrder.locationHistory || [{ lat: cachedOrder.currentLat, lng: cachedOrder.currentLng }]
       };
-    } else {
-      const savedTime = new Date(saved.updatedAt).getTime();
-      const globalTime = new Date(lastGlobalLocation.updatedAt).getTime();
-      // If global location was updated more recently or saved is older than 5 minutes, use real live GPS
-      if (globalTime > savedTime || (Date.now() - savedTime > 300000 && globalTime > Date.now() - 3600000)) {
-        saved = {
-          ...lastGlobalLocation,
-          orderId
-        };
-      }
     }
+  }
+  
+  // Only use lastGlobalLocation if it specifically was for this order or for 'all'
+  if (!saved && lastGlobalLocation && (lastGlobalLocation.orderId === orderId || (orderNumber && lastGlobalLocation.orderId === orderNumber) || lastGlobalLocation.orderId === 'all')) {
+    saved = lastGlobalLocation;
   }
 
   const origin = HIGHWAY_NODES.almaty;
@@ -441,7 +550,6 @@ export function getDriverLocation(
   const statusLower = (orderStatus || '').toLowerCase();
   const isDelivered = statusLower === 'delivered' || statusLower === 'доставлено';
   const isPending = statusLower === 'new' || statusLower === 'loading' || statusLower === 'новый' || statusLower === 'на погрузке';
-  const isDispatched = statusLower === 'dispatched' || statusLower === 'в пути' || statusLower.includes('пути') || (!isDelivered && !isPending);
 
   let currentLat = detailedRoadPolyline[0]?.lat || origin.lat;
   let currentLng = detailedRoadPolyline[0]?.lng || origin.lng;
@@ -459,44 +567,22 @@ export function getDriverLocation(
     speed = 0;
   } else {
     // In transit ('dispatched')
-    speed = saved?.speed || 68;
-    
     if (saved) {
-      // If saved location was recent (< 2 min), use exact driver coordinates
-      const timeSinceUpdateSec = (Date.now() - new Date(saved.updatedAt).getTime()) / 1000;
-      if (timeSinceUpdateSec < 120) {
-        currentLat = saved.lat;
-        currentLng = saved.lng;
-      } else {
-        // Driver hasn't transmitted in > 2 min: advance smoothly along highway from last known position
-        let bestIdx = 0;
-        let minD = Infinity;
-        for (let i = 0; i < detailedRoadPolyline.length; i++) {
-          const d = calculateDistanceKm(saved.lat, saved.lng, detailedRoadPolyline[i].lat, detailedRoadPolyline[i].lng);
-          if (d < minD) {
-            minD = d;
-            bestIdx = i;
-          }
-        }
-        // Advance based on elapsed time (at 68 km/h)
-        const kmAdvanced = Math.min(250, (speed / 3600) * timeSinceUpdateSec);
-        const ptsPerKm = detailedRoadPolyline.length / Math.max(1, totalDistance);
-        const ptsToAdvance = Math.round(kmAdvanced * ptsPerKm);
-        const targetIdx = Math.min(detailedRoadPolyline.length - 1, bestIdx + ptsToAdvance);
-
-        currentLat = detailedRoadPolyline[targetIdx].lat;
-        currentLng = detailedRoadPolyline[targetIdx].lng;
-      }
+      // Real driver location: ALWAYS use exact coordinates reported by the driver!
+      currentLat = saved.lat;
+      currentLng = saved.lng;
+      speed = saved.speed ?? 68;
     } else {
       // Dispatched but no driver GPS yet: calculate position along highway based on dispatchedAt or smooth progression
       const startTime = dispatchedAt ? new Date(dispatchedAt).getTime() : Date.now() - 3600000; // default 1 hr ago
       const elapsedHours = Math.max(0.1, (Date.now() - startTime) / 3600000);
-      const kmTraveled = Math.min(totalDistance * 0.95, elapsedHours * speed);
+      const kmTraveled = Math.min(totalDistance * 0.95, elapsedHours * 68);
       const targetPercent = Math.min(0.95, kmTraveled / Math.max(1, totalDistance));
       const targetIdx = Math.min(detailedRoadPolyline.length - 1, Math.floor(detailedRoadPolyline.length * targetPercent));
 
       currentLat = detailedRoadPolyline[targetIdx].lat;
       currentLng = detailedRoadPolyline[targetIdx].lng;
+      speed = 68;
     }
   }
 

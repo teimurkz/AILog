@@ -5,10 +5,23 @@ import {
   linkOrderNumberToId,
   syncActiveOrders,
   getActiveOrdersList,
-  updateCachedOrderStatus
+  updateCachedOrderStatus,
+  getPendingFirestoreUpdates,
+  acknowledgePendingSync,
+  setCachedUserToken
 } from "../services/telegram.service.js";
 
 const router = Router();
+
+// Middleware to capture client Firebase Auth JWT token if provided
+router.use((req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    if (token) setCachedUserToken(token);
+  }
+  next();
+});
 
 // Endpoint for frontend to sync all known regional orders to server for Telegram bot
 router.post("/sync-orders", (req, res) => {
@@ -17,9 +30,33 @@ router.post("/sync-orders", (req, res) => {
     if (Array.isArray(orders)) {
       syncActiveOrders(orders);
     }
-    return res.json({ success: true, count: orders?.length || 0 });
+    const pendingUpdates = getPendingFirestoreUpdates();
+    return res.json({ success: true, count: orders?.length || 0, pendingUpdates });
   } catch (error: any) {
     console.error("Error syncing active orders:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint for frontend to retrieve queued driver actions to commit to Firestore
+router.get("/pending-sync", (req, res) => {
+  try {
+    const pending = getPendingFirestoreUpdates();
+    return res.json({ pending });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint for frontend to acknowledge committed updates
+router.post("/ack-sync", (req, res) => {
+  try {
+    const { orderIds } = req.body;
+    if (Array.isArray(orderIds)) {
+      acknowledgePendingSync(orderIds);
+    }
+    return res.json({ success: true });
+  } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }
 });

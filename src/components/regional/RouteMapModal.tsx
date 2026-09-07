@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
-import { db } from '../../firebase';
+import { db, auth } from '../../firebase';
 import { LeafletRouteMap } from './LeafletRouteMap';
 import { RegionalTruckOrder } from '../../types';
 import { KAZAKHSTAN_ROADS } from '../../utils/kazakhstanRoads';
@@ -184,7 +184,12 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
         status: order.status || '',
         dispatchedAt: (order as any).dispatchedAt || order.updatedAt || ''
       });
-      const res = await fetch(`/api/driver/location/${order.id}?${params.toString()}`);
+
+      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => undefined) : undefined;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/driver/location/${order.id}?${params.toString()}`, { headers });
       if (res.ok) {
         const data = await res.json();
         setRouteData(data);
@@ -198,7 +203,7 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
             currentLng: data.currentLng,
             speed: data.speed !== undefined ? data.speed : 68,
             lastGpsUpdate: new Date().toISOString(),
-            ...(data.progressPercent > 0 && (order.status === 'new' || order.status === 'loading') ? { status: 'dispatched' } : {})
+            ...(order.status === 'new' || order.status === 'loading' ? { status: 'dispatched' } : {})
           }).catch(() => {});
         }
       }

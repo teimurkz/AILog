@@ -1,24 +1,16 @@
 [
   {
-    "id": "858vtVPr9jBVe0MHUKtm",
-    "orderNumber": "REG-4949",
-    "destinationCity": "Астана",
-    "originCity": "Алматы",
-    "status": "new",
-    "assignedDriver": "",
-    "assignedTruckPlate": "",
-    "currentLat": 43.2389,
-    "currentLng": 76.8897,
-    "speed": 0
-  },
-  {
-    "id": "Hfw9Tw5oIFQjqJu8oOig",
-    "orderNumber": "REG-3165",
+    "id": "oepM1733GjHcTsVWOfdJ",
+    "orderNumber": "REG-2536",
     "destinationCity": "Шымкент",
     "originCity": "Алматы",
-    "status": "new",
-    "assignedDriver": "",
-    "assignedTruckPlate": ""
+    "status": "dispatched",
+    "assignedDriver": "Тима (@TeimurF)",
+    "assignedTruckPlate": "",
+    "currentLat": 43.36314,
+    "currentLng": 76.888563,
+    "speed": 68,
+    "dispatchedAt": "2026-09-07T07:00:52.712Z"
   },
   {
     "id": "EMWLCdjGiHMewXMDLquK",
