@@ -167,56 +167,68 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
     if (!mapInstanceRef.current) return;
     const map = mapInstanceRef.current;
 
-    const historyPoints: L.LatLngExpression[] = locationHistory && locationHistory.length > 0
+    const historyPoints: L.LatLngExpression[] = locationHistory && locationHistory.length > 1
       ? locationHistory.map(pt => [pt.lat, pt.lng])
-      : [[waypoints[0]?.lat || 43.2389, waypoints[0]?.lng || 76.8897], [currentLat, currentLng]];
+      : [];
 
-    // A. Update or create driven trajectory line (Green solid line)
-    if (!trajectoryPolylineRef.current) {
-      trajectoryPolylineRef.current = L.polyline(historyPoints, {
-        color: '#10b981',
-        weight: 6,
-        opacity: 0.95,
-        lineCap: 'round',
-        lineJoin: 'round',
-      }).addTo(map);
-    } else {
-      trajectoryPolylineRef.current.setLatLngs(historyPoints);
+    // A. Update or create driven trajectory line (Green solid line only if real points exist)
+    if (historyPoints.length > 1) {
+      if (!trajectoryPolylineRef.current) {
+        trajectoryPolylineRef.current = L.polyline(historyPoints, {
+          color: '#10b981',
+          weight: 6,
+          opacity: 0.95,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }).addTo(map);
+      } else {
+        trajectoryPolylineRef.current.setLatLngs(historyPoints);
+      }
+    } else if (trajectoryPolylineRef.current) {
+      map.removeLayer(trajectoryPolylineRef.current);
+      trajectoryPolylineRef.current = null;
     }
 
     // B. Update breadcrumb dots
     if (dotsGroupRef.current) {
       dotsGroupRef.current.clearLayers();
-      historyPoints.forEach((pt, idx) => {
-        if (idx % 2 === 0 || idx === historyPoints.length - 1) {
-          const dotIcon = L.divIcon({
-            className: 'trajectory-dot-icon',
-            html: `<div style="width:8px;height:8px;background:#10b981;border:2px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3);"></div>`,
-            iconSize: [12, 12],
-            iconAnchor: [6, 6]
-          });
-          L.marker(pt, { icon: dotIcon }).addTo(dotsGroupRef.current!);
-        }
-      });
+      if (historyPoints.length > 1) {
+        historyPoints.forEach((pt, idx) => {
+          if (idx % 2 === 0 || idx === historyPoints.length - 1) {
+            const dotIcon = L.divIcon({
+              className: 'trajectory-dot-icon',
+              html: `<div style="width:8px;height:8px;background:#10b981;border:2px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3);"></div>`,
+              iconSize: [12, 12],
+              iconAnchor: [6, 6]
+            });
+            L.marker(pt, { icon: dotIcon }).addTo(dotsGroupRef.current!);
+          }
+        });
+      }
     }
 
     // C. Update or create neat truck marker with smooth CSS transition
     const createTruckIcon = (spd: number, eta: string) => {
+      const isMoving = spd > 5;
+      const statusLabel = isMoving ? `${spd} км/ч • ${eta}` : `Стоянка • ${eta}`;
+      const badgeColor = isMoving ? '#10b981' : '#f59e0b';
+      const gradient = isMoving ? 'linear-gradient(135deg, #10b981, #059669)' : 'linear-gradient(135deg, #f59e0b, #d97706)';
+
       return L.divIcon({
         className: 'custom-neat-truck-marker',
         html: `
           <div style="position:relative;display:flex;align-items:center;transition:all 0.8s ease-out;">
-            <!-- Glowing Pulse Ring -->
-            <div style="position:absolute;width:34px;height:34px;background:rgba(16,185,129,0.4);border-radius:50%;animation:ping 1.8s cubic-bezier(0,0,0.2,1) infinite;"></div>
+            <!-- Pulse Ring when moving -->
+            ${isMoving ? '<div style="position:absolute;width:34px;height:34px;background:rgba(16,185,129,0.4);border-radius:50%;animation:ping 1.8s cubic-bezier(0,0,0.2,1) infinite;"></div>' : ''}
             
             <!-- Compact Truck Badge -->
-            <div style="position:relative;background:linear-gradient(135deg, #10b981, #059669);color:white;width:32px;height:32px;border-radius:50%;border:2px solid white;box-shadow:0 4px 14px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;font-size:16px;">
+            <div style="position:relative;background:${gradient};color:white;width:32px;height:32px;border-radius:50%;border:2px solid white;box-shadow:0 4px 14px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;font-size:16px;">
               🚚
             </div>
 
             <!-- Speed & ETA Badge -->
-            <div style="position:absolute;left:36px;background:rgba(15,23,42,0.92);color:white;padding:3px 8px;border-radius:8px;font-size:10px;font-weight:bold;border:1px solid #10b981;white-space:nowrap;box-shadow:0 4px 10px rgba(0,0,0,0.3);backdrop-filter:blur(4px);">
-              ${spd > 0 ? `${spd} км/ч • ` : ''}${eta}
+            <div style="position:absolute;left:36px;background:rgba(15,23,42,0.92);color:white;padding:3px 8px;border-radius:8px;font-size:10px;font-weight:bold;border:1px solid ${badgeColor};white-space:nowrap;box-shadow:0 4px 10px rgba(0,0,0,0.3);backdrop-filter:blur(4px);">
+              ${statusLabel}
             </div>
           </div>
         `,

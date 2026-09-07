@@ -38,9 +38,11 @@ interface RouteMapModalProps {
 
 interface RouteData {
   orderId: string;
+  orderNumber?: string;
   currentLat: number;
   currentLng: number;
   speed: number;
+  heading?: number;
   originCity: string;
   destinationCity: string;
   totalDistanceKm: number;
@@ -48,6 +50,9 @@ interface RouteData {
   progressPercent: number;
   etaMinutes: number;
   etaFormatted: string;
+  signalStatus?: 'in_transit' | 'parked' | 'idle' | 'offline' | 'waiting' | 'delivered';
+  signalStatusText?: string;
+  lastPingSecondsAgo?: number;
   updatedAt: string;
   routeWaypoints: Array<{ name: string; lat: number; lng: number; reached: boolean }>;
   detailedRoadPolyline?: Array<{ lat: number; lng: number }>;
@@ -58,7 +63,6 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
   const [activeTab, setActiveTab] = useState<'map' | 'telegram'>('map');
   const [loading, setLoading] = useState<boolean>(false);
   const [routeData, setRouteData] = useState<RouteData | null>(null);
-  const [simulatedProgress, setSimulatedProgress] = useState<number>(45); // percent
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
 
@@ -193,15 +197,12 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
       if (res.ok) {
         const data = await res.json();
         setRouteData(data);
-        if (data.progressPercent !== undefined) {
-          setSimulatedProgress(data.progressPercent);
-        }
         // Sync driver coordinates to Firestore document directly from authenticated browser
         if (data.currentLat && data.currentLng && order.id) {
           updateDoc(doc(db, 'regional_orders', order.id), {
             currentLat: data.currentLat,
             currentLng: data.currentLng,
-            speed: data.speed !== undefined ? data.speed : 68,
+            speed: data.speed !== undefined ? data.speed : 0,
             lastGpsUpdate: new Date().toISOString(),
             ...(order.status === 'new' || order.status === 'loading' ? { status: 'dispatched' } : {})
           }).catch(() => {});
@@ -260,7 +261,9 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
   const botLink = `https://t.me/${botUsername}?start=${encodeURIComponent(order.orderNumber || order.id)}`;
   const webTrackerLink = `${window.location.origin}/gps?order=${encodeURIComponent(order.orderNumber || order.id)}`;
   const driverPhoneClean = ((order as any).driverPhone || order.recipientPhone || order.assignedDriver || '').replace(/[^0-9]/g, '');
-  const whatsappShareUrl = `https://wa.me/${driverPhoneClean}?text=${encodeURIComponent(`Здравствуйте! Подтвердите выезд по рейсу ${order.orderNumber}: в Telegram-боте @${botUsername} выберите заявку и нажмите «Разрешить геопозицию» (либо откройте мобильный трекер: ${webTrackerLink}).`)}`;
+  const whatsappShareUrl = `https://wa.me/${driverPhoneClean}?text=${encodeURIComponent(
+    `Здравствуйте! Подтвердите выезд по рейсу ${order.orderNumber} (Алматы ➔ ${destCity}): откройте мобильный GPS-трекер ${webTrackerLink} и нажмите «Начать рейс» (экран телефона не гаснет, трекер работает автоматически). Либо подтвердите через Telegram-бот @${botUsername}: ${botLink}`
+  )}`;
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(webTrackerLink);
@@ -285,7 +288,7 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
           orderNumber: order.orderNumber,
           lat: routeData?.currentLat || 43.2389,
           lng: routeData?.currentLng || 76.8897,
-          speed: 68,
+          speed: 0,
           status: 'dispatched'
         })
       });
@@ -295,55 +298,11 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
     }
   };
 
-  // Simulate advancing truck along the actual highway road
-  const handleSimulateGPS = async () => {
-    const nextProgress = Math.min(95, simulatedProgress + 15);
-    setSimulatedProgress(nextProgress);
-
-    let simulatedLat = 46.8481;
-    let simulatedLng = 74.9804;
-
-    // Follow the actual paved highway road points strictly along asphalt roads
-    const destKey = (destCity || '').toLowerCase().includes('шымкент') || (destCity || '').toLowerCase().includes('тараз')
-      ? 'shymkent'
-      : 'astana';
-    const defaultRoad = KAZAKHSTAN_ROADS[destKey] || KAZAKHSTAN_ROADS.astana;
-    const roadPoints = (routeData?.detailedRoadPolyline && routeData.detailedRoadPolyline.length > 0)
-      ? routeData.detailedRoadPolyline
-      : defaultRoad;
-
-    const targetIndex = Math.min(
-      roadPoints.length - 1,
-      Math.floor((nextProgress / 100) * (roadPoints.length - 1))
-    );
-    simulatedLat = roadPoints[targetIndex].lat;
-    simulatedLng = roadPoints[targetIndex].lng;
-
-    try {
-      await fetch('/api/driver/location', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderId: order.id,
-          orderNumber: order.orderNumber,
-          driverPhone: order.recipientPhone || '+77015551234',
-          lat: simulatedLat,
-          lng: simulatedLng,
-          speed: Math.floor(70 + Math.random() * 15),
-          status: 'dispatched'
-        })
-      });
-      fetchLocationData();
-    } catch (e) {
-      console.error("Simulation error:", e);
-    }
-  };
-
   const waypoints = routeData?.routeWaypoints || [
     { name: 'Алматы (Склад)', lat: 43.2389, lng: 76.8897, reached: true },
-    { name: 'Балхаш', lat: 46.8481, lng: 74.9804, reached: simulatedProgress >= 40 },
-    { name: 'Караганда', lat: 49.8019, lng: 73.1021, reached: simulatedProgress >= 75 },
-    { name: destCity, lat: 51.1694, lng: 71.4491, reached: simulatedProgress >= 100 }
+    { name: 'Балхаш', lat: 46.8481, lng: 74.9804, reached: (routeData?.progressPercent ?? 0) >= 40 },
+    { name: 'Караганда', lat: 49.8019, lng: 73.1021, reached: (routeData?.progressPercent ?? 0) >= 75 },
+    { name: destCity, lat: 51.1694, lng: 71.4491, reached: (routeData?.progressPercent ?? 0) >= 100 }
   ];
 
   return (
@@ -474,24 +433,54 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                   </div>
                 </div>
 
+                {/* Speed & Driver Info */}
+                <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Водитель & Фура</span>
+                    <span className={`px-2 py-0.5 font-bold text-[10px] rounded-md flex items-center gap-1 ${
+                      (routeData?.speed ?? 0) > 0 
+                        ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300' 
+                        : 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+                    }`}>
+                      <Zap className="w-3 h-3 text-emerald-500" />
+                      <span>{(routeData?.speed ?? 0) > 0 ? `${routeData?.speed} км/ч` : 'Стоянка (0 км/ч)'}</span>
+                    </span>
+                  </div>
+                  <div className="mt-2">
+                    <p className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-1.5">
+                      <Truck className="w-4 h-4 text-blue-500" />
+                      <span>{truckPlate}</span>
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Водитель: <strong>{driverName}</strong>
+                    </p>
+                  </div>
+                </div>
+
                 {/* Highway Route Summary */}
                 <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Прогресс Рейса</span>
-                    <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
-                      {simulatedProgress}%
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Статус Рейса</span>
+                    <span className={`text-xs font-bold ${
+                      routeData?.signalStatus === 'in_transit' ? 'text-emerald-500' :
+                      routeData?.signalStatus === 'parked' || routeData?.signalStatus === 'idle' ? 'text-amber-500' :
+                      routeData?.signalStatus === 'offline' ? 'text-rose-500' : 'text-blue-500'
+                    }`}>
+                      {routeData?.progressPercent ?? 0}%
                     </span>
                   </div>
                   <div className="mt-2">
                     <div className="w-full bg-slate-200 dark:bg-slate-700 h-2.5 rounded-full overflow-hidden">
                       <div 
                         className="bg-gradient-to-r from-blue-500 to-emerald-500 h-full rounded-full transition-all duration-700" 
-                        style={{ width: `${simulatedProgress}%` }}
+                        style={{ width: `${routeData?.progressPercent ?? 0}%` }}
                       />
                     </div>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 flex items-center justify-between">
                       <span>Алматы</span>
-                      <span className="font-semibold text-emerald-600">В движении</span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                        {routeData?.signalStatusText || 'Ожидание выезда'}
+                      </span>
                       <span>{destCity}</span>
                     </p>
                   </div>
@@ -511,11 +500,11 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                       href={whatsappShareUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
                       title="Отправить водителю ссылку на GPS-трекер в WhatsApp"
                     >
                       <MessageCircle className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Трекер в WhatsApp</span>
+                      <span>Отправить водителю в WhatsApp</span>
                     </a>
                     {order.status !== 'dispatched' && (
                       <button
@@ -527,14 +516,6 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                         <span>🚚 Отметить «В пути»</span>
                       </button>
                     )}
-                    <button
-                      onClick={handleSimulateGPS}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
-                      title="Симулировать передвижение водителя на 15% вперед"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      <span>Симулировать GPS +15%</span>
-                    </button>
                     <button
                       onClick={fetchLocationData}
                       disabled={loading}
@@ -551,8 +532,8 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                   currentLng={routeData?.currentLng ?? 74.9804}
                   originCity="Алматы"
                   destinationCity={destCity}
-                  speed={routeData?.speed ?? 75}
-                  etaFormatted={routeData?.etaFormatted || '~4 ч 30 мин'}
+                  speed={routeData?.speed ?? 0}
+                  etaFormatted={routeData?.etaFormatted || 'Ожидает выезда'}
                   waypoints={waypoints}
                   detailedRoadPolyline={routeData?.detailedRoadPolyline}
                   locationHistory={routeData?.locationHistory}
@@ -561,25 +542,29 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
 
                 <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
                   <div className="flex items-center gap-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${routeData?.updatedAt && (Date.now() - new Date(routeData.updatedAt).getTime() < 60000) ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-                    <span>
-                      {routeData?.updatedAt && (Date.now() - new Date(routeData.updatedAt).getTime() < 60000)
-                        ? `🟢 GPS активен (сигнал ${Math.max(1, Math.round((Date.now() - new Date(routeData.updatedAt).getTime()) / 1000))} сек. назад)`
-                        : `🟡 Последний сигнал: ${new Date(routeData?.updatedAt || Date.now()).toLocaleTimeString()} (авто-опрос каждые 3 сек)`
-                      }
+                    <span className={`w-2.5 h-2.5 rounded-full ${
+                      routeData?.signalStatus === 'in_transit' ? 'bg-emerald-500 animate-pulse' :
+                      routeData?.signalStatus === 'parked' ? 'bg-emerald-400' :
+                      routeData?.signalStatus === 'idle' ? 'bg-amber-400' :
+                      routeData?.signalStatus === 'offline' ? 'bg-rose-500' :
+                      'bg-slate-500'
+                    }`} />
+                    <span className="font-medium text-slate-700 dark:text-slate-200">
+                      {routeData?.signalStatusText || 'Ожидание сигнала GPS'}
+                      {routeData?.lastPingSecondsAgo !== undefined && routeData?.lastPingSecondsAgo < 60 && ` (сигнал ${routeData.lastPingSecondsAgo} сек. назад)`}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleCopyLink}
-                      className="px-2.5 py-1 bg-slate-200 dark:bg-slate-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 font-bold rounded-lg transition-colors flex items-center gap-1"
+                      className="px-2.5 py-1 bg-slate-200 dark:bg-slate-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                       title="Скопировать ссылку на мобильный трекер для водителя"
                     >
                       <Smartphone className="w-3.5 h-3.5" />
                       <span>{copiedLink ? 'Скопировано! ✓' : 'Ссылка водителю'}</span>
                     </button>
                     <div className="font-mono text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                      GPS: {routeData?.currentLat.toFixed(4) ?? 46.8481}° N, {routeData?.currentLng.toFixed(4) ?? 74.9804}° E
+                      GPS: {routeData?.currentLat ? routeData.currentLat.toFixed(5) : '—'}° N, {routeData?.currentLng ? routeData.currentLng.toFixed(5) : '—'}° E
                     </div>
                   </div>
                 </div>
@@ -770,66 +755,6 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                 </div>
               </div>
 
-              {/* Bot Username Configuration Box */}
-              <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <Settings className="w-4 h-4 text-blue-500" />
-                    <span>Юзернейм вашего Telegram-бота:</span>
-                  </label>
-
-                  {!isEditingBot ? (
-                    <button
-                      onClick={() => {
-                        setTempBotInput(botUsername);
-                        setIsEditingBot(true);
-                      }}
-                      className="px-2.5 py-1 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>Изменить бота</span>
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => saveBotUsername(tempBotInput)}
-                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Сохранить</span>
-                      </button>
-                      <button
-                        onClick={() => setIsEditingBot(false)}
-                        className="px-2 py-1 text-slate-500 text-xs font-medium"
-                      >
-                        Отмена
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {isEditingBot ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-500">@</span>
-                    <input
-                      type="text"
-                      value={tempBotInput}
-                      onChange={(e) => setTempBotInput(e.target.value)}
-                      placeholder="например: MyLogisticsDriverBot"
-                      className="flex-1 px-3 py-2 bg-white dark:bg-slate-800 border border-blue-400 rounded-xl text-xs font-mono font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white"
-                    />
-                  </div>
-                ) : (
-                  <div className="px-3.5 py-2.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                    <span className="text-sm font-mono font-black text-blue-600 dark:text-blue-400">
-                      @{botUsername}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      Используется для генерации прямых ссылок водителям
-                    </span>
-                  </div>
-                )}
-              </div>
             </div>
           )}
 

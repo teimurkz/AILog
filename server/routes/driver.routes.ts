@@ -6,6 +6,7 @@ import {
   syncActiveOrders,
   getActiveOrdersList,
   updateCachedOrderStatus,
+  syncOrderToFirestore,
   getPendingFirestoreUpdates,
   acknowledgePendingSync,
   setCachedUserToken
@@ -74,10 +75,12 @@ router.get("/orders", (req, res) => {
 // Endpoint for driver Telegram bot or mobile client to post GPS position
 router.post("/location", (req, res) => {
   try {
-    const { orderId, orderNumber, driverPhone, lat, lng, speed, heading, status } = req.body;
+    const { orderId, orderNumber, driverPhone, lat, lng, speed, heading, accuracy, status } = req.body;
     if (!orderId || lat === undefined || lng === undefined) {
       return res.status(400).json({ error: "Missing required fields: orderId, lat, lng" });
     }
+
+    const realSpeed = speed !== undefined && speed !== null && !isNaN(Number(speed)) ? Math.max(0, Number(speed)) : 0;
 
     if (orderNumber) {
       linkOrderNumberToId(String(orderId), String(orderNumber));
@@ -85,7 +88,7 @@ router.post("/location", (req, res) => {
         updateCachedOrderStatus(String(orderNumber), status, {
           currentLat: Number(lat),
           currentLng: Number(lng),
-          speed: speed !== undefined ? Number(speed) : 68
+          speed: realSpeed
         });
       }
     }
@@ -95,15 +98,47 @@ router.post("/location", (req, res) => {
       driverPhone: driverPhone || 'Мобильный Веб-Трекер',
       lat: Number(lat),
       lng: Number(lng),
-      speed: speed !== undefined ? Number(speed) : undefined,
+      speed: realSpeed,
       heading: heading !== undefined ? Number(heading) : undefined,
       updatedAt: new Date().toISOString()
-    }, status);
+    }, status || 'dispatched');
 
     return res.json({ success: true, location: updated });
   } catch (error: any) {
     console.error("Error updating driver location:", error);
     return res.status(500).json({ error: error.message || "Failed to update driver location" });
+  }
+});
+
+// Endpoint for driver to mark order delivered from mobile tracker
+router.post("/complete", (req, res) => {
+  try {
+    const { orderId, orderNumber } = req.body;
+    const target = orderNumber || orderId;
+    if (!target) {
+      return res.status(400).json({ error: "Missing required orderId or orderNumber" });
+    }
+
+    updateCachedOrderStatus(String(target), 'delivered');
+    syncOrderToFirestore(String(target), {
+      status: 'delivered',
+      deliveredAt: new Date().toISOString(),
+      speed: 0
+    });
+
+    if (orderId && orderNumber && orderId !== orderNumber) {
+      syncOrderToFirestore(String(orderId), {
+        status: 'delivered',
+        deliveredAt: new Date().toISOString(),
+        speed: 0
+      });
+    }
+
+    console.log(`🏁 [Trip Completed] Order ${target} marked DELIVERED by driver`);
+    return res.json({ success: true, status: 'delivered' });
+  } catch (error: any) {
+    console.error("Error completing order:", error);
+    return res.status(500).json({ error: error.message || "Failed to complete order" });
   }
 });
 

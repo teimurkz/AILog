@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Navigation, 
   MapPin, 
-  Zap, 
   ShieldCheck, 
   AlertTriangle, 
   Truck, 
@@ -11,12 +10,21 @@ import {
   ExternalLink,
   Smartphone,
   CheckCircle2,
-  RefreshCw
+  Check,
+  X,
+  Radio
 } from 'lucide-react';
-import { KAZAKHSTAN_ROADS } from '../../utils/kazakhstanRoads';
 
 export const DriverGpsTracker: React.FC = () => {
   const [orderId, setOrderId] = useState<string>('all');
+  const [orderDetails, setOrderDetails] = useState<{
+    orderNumber?: string;
+    destinationCity?: string;
+    originCity?: string;
+    status?: string;
+    remainingDistanceKm?: number;
+  } | null>(null);
+
   const [isTracking, setIsTracking] = useState<boolean>(false);
   const [currentLat, setCurrentLat] = useState<number | null>(null);
   const [currentLng, setCurrentLng] = useState<number | null>(null);
@@ -26,16 +34,42 @@ export const DriverGpsTracker: React.FC = () => {
   const [lastSentTime, setLastSentTime] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [wakeLockActive, setWakeLockActive] = useState<boolean>(false);
+  const [isDelivered, setIsDelivered] = useState<boolean>(false);
+  const [showConfirmDelivery, setShowConfirmDelivery] = useState<boolean>(false);
+  const [completing, setCompleting] = useState<boolean>(false);
 
   const watchIdRef = useRef<number | null>(null);
   const wakeLockRef = useRef<any>(null);
-  const lastPosRef = useRef<{ lat: number; lng: number } | null>(null);
+  const lastPosRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
 
   // Read order ID from URL parameters
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const orderParam = params.get('order') || params.get('id') || 'all';
     setOrderId(orderParam);
+
+    // Fetch initial order metadata
+    const fetchOrderMeta = async () => {
+      try {
+        const res = await fetch(`/api/driver/location/${encodeURIComponent(orderParam)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setOrderDetails({
+            orderNumber: data.orderNumber || orderParam,
+            destinationCity: data.destinationCity,
+            originCity: data.originCity,
+            status: data.signalStatus,
+            remainingDistanceKm: data.remainingDistanceKm
+          });
+          if (data.signalStatus === 'delivered' || data.isDelivered) {
+            setIsDelivered(true);
+          }
+        }
+      } catch (e) {
+        // Continue with URL param
+      }
+    };
+    fetchOrderMeta();
   }, []);
 
   // Screen Wake Lock API to prevent phone from sleeping while driving
@@ -58,23 +92,20 @@ export const DriverGpsTracker: React.FC = () => {
     }
   };
 
-  const [isSimulating, setIsSimulating] = useState<boolean>(false);
-  const simIntervalRef = useRef<any>(null);
-  const simIndexRef = useRef<number>(0);
-
-  // Send coordinates directly to backend
-  const sendLocation = async (lat: number, lng: number, spdKmh: number, heading?: number | null) => {
+  // Send real coordinates directly to backend
+  const sendLocation = async (lat: number, lng: number, spdKmh: number, heading?: number | null, acc?: number | null) => {
     try {
       const res = await fetch('/api/driver/location', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId,
-          orderNumber: orderId,
+          orderNumber: orderDetails?.orderNumber || orderId,
           lat,
           lng,
           speed: spdKmh,
-          heading: heading || undefined,
+          heading: heading !== null && heading !== undefined ? Math.round(heading) : undefined,
+          accuracy: acc !== null && acc !== undefined ? Math.round(acc) : undefined,
           status: 'dispatched',
           driverPhone: 'Мобильный Веб-Трекер'
         })
@@ -86,14 +117,14 @@ export const DriverGpsTracker: React.FC = () => {
         setErrorMsg(null);
       }
     } catch (err: any) {
-      setErrorMsg("Ошибка связи с сервером CRM. Повторная отправка через 3 сек...");
+      setErrorMsg("Ошибка связи с сервером CRM. Проверьте интернет-соединение.");
     }
   };
 
   // Start continuous GPS tracking
   const startTracking = () => {
     if (!navigator.geolocation) {
-      setErrorMsg("Ваш браузер не поддерживает GPS геолокацию.");
+      setErrorMsg("Ваш мобильный браузер не поддерживает GPS геолокацию.");
       return;
     }
 
@@ -109,6 +140,7 @@ export const DriverGpsTracker: React.FC = () => {
 
     const handleSuccess = (pos: GeolocationPosition) => {
       const { latitude, longitude, speed: rawSpeed, accuracy: acc, heading } = pos.coords;
+      const now = Date.now();
       setCurrentLat(latitude);
       setCurrentLng(longitude);
       setAccuracy(Math.round(acc));
@@ -127,20 +159,25 @@ export const DriverGpsTracker: React.FC = () => {
           Math.sin(dLon / 2) * Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         const distKm = R * c;
-        // Assume ~3 sec interval
-        spdKmh = Math.min(110, Math.round((distKm / (3 / 3600))));
+        const dtSeconds = Math.max(1, (now - lastPosRef.current.time) / 1000);
+        
+        if (distKm > 0.01) {
+          spdKmh = Math.min(120, Math.round((distKm / (dtSeconds / 3600))));
+        } else {
+          spdKmh = 0; // Standing still
+        }
       }
       setSpeed(spdKmh);
-      lastPosRef.current = { lat: latitude, lng: longitude };
+      lastPosRef.current = { lat: latitude, lng: longitude, time: now };
 
-      sendLocation(latitude, longitude, spdKmh, heading);
+      sendLocation(latitude, longitude, spdKmh, heading, acc);
     };
 
     const handleError = (err: GeolocationPositionError) => {
       let msg = "Ошибка GPS: ";
-      if (err.code === 1) msg += "Разрешите доступ к геолокации в настройках браузера.";
-      else if (err.code === 2) msg += "Сигнал GPS потерян. Убедитесь, что GPS включен в телефоне.";
-      else if (err.code === 3) msg += "Таймаут поиска GPS сигнала.";
+      if (err.code === 1) msg += "Пожалуйста, разрешите доступ к геолокации в настройках браузера.";
+      else if (err.code === 2) msg += "Сигнал GPS потерян. Убедитесь, что GPS (Геопозиция) включен в телефоне.";
+      else if (err.code === 3) msg += "Поиск спутников GPS...";
       setErrorMsg(msg);
     };
 
@@ -149,55 +186,40 @@ export const DriverGpsTracker: React.FC = () => {
     watchIdRef.current = id;
   };
 
-  // Office test simulation along highway road
-  const startSimulation = () => {
-    stopTracking();
-    setIsSimulating(true);
-    setIsTracking(true);
-    requestWakeLock();
-    setErrorMsg(null);
-
-    const road = KAZAKHSTAN_ROADS.astana;
-    simIndexRef.current = Math.floor(road.length * 0.1); // start 10% along highway
-
-    const stepSimulation = () => {
-      simIndexRef.current = (simIndexRef.current + 3) % road.length;
-      const pt = road[simIndexRef.current];
-      const nextPt = road[(simIndexRef.current + 1) % road.length];
-      
-      // Calculate heading
-      const dLon = nextPt.lng - pt.lng;
-      const y = Math.sin(dLon) * Math.cos(nextPt.lat);
-      const x = Math.cos(pt.lat) * Math.sin(nextPt.lat) - Math.sin(pt.lat) * Math.cos(nextPt.lat) * Math.cos(dLon);
-      const headingDeg = Math.round((Math.atan2(y, x) * 180 / Math.PI + 360) % 360);
-
-      setCurrentLat(pt.lat);
-      setCurrentLng(pt.lng);
-      setSpeed(72);
-      setAccuracy(5);
-      sendLocation(pt.lat, pt.lng, 72, headingDeg);
-    };
-
-    stepSimulation();
-    simIntervalRef.current = setInterval(stepSimulation, 3000);
-  };
-
-  const stopSimulation = () => {
-    if (simIntervalRef.current) {
-      clearInterval(simIntervalRef.current);
-      simIntervalRef.current = null;
-    }
-    setIsSimulating(false);
-  };
-
   const stopTracking = () => {
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
-    stopSimulation();
     releaseWakeLock();
     setIsTracking(false);
+  };
+
+  // Complete delivery
+  const handleConfirmCompleteDelivery = async () => {
+    setCompleting(true);
+    try {
+      const res = await fetch('/api/driver/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId,
+          orderNumber: orderDetails?.orderNumber || orderId
+        })
+      });
+
+      if (res.ok) {
+        stopTracking();
+        setIsDelivered(true);
+        setShowConfirmDelivery(false);
+      } else {
+        setErrorMsg("Не удалось завершить рейс на сервере. Попробуйте еще раз.");
+      }
+    } catch (e) {
+      setErrorMsg("Ошибка сети при завершении рейса.");
+    } finally {
+      setCompleting(false);
+    }
   };
 
   useEffect(() => {
@@ -205,12 +227,37 @@ export const DriverGpsTracker: React.FC = () => {
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
       }
-      if (simIntervalRef.current) {
-        clearInterval(simIntervalRef.current);
-      }
       releaseWakeLock();
     };
   }, []);
+
+  if (isDelivered) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 font-sans select-none">
+        <div className="w-full max-w-md bg-slate-900 border border-emerald-500/40 rounded-3xl p-8 text-center space-y-5 shadow-2xl">
+          <div className="w-20 h-20 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto border border-emerald-500/40">
+            <CheckCircle2 className="w-12 h-12" />
+          </div>
+          <div>
+            <span className="text-xs font-bold uppercase tracking-widest text-emerald-400">Рейс завершен</span>
+            <h1 className="text-2xl font-black mt-1 text-white">Груз успешно доставлен!</h1>
+            <p className="text-sm text-slate-400 mt-2">
+              Рейс <strong className="text-amber-400 font-mono">{orderDetails?.orderNumber || orderId}</strong> отмечен как выполненный в системе CRM.
+            </p>
+            {orderDetails?.destinationCity && (
+              <p className="text-xs text-slate-500 mt-1">
+                Пункт назначения: <strong>{orderDetails.destinationCity}</strong>
+              </p>
+            )}
+          </div>
+          <div className="p-4 bg-slate-950/80 rounded-2xl border border-slate-800 text-xs text-slate-300">
+            ✅ GPS-отслеживание рейса остановлено.<br />
+            Спасибо за безопасную доставку! 🚛✨
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-between p-4 sm:p-6 font-sans select-none">
@@ -224,23 +271,25 @@ export const DriverGpsTracker: React.FC = () => {
             <h1 className="text-base font-black tracking-tight text-white flex items-center gap-1.5">
               <span>SILK ROAD GPS</span>
               <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">
-                DRIVER
+                РЕАЛЬНЫЙ GPS
               </span>
             </h1>
-            <p className="text-xs text-slate-400">Мониторинг движения фуры</p>
+            <p className="text-xs text-slate-400">
+              {orderDetails?.destinationCity ? `${orderDetails.originCity || 'Алматы'} ➔ ${orderDetails.destinationCity}` : 'Мониторинг движения фуры'}
+            </p>
           </div>
         </div>
 
         <div className="text-right">
           <span className="text-[10px] uppercase font-bold text-slate-400">Рейс</span>
-          <p className="text-sm font-black text-amber-400 font-mono">{orderId.toUpperCase()}</p>
+          <p className="text-sm font-black text-amber-400 font-mono">{(orderDetails?.orderNumber || orderId).toUpperCase()}</p>
         </div>
       </div>
 
       {/* Main Center Display */}
-      <div className="w-full max-w-md my-auto py-6 space-y-6">
+      <div className="w-full max-w-md my-auto py-4 space-y-5">
         {/* Speedometer Gauge & Status Circle */}
-        <div className="relative flex flex-col items-center justify-center p-8 bg-gradient-to-b from-slate-900 to-slate-900/60 rounded-3xl border border-slate-800 shadow-2xl overflow-hidden">
+        <div className="relative flex flex-col items-center justify-center p-7 bg-gradient-to-b from-slate-900 to-slate-900/60 rounded-3xl border border-slate-800 shadow-2xl overflow-hidden">
           {/* Pulsing Radar when Tracking */}
           {isTracking && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -251,7 +300,7 @@ export const DriverGpsTracker: React.FC = () => {
 
           <div className="relative text-center">
             <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-              {isTracking ? "Текущая скорость" : "GPS Остановлен"}
+              {isTracking ? "Фактическая скорость по GPS" : "GPS Остановлен"}
             </span>
             <div className="text-6xl sm:text-7xl font-black text-white tracking-tighter my-2 font-mono flex items-baseline justify-center">
               <span>{isTracking ? speed : 0}</span>
@@ -259,9 +308,9 @@ export const DriverGpsTracker: React.FC = () => {
             </div>
 
             <div className="flex items-center justify-center gap-2 mt-2">
-              <span className={`w-3 h-3 rounded-full ${isTracking ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`} />
-              <span className={`text-xs font-bold uppercase tracking-wider ${isTracking ? 'text-emerald-400' : 'text-slate-400'}`}>
-                {isTracking ? "🟢 В ЭФИРЕ (GPS АКТИВЕН)" : "⚪ Ожидание старта"}
+              <span className={`w-3 h-3 rounded-full ${isTracking ? (speed > 5 ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400 animate-pulse') : 'bg-slate-600'}`} />
+              <span className={`text-xs font-bold uppercase tracking-wider ${isTracking ? (speed > 5 ? 'text-emerald-400' : 'text-amber-400') : 'text-slate-400'}`}>
+                {isTracking ? (speed > 5 ? "🟢 В ДВИЖЕНИИ (GPS ПЕРЕДАЁТСЯ)" : "🟡 НА СВЯЗИ (СТОЯНКА)") : "⚪ Ожидание выезда"}
               </span>
             </div>
           </div>
@@ -289,7 +338,7 @@ export const DriverGpsTracker: React.FC = () => {
               {accuracy !== null ? `±${accuracy} м` : '—'}
             </p>
             <span className="text-[10px] text-slate-400">
-              {wakeLockActive ? '📱 Экран активен' : 'Обычный режим'}
+              {wakeLockActive ? '📱 Экран не гаснет' : 'Обычный режим'}
             </span>
           </div>
         </div>
@@ -312,70 +361,85 @@ export const DriverGpsTracker: React.FC = () => {
           </div>
         )}
 
-        {/* BIG ACTION BUTTON */}
-        <div className="space-y-2.5">
+        {/* ACTION BUTTONS */}
+        <div className="space-y-3">
           {!isTracking ? (
             <button
               onClick={startTracking}
               className="w-full py-5 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-base uppercase tracking-wider rounded-2xl shadow-xl shadow-emerald-900/40 active:scale-95 transition-all flex items-center justify-center gap-3 cursor-pointer"
             >
               <Navigation className="w-6 h-6 fill-current animate-bounce" />
-              <span>НАЧАТЬ ТРАНСЛЯЦИЮ В ПУТИ</span>
+              <span>НАЧАТЬ РЕЙС И ВКЛЮЧИТЬ GPS</span>
             </button>
           ) : (
-            <button
-              onClick={stopTracking}
-              className="w-full py-5 bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white font-black text-base uppercase tracking-wider rounded-2xl shadow-xl shadow-red-900/40 active:scale-95 transition-all flex items-center justify-center gap-3 cursor-pointer"
-            >
-              <div className="w-4 h-4 bg-white rounded-sm" />
-              <span>ОСТАНОВИТЬ ТРЕКИНГ</span>
-            </button>
-          )}
+            <div className="space-y-2">
+              <button
+                onClick={stopTracking}
+                className="w-full py-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-sm uppercase tracking-wider rounded-2xl border border-slate-700 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span>ПАУЗА В ПУТИ</span>
+              </button>
 
-          {/* Office Test Simulation Mode Button */}
-          {!isTracking ? (
-            <button
-              onClick={startSimulation}
-              className="w-full py-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-              title="Проверить движение фуры по трассе прямо из офиса"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span>🧪 Тест движения в пути (72 км/ч без машины)</span>
-            </button>
-          ) : isSimulating ? (
-            <div className="text-center">
-              <span className="text-[11px] font-bold text-amber-400 bg-amber-950/60 border border-amber-800/80 px-3 py-1 rounded-full">
-                ⚡ Режим офисной симуляции активен (72 км/ч)
-              </span>
+              <button
+                onClick={() => setShowConfirmDelivery(true)}
+                className="w-full py-4 bg-gradient-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-black text-base uppercase tracking-wider rounded-2xl shadow-xl shadow-red-900/40 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <CheckCircle2 className="w-5 h-5" />
+                <span>🏁 ЗАВЕРШИТЬ РЕЙС (ГРУЗ ДОСТАВЛЕН)</span>
+              </button>
             </div>
-          ) : null}
+          )}
         </div>
       </div>
+
+      {/* Confirmation Modal */}
+      {showConfirmDelivery && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-sm w-full p-6 space-y-4 text-center">
+            <div className="w-14 h-14 bg-amber-500/20 text-amber-400 rounded-2xl flex items-center justify-center mx-auto border border-amber-500/40">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Завершить рейс?</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Вы подтверждаете, что груз по рейсу <strong>{orderDetails?.orderNumber || orderId}</strong> доставлен в пункт назначения{orderDetails?.destinationCity ? ` (${orderDetails.destinationCity})` : ''}?
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <button
+                onClick={() => setShowConfirmDelivery(false)}
+                disabled={completing}
+                className="py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition-all"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleConfirmCompleteDelivery}
+                disabled={completing}
+                className="py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-900/40 transition-all flex items-center justify-center gap-1.5"
+              >
+                {completing ? 'Завершение...' : 'Да, доставлен'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Bottom Driver Instructions Guide */}
       <div className="w-full max-w-md bg-slate-900/40 border border-slate-800/60 rounded-2xl p-4 text-xs text-slate-400 space-y-2">
         <div className="flex items-center gap-2 text-slate-200 font-bold">
-          <Smartphone className="w-4 h-4 text-blue-400" />
-          <span>Инструкция для водителя в дороге:</span>
+          <Smartphone className="w-4 h-4 text-emerald-400" />
+          <span>Памятка для водителя в дороге:</span>
         </div>
         <p className="leading-relaxed">
-          1. Нажмите зеленую кнопку <strong>«НАЧАТЬ ТРАНСЛЯЦИЮ В ПУТИ»</strong> и разрешите доступ к геопозиции.
+          1. Нажмите <strong>«НАЧАТЬ РЕЙС И ВКЛЮЧИТЬ GPS»</strong> и разрешите доступ к геопозиции в окне браузера.
         </p>
         <p className="leading-relaxed">
-          2. Закрепите телефон в держатель на панели авто. Экран не погаснет, а координаты будут сами передаваться каждые 3 секунды на карту логиста.
+          2. Закрепите телефон в держатель на панели авто. Экран останется включенным, а координаты и реальная скорость будут передаваться каждые 3–5 секунд.
         </p>
-        <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[11px]">
-          <span className="text-slate-500">Silk Road Logistics CRM</span>
-          <a
-            href="https://t.me/SilkRoadDriverBot"
-            target="_blank"
-            rel="noreferrer"
-            className="text-blue-400 hover:underline flex items-center gap-1 font-bold"
-          >
-            <span>Бот @SilkRoadDriverBot</span>
-            <ExternalLink className="w-3 h-3" />
-          </a>
-        </div>
+        <p className="leading-relaxed">
+          3. По прибытии на склад нажмите <strong>«ЗАВЕРШИТЬ РЕЙС»</strong>.
+        </p>
       </div>
     </div>
   );

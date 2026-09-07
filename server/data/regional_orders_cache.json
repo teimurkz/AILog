@@ -1,37 +1,17 @@
 [
   {
-    "id": "EN0o1ji4bLm1i9sYLGuS",
-    "orderNumber": "REG-2771",
-    "destinationCity": "Астана",
-    "originCity": "Алматы",
-    "status": "dispatched",
-    "assignedDriver": "Тима (@TeimurF)",
-    "assignedTruckPlate": "",
-    "currentLat": 43.36314,
-    "currentLng": 76.888563,
-    "speed": 68,
-    "dispatchedAt": "2026-09-07T09:14:14.352Z"
-  },
-  {
-    "id": "EMWLCdjGiHMewXMDLquK",
-    "orderNumber": "REG-4825",
-    "destinationCity": "Астана",
-    "originCity": "Алматы",
-    "status": "delivered",
-    "assignedDriver": "+7 777 933 9046‬ (Роман)",
-    "assignedTruckPlate": "",
-    "currentLat": 51.1694,
-    "currentLng": 71.4491,
-    "speed": 0
-  },
-  {
     "id": "Zut9CnNeGHe7qUN2vQO1",
     "orderNumber": "REG-2070",
     "destinationCity": "Шымкент",
     "originCity": "Алматы",
     "status": "delivered",
     "assignedDriver": "Нурлан  (+7 775 438 8778‬)",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "currentLat": 43.2391,
+    "currentLng": 76.8898,
+    "speed": 0,
+    "heading": 180,
+    "lastGpsUpdate": "2026-09-07T10:40:35.150Z"
   },
   {
     "id": "20omgR9XQHXj7GTBduHn",
@@ -110,8 +90,11 @@
     "orderNumber": "REG-1566",
     "destinationCity": "Астана",
     "originCity": "Алматы",
-    "status": "cancelled",
-    "assignedTruckPlate": ""
+    "status": "delivered",
+    "assignedTruckPlate": "",
+    "speed": 0,
+    "currentLat": 43.2391,
+    "currentLng": 76.8898
   },
   {
     "id": "dBGik386AjPH1KOnCK8n",
