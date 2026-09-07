@@ -1,0 +1,229 @@
+[
+  {
+    "id": "reg-1002-astana",
+    "orderNumber": "REG-1002",
+    "destinationCity": "Астана",
+    "originCity": "Алматы",
+    "status": "new"
+  },
+  {
+    "id": "reg-1003-shymkent",
+    "orderNumber": "REG-1003",
+    "destinationCity": "Шымкент",
+    "originCity": "Алматы",
+    "status": "new"
+  },
+  {
+    "id": "reg-1004-karaganda",
+    "orderNumber": "REG-1004",
+    "destinationCity": "Караганда",
+    "originCity": "Алматы",
+    "status": "new"
+  },
+  {
+    "id": "reg-1005-taraz",
+    "orderNumber": "REG-1005",
+    "destinationCity": "Тараз",
+    "originCity": "Алматы",
+    "status": "new"
+  },
+  {
+    "id": "reg-1006-balkhash",
+    "orderNumber": "REG-1006",
+    "destinationCity": "Балхаш",
+    "originCity": "Алматы",
+    "status": "new"
+  },
+  {
+    "id": "858vtVPr9jBVe0MHUKtm",
+    "orderNumber": "REG-4949",
+    "destinationCity": "Астана",
+    "originCity": "Алматы",
+    "status": "new",
+    "assignedDriver": "",
+    "assignedTruckPlate": "",
+    "currentLat": 43.2389,
+    "currentLng": 76.8897,
+    "speed": 0
+  },
+  {
+    "id": "Hfw9Tw5oIFQjqJu8oOig",
+    "orderNumber": "REG-3165",
+    "destinationCity": "Шымкент",
+    "originCity": "Алматы",
+    "status": "new",
+    "assignedDriver": "",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "EMWLCdjGiHMewXMDLquK",
+    "orderNumber": "REG-4825",
+    "destinationCity": "Астана",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "+7 777 933 9046‬ (Роман)",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "Zut9CnNeGHe7qUN2vQO1",
+    "orderNumber": "REG-2070",
+    "destinationCity": "Шымкент",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Нурлан  (+7 775 438 8778‬)",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "20omgR9XQHXj7GTBduHn",
+    "orderNumber": "REG-2392",
+    "destinationCity": "Шымкент",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "+7 702 402 4770  (Жасулан)",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "KgdmrwyJhjHaUjpuYvGj",
+    "orderNumber": "REG-3564",
+    "destinationCity": "Шымкент",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Фуркат (+7 778 153 5340)",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "HGqiMaAkb0L366NRtG9c",
+    "orderNumber": "REG-1765",
+    "destinationCity": "Шымкент",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Шохрух (+7 702 972 7372 )",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "UpBt8RMPk1O98gWyQUkW",
+    "orderNumber": "REG-7476",
+    "destinationCity": "Астана",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Арыстан (+7 775 166 3492)",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "Gjymi8euIK2cLNlCxTaT",
+    "orderNumber": "REG-3346",
+    "destinationCity": "Шымкент",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Вахибжан (+7 702 769 9585)",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "5VmtdtMCkiVkBrhW0RoQ",
+    "orderNumber": "REG-7270",
+    "destinationCity": "Шымкент",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Камалжан  (+7 702 175 5758)",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "lLhkNM7iojOwMYJTKt4u",
+    "orderNumber": "REG-5172",
+    "destinationCity": "Актау",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Алибек ( +7 (778) 139-31-10) , номер накладной 53272",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "SPOcuwOZg6F8QFxt88id",
+    "orderNumber": "REG-4716",
+    "destinationCity": "Актау",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Марат (+7 705 104 6795)",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "yvAFvnKP3S4gU1kojlNo",
+    "orderNumber": "REG-1566",
+    "destinationCity": "Астана",
+    "originCity": "Алматы",
+    "status": "cancelled",
+    "assignedDriver": "",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "dBGik386AjPH1KOnCK8n",
+    "orderNumber": "REG-3088",
+    "destinationCity": "Астана",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Рамазан (+7 775 681 1025 )",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "BwCH0dXLbJoc6A91BqXT",
+    "orderNumber": "REG-1920",
+    "destinationCity": "Астана",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Жасулан (+7 702 402 4770)",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "batbYDkm2y1n1ffFGVBm",
+    "orderNumber": "REG-9731",
+    "destinationCity": "Астана",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Александр (+7 771 455 5095)",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "YMf1fbE2Xt8nyLp8n1BW",
+    "orderNumber": "REG-1855",
+    "destinationCity": "алматы",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "97VhqdbwH5gdtb1ILW3G",
+    "orderNumber": "REG-1931",
+    "destinationCity": "Актау",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Досбол (+7 776 799 0058)",
+    "assignedTruckPlate": ""
+  },
+  {
+    "id": "31nZt8kioUbQQuERVu6H",
+    "orderNumber": "REG-7391",
+    "destinationCity": "Актау",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Алибек Водитель  +7 (778) 139-31-10",
+    "assignedTruckPlate": "770AEL12"
+  },
+  {
+    "id": "6Nc2huKMaXsAMUQP8sDB",
+    "orderNumber": "REG-5419",
+    "destinationCity": "Астана",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Валерий ( 87473601827)",
+    "assignedTruckPlate": "935AMI01"
+  },
+  {
+    "id": "KPMr8K6mCBm3c4QLnPdw",
+    "orderNumber": "REG-7316",
+    "destinationCity": "Шымкент",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "assignedDriver": "Хаятулла ( +7 702 620 7090 ; ‎+7 705 242 2343)",
+    "assignedTruckPlate": "488BJV13"
+  }
+]

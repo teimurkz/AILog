@@ -181,6 +181,29 @@ export const useRegionalOrders = () => {
       initialLoadDoneRef.current = true;
       setOrders(fetched);
       setLoading(false);
+
+      // Keep backend server informed about all regional orders for Telegram bot
+      if (fetched.length > 0) {
+        fetch('/api/driver/sync-orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orders: fetched.map(o => ({
+              id: o.id,
+              orderNumber: o.orderNumber,
+              destinationCity: o.destinationCity,
+              originCity: o.originCity || 'Алматы',
+              status: o.status,
+              assignedDriver: o.assignedDriver,
+              assignedTruckPlate: o.assignedTruckPlate,
+              dispatchedAt: o.dispatchedAt,
+              currentLat: o.currentLat,
+              currentLng: o.currentLng,
+              speed: o.speed
+            }))
+          })
+        }).catch(() => {});
+      }
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, path);
       setLoading(false);

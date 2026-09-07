@@ -1,7 +1,38 @@
 import { Router } from "express";
-import { updateDriverLocation, getDriverLocation, linkOrderNumberToId } from "../services/telegram.service.js";
+import { 
+  updateDriverLocation, 
+  getDriverLocation, 
+  linkOrderNumberToId,
+  syncActiveOrders,
+  getActiveOrdersList,
+  updateCachedOrderStatus
+} from "../services/telegram.service.js";
 
 const router = Router();
+
+// Endpoint for frontend to sync all known regional orders to server for Telegram bot
+router.post("/sync-orders", (req, res) => {
+  try {
+    const { orders } = req.body;
+    if (Array.isArray(orders)) {
+      syncActiveOrders(orders);
+    }
+    return res.json({ success: true, count: orders?.length || 0 });
+  } catch (error: any) {
+    console.error("Error syncing active orders:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint to list all active orders
+router.get("/orders", (req, res) => {
+  try {
+    const list = getActiveOrdersList();
+    return res.json(list);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
 
 // Endpoint for driver Telegram bot or mobile client to post GPS position
 router.post("/location", (req, res) => {
@@ -13,6 +44,13 @@ router.post("/location", (req, res) => {
 
     if (orderNumber) {
       linkOrderNumberToId(String(orderId), String(orderNumber));
+      if (status) {
+        updateCachedOrderStatus(String(orderNumber), status, {
+          currentLat: Number(lat),
+          currentLng: Number(lng),
+          speed: speed !== undefined ? Number(speed) : 68
+        });
+      }
     }
 
     const updated = updateDriverLocation({
@@ -36,13 +74,35 @@ router.post("/location", (req, res) => {
 router.get("/location/:orderId", (req, res) => {
   try {
     const { orderId } = req.params;
-    const destinationCity = (req.query.destinationCity as string) || "Астана";
+    let destinationCity = (req.query.destinationCity as string) || "";
     const orderNumber = (req.query.orderNumber as string) || undefined;
-    const status = (req.query.status as string) || undefined;
+    let status = (req.query.status as string) || undefined;
     const dispatchedAt = (req.query.dispatchedAt as string) || undefined;
 
     if (orderNumber) {
       linkOrderNumberToId(String(orderId), String(orderNumber));
+    }
+
+    // Lookup destinationCity from known orders if not provided or default
+    const allOrders = getActiveOrdersList();
+    const cleanId = orderId.toLowerCase();
+    const cleanNum = orderNumber ? orderNumber.toLowerCase() : '';
+    const matched = allOrders.find(o => 
+      o.id.toLowerCase() === cleanId || 
+      o.orderNumber.toLowerCase() === cleanNum || 
+      o.orderNumber.toLowerCase() === cleanId
+    );
+
+    if (matched) {
+      if (!destinationCity || destinationCity === 'Астана') {
+        destinationCity = matched.destinationCity || destinationCity || 'Астана';
+      }
+      if (!status) {
+        status = matched.status || status;
+      }
+    }
+    if (!destinationCity) {
+      destinationCity = "Астана";
     }
 
     const routeData = getDriverLocation(
@@ -60,3 +120,4 @@ router.get("/location/:orderId", (req, res) => {
 });
 
 export default router;
+

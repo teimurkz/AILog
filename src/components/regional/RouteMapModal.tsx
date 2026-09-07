@@ -191,6 +191,16 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
         if (data.progressPercent !== undefined) {
           setSimulatedProgress(data.progressPercent);
         }
+        // Sync driver coordinates to Firestore document directly from authenticated browser
+        if (data.currentLat && data.currentLng && order.id) {
+          updateDoc(doc(db, 'regional_orders', order.id), {
+            currentLat: data.currentLat,
+            currentLng: data.currentLng,
+            speed: data.speed !== undefined ? data.speed : 68,
+            lastGpsUpdate: new Date().toISOString(),
+            ...(data.progressPercent > 0 && (order.status === 'new' || order.status === 'loading') ? { status: 'dispatched' } : {})
+          }).catch(() => {});
+        }
       }
     } catch (e) {
       console.warn("Failed to fetch driver GPS data:", e);

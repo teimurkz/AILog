@@ -1,4 +1,6 @@
 import axios from "axios";
+import fs from "fs";
+import path from "path";
 
 export interface LocationPoint {
   lat: number;
@@ -99,6 +101,96 @@ export function linkOrderNumberToId(orderId: string, orderNumber: string) {
     driverLocationsMap.set(cleanNum, target);
   }
 }
+
+export interface RegionalOrderSummary {
+  id: string;
+  orderNumber: string;
+  destinationCity: string;
+  originCity?: string;
+  status?: string;
+  assignedDriver?: string;
+  assignedTruckPlate?: string;
+  dispatchedAt?: string;
+  currentLat?: number;
+  currentLng?: number;
+  speed?: number;
+}
+
+const ORDERS_CACHE_FILE = path.join(process.cwd(), "server", "data", "regional_orders_cache.json");
+
+const DEFAULT_SAMPLE_ORDERS: RegionalOrderSummary[] = [
+  { id: 'reg-1002-astana', orderNumber: 'REG-1002', destinationCity: 'Астана', originCity: 'Алматы', status: 'new' },
+  { id: 'reg-1003-shymkent', orderNumber: 'REG-1003', destinationCity: 'Шымкент', originCity: 'Алматы', status: 'new' },
+  { id: 'reg-1004-karaganda', orderNumber: 'REG-1004', destinationCity: 'Караганда', originCity: 'Алматы', status: 'new' },
+  { id: 'reg-1005-taraz', orderNumber: 'REG-1005', destinationCity: 'Тараз', originCity: 'Алматы', status: 'new' },
+  { id: 'reg-1006-balkhash', orderNumber: 'REG-1006', destinationCity: 'Балхаш', originCity: 'Алматы', status: 'new' },
+];
+
+let activeOrdersList: RegionalOrderSummary[] = [];
+
+function loadOrdersFromCache(): RegionalOrderSummary[] {
+  try {
+    if (fs.existsSync(ORDERS_CACHE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(ORDERS_CACHE_FILE, 'utf8'));
+      if (Array.isArray(data) && data.length > 0) {
+        return data;
+      }
+    }
+  } catch (e) {
+    console.warn("Could not load orders cache:", e);
+  }
+  return DEFAULT_SAMPLE_ORDERS;
+}
+
+activeOrdersList = loadOrdersFromCache();
+activeOrdersList.forEach(o => linkOrderNumberToId(o.id, o.orderNumber));
+
+export function syncActiveOrders(orders: RegionalOrderSummary[]) {
+  if (!Array.isArray(orders) || orders.length === 0) return;
+  
+  const map = new Map<string, RegionalOrderSummary>();
+  activeOrdersList.forEach(o => map.set(o.orderNumber.toUpperCase(), o));
+  
+  orders.forEach(o => {
+    const key = (o.orderNumber || o.id).toUpperCase();
+    const existing = map.get(key);
+    const merged: RegionalOrderSummary = {
+      ...existing,
+      ...o,
+      status: existing?.status === 'dispatched' ? 'dispatched' : o.status
+    };
+    map.set(key, merged);
+    linkOrderNumberToId(o.id, o.orderNumber);
+  });
+
+  activeOrdersList = Array.from(map.values());
+  try {
+    fs.writeFileSync(ORDERS_CACHE_FILE, JSON.stringify(activeOrdersList, null, 2), 'utf8');
+  } catch (e) {}
+}
+
+export function getActiveOrdersList(): RegionalOrderSummary[] {
+  return activeOrdersList;
+}
+
+export function getAvailableOrdersForDriver(): RegionalOrderSummary[] {
+  const list = activeOrdersList.filter(o => o.status !== 'delivered' && o.status !== 'cancelled');
+  return list.length > 0 ? list : DEFAULT_SAMPLE_ORDERS;
+}
+
+export function updateCachedOrderStatus(orderNumberOrId: string, status: string, extra?: Partial<RegionalOrderSummary>) {
+  const clean = orderNumberOrId.toLowerCase();
+  activeOrdersList = activeOrdersList.map(o => {
+    if (o.id.toLowerCase() === clean || o.orderNumber.toLowerCase() === clean) {
+      return { ...o, status, ...(extra || {}) };
+    }
+    return o;
+  });
+  try {
+    fs.writeFileSync(ORDERS_CACHE_FILE, JSON.stringify(activeOrdersList, null, 2), 'utf8');
+  } catch (e) {}
+}
+
 
 // Sync location or status updates directly to Cloud Firestore
 export async function syncOrderToFirestore(orderIdOrNumber: string, updates: Record<string, any>) {
@@ -486,23 +578,76 @@ function canSendAntiSpam(chatId: number, minIntervalMs: number = 60000): boolean
   return Date.now() - last > minIntervalMs;
 }
 
-// 1-Click Keyboard: The ONLY button the driver needs before departure!
-const START_KEYBOARD = {
-  keyboard: [
-    [{ text: "🚚 ВЫЕХАЛ В РЕЙС", request_location: true }]
-  ],
-  resize_keyboard: true,
-  one_time_keyboard: false
-};
+// Driver chat state: which order has this driver selected?
+const chatSelectedOrder = new Map<number, RegionalOrderSummary>();
 
-// While on the road: Only 1 button to finish upon delivery
-const TRANSIT_KEYBOARD = {
-  keyboard: [
-    [{ text: "🏁 Груз доставлен (Завершить)" }]
-  ],
-  resize_keyboard: true,
-  one_time_keyboard: false
-};
+// Build dynamic keyboard with available new / active trips
+function buildOrderSelectionKeyboard(orders: RegionalOrderSummary[]) {
+  const keyboard: Array<Array<{ text: string }>> = [];
+  
+  // Show available orders (up to 6 orders)
+  const slice = orders.slice(0, 6);
+  for (let i = 0; i < slice.length; i += 2) {
+    const row = [];
+    row.push({ text: `🚛 ${slice[i].orderNumber} (${slice[i].destinationCity})` });
+    if (slice[i + 1]) {
+      row.push({ text: `🚛 ${slice[i + 1].orderNumber} (${slice[i + 1].destinationCity})` });
+    }
+    keyboard.push(row);
+  }
+  
+  keyboard.push([{ text: "🔄 Обновить список заявок" }]);
+  
+  return {
+    keyboard,
+    resize_keyboard: true,
+    one_time_keyboard: false
+  };
+}
+
+function buildSelectedOrderKeyboard(order: RegionalOrderSummary) {
+  return {
+    keyboard: [
+      [{ text: `🚚 ВЫЕХАЛ В РЕЙС (${order.orderNumber})`, request_location: true }],
+      [{ text: "🔄 Выбрать другой рейс" }]
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: false
+  };
+}
+
+function buildInTransitKeyboard(order: RegionalOrderSummary) {
+  return {
+    keyboard: [
+      [{ text: "🏁 Груз доставлен (Завершить)" }],
+      [{ text: "🔄 Сменить рейс" }]
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: false
+  };
+}
+
+function findMatchingOrder(text: string, orders: RegionalOrderSummary[]): RegionalOrderSummary | null {
+  const lower = text.toLowerCase().trim();
+  
+  // Match by exact orderNumber (e.g. REG-1002 or 1002)
+  for (const o of orders) {
+    const cleanNum = o.orderNumber.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanText = lower.replace(/[^a-z0-9]/g, '');
+    if (cleanNum && cleanText.includes(cleanNum)) return o;
+    if (o.orderNumber.toLowerCase() === lower) return o;
+    if (o.id.toLowerCase() === lower) return o;
+  }
+  
+  // Match by destination city name (e.g. "Астана", "Шымкент", "Караганда")
+  for (const o of orders) {
+    if (o.destinationCity && lower.includes(o.destinationCity.toLowerCase())) {
+      return o;
+    }
+  }
+  
+  return null;
+}
 
 // Real-time Telegram Bot Polling Loop
 let lastUpdateId = 0;
@@ -532,22 +677,23 @@ export function startTelegramBotPolling() {
       for (const update of updates) {
         lastUpdateId = update.update_id;
 
-        // Support both regular message and live location streaming edited_message
         const msg = update.message || update.edited_message;
         if (!msg) continue;
 
         const chatId = msg.chat?.id;
         if (!chatId) continue;
 
-        const activeOrderId = activeChatOrderMap.get(chatId) || 'all';
+        const availableOrders = getAvailableOrdersForDriver();
+        let selectedOrder = chatSelectedOrder.get(chatId);
 
         // 1. LIVE LOCATION STREAM (edited_message) - STRICT ZERO SPAM:
-        // Update coordinates in memory & Firestore silently without sending ANY chat message!
         if (update.edited_message) {
           const loc = update.edited_message.location;
           if (loc) {
+            const orderId = selectedOrder?.id || activeChatOrderMap.get(chatId) || 'all';
+            const orderNum = selectedOrder?.orderNumber || activeChatOrderMap.get(chatId) || 'all';
             updateDriverLocation({
-              orderId: activeOrderId,
+              orderId,
               driverPhone: msg.from?.phone_number || msg.from?.username || `id:${chatId}`,
               lat: loc.latitude,
               lng: loc.longitude,
@@ -555,7 +701,10 @@ export function startTelegramBotPolling() {
               speed: loc.speed !== undefined ? Math.round(loc.speed * 3.6) : undefined,
               updatedAt: new Date().toISOString()
             }, 'dispatched');
-            console.log(`📡 [Telegram Live GPS Stream] Order: ${activeOrderId} | Lat: ${loc.latitude.toFixed(5)}, Lng: ${loc.longitude.toFixed(5)}`);
+            if (orderNum !== orderId) {
+              linkOrderNumberToId(orderId, orderNum);
+            }
+            console.log(`📡 [Telegram Live GPS Stream] Order: ${orderNum} | Lat: ${loc.latitude.toFixed(5)}, Lng: ${loc.longitude.toFixed(5)}`);
           }
           continue;
         }
@@ -566,9 +715,16 @@ export function startTelegramBotPolling() {
         // 2. DRIVER PRESSED "🚚 ВЫЕХАЛ В РЕЙС" (location sent with 1-click)
         if (location) {
           const { latitude, longitude } = location;
+          
+          if (!selectedOrder) {
+            selectedOrder = availableOrders[0] || DEFAULT_SAMPLE_ORDERS[0];
+            chatSelectedOrder.set(chatId, selectedOrder);
+            activeChatOrderMap.set(chatId, selectedOrder.orderNumber);
+            linkOrderNumberToId(selectedOrder.id, selectedOrder.orderNumber);
+          }
 
           updateDriverLocation({
-            orderId: activeOrderId,
+            orderId: selectedOrder.id,
             driverPhone: msg.from?.phone_number || msg.from?.username || `id:${chatId}`,
             lat: latitude,
             lng: longitude,
@@ -576,59 +732,138 @@ export function startTelegramBotPolling() {
             speed: location.speed !== undefined ? Math.round(location.speed * 3.6) : 68,
             updatedAt: new Date().toISOString()
           }, 'dispatched');
+          linkOrderNumberToId(selectedOrder.id, selectedOrder.orderNumber);
 
-          const isAlreadyActive = chatTripActive.get(chatId);
+          updateCachedOrderStatus(selectedOrder.orderNumber, 'dispatched', {
+            dispatchedAt: new Date().toISOString(),
+            currentLat: latitude,
+            currentLng: longitude,
+            speed: 68
+          });
 
-          if (!isAlreadyActive) {
-            chatTripActive.set(chatId, true);
-            await syncOrderToFirestore(activeOrderId, {
-              status: 'dispatched',
-              dispatchedAt: new Date().toISOString(),
-              currentLat: latitude,
-              currentLng: longitude,
-              speed: 68
-            });
+          chatTripActive.set(chatId, true);
+          await syncOrderToFirestore(selectedOrder.orderNumber, {
+            status: 'dispatched',
+            dispatchedAt: new Date().toISOString(),
+            currentLat: latitude,
+            currentLng: longitude,
+            speed: 68
+          });
 
-            // Send EXACTLY ONE confirmation message and switch to transit keyboard
-            await sendTelegramMessage(
-              chatId,
-              `🟢 <b>Рейс начат!</b>\n\nКоординаты приняты. Логисты видят ваше перемещение на карте.\nУдачной дороги! 🛣️`,
-              TRANSIT_KEYBOARD
-            );
-            chatLastMessageTime.set(chatId, Date.now());
-          } else {
-            // Already in transit - coordinates updated quietly, NO SPAM!
-            console.log(`📍 [GPS updated quietly] Order: ${activeOrderId} | ${latitude}, ${longitude}`);
-          }
-        } 
-        // 3. /start COMMAND
-        else if (text.startsWith('/start')) {
-          const parts = text.split(' ');
-          const orderParam = parts.length > 1 ? parts[1].toUpperCase() : 'all';
-          activeChatOrderMap.set(chatId, orderParam);
-          chatTripActive.set(chatId, false);
-
+          // Send EXACTLY ONE confirmation message
           await sendTelegramMessage(
             chatId,
-            `👋 <b>Здравствуйте!</b>\n${orderParam !== 'all' ? `📦 <b>Рейс:</b> ${orderParam}\n\n` : ''}Для начала поездки нажмите кнопку <b>«🚚 ВЫЕХАЛ В РЕЙС»</b> ниже 👇`,
-            START_KEYBOARD
+            `🟢 <b>Рейс начат! Отслеживание активно.</b>\n\n` +
+            `📦 <b>Рейс:</b> ${selectedOrder.orderNumber}\n` +
+            `🛣️ <b>Маршрут:</b> ${selectedOrder.originCity || 'Алматы'} ➔ <b>${selectedOrder.destinationCity}</b>\n\n` +
+            `📍 Координаты получены. Логист видит движение вашей фуры на карте в CRM!\n` +
+            `Удачной дороги! 🛣️`,
+            buildInTransitKeyboard(selectedOrder)
           );
           chatLastMessageTime.set(chatId, Date.now());
-        } 
-        // 4. TEXT MESSAGES
-        else if (text) {
+          continue;
+        }
+
+        // 3. /start COMMAND
+        if (text.startsWith('/start')) {
+          const parts = text.split(' ');
+          const orderParam = parts.length > 1 ? parts[1].toUpperCase() : '';
+          
+          if (orderParam) {
+            const matched = findMatchingOrder(orderParam, activeOrdersList);
+            if (matched) {
+              chatSelectedOrder.set(chatId, matched);
+              activeChatOrderMap.set(chatId, matched.orderNumber);
+              linkOrderNumberToId(matched.id, matched.orderNumber);
+              chatTripActive.set(chatId, false);
+
+              await sendTelegramMessage(
+                chatId,
+                `👋 <b>Здравствуйте, Водитель!</b>\n\n` +
+                `📦 <b>Ваш рейс:</b> ${matched.orderNumber}\n` +
+                `🛣️ <b>Маршрут:</b> ${matched.originCity || 'Алматы'} ➔ <b>${matched.destinationCity}</b>\n\n` +
+                `Нажмите кнопку ниже, чтобы начать отслеживание поездки 👇`,
+                buildSelectedOrderKeyboard(matched)
+              );
+              chatLastMessageTime.set(chatId, Date.now());
+              continue;
+            }
+          }
+
+          // If no order param, show available orders list
+          chatTripActive.set(chatId, false);
+          await sendTelegramMessage(
+            chatId,
+            `👋 <b>Здравствуйте, Водитель!</b>\n\n` +
+            `📦 <b>Выберите ваш рейс из списка:</b>\n` +
+            `Логист сразу увидит, какую заявку и в какой город вы везёте:`,
+            buildOrderSelectionKeyboard(availableOrders)
+          );
+          chatLastMessageTime.set(chatId, Date.now());
+          continue;
+        }
+
+        // 4. TEXT COMMANDS & SELECTIONS
+        if (text) {
           const lowerText = text.toLowerCase();
 
-          // Driver marks start of trip via text ("Выехал в рейс" fallback)
+          // Change / Refresh order selection
+          if (
+            lowerText.includes('выбрать другой') || 
+            lowerText.includes('сменить рейс') || 
+            lowerText.includes('обновить') ||
+            lowerText.includes('список')
+          ) {
+            chatTripActive.set(chatId, false);
+            await sendTelegramMessage(
+              chatId,
+              `📦 <b>Доступные заявки на выезд:</b>\nВыберите рейс и направление:`,
+              buildOrderSelectionKeyboard(getAvailableOrdersForDriver())
+            );
+            chatLastMessageTime.set(chatId, Date.now());
+            continue;
+          }
+
+          // Check if driver selected one of the orders from the keyboard buttons
+          const matchedOrder = findMatchingOrder(text, activeOrdersList);
+          if (matchedOrder && !lowerText.includes('доставлен') && !lowerText.includes('выехал')) {
+            chatSelectedOrder.set(chatId, matchedOrder);
+            activeChatOrderMap.set(chatId, matchedOrder.orderNumber);
+            linkOrderNumberToId(matchedOrder.id, matchedOrder.orderNumber);
+            chatTripActive.set(chatId, false);
+
+            await sendTelegramMessage(
+              chatId,
+              `✅ <b>Выбран рейс: ${matchedOrder.orderNumber}</b>\n` +
+              `🛣️ <b>Направление:</b> ${matchedOrder.originCity || 'Алматы'} ➔ <b>${matchedOrder.destinationCity}</b>\n\n` +
+              `Нажмите кнопку <b>«🚚 ВЫЕХАЛ В РЕЙС»</b> ниже для старта отслеживания 👇`,
+              buildSelectedOrderKeyboard(matchedOrder)
+            );
+            chatLastMessageTime.set(chatId, Date.now());
+            continue;
+          }
+
+          // Driver marks start of trip via text ("Выехал в рейс" text fallback)
           if (
             lowerText.includes('выехал') || 
             lowerText.includes('в путь') || 
-            lowerText.includes('рейс') || 
-            lowerText.includes('начать') || 
-            lowerText.includes('поехал')
+            lowerText.includes('поехал') || 
+            lowerText.includes('начать')
           ) {
+            if (!selectedOrder) {
+              selectedOrder = availableOrders[0] || DEFAULT_SAMPLE_ORDERS[0];
+              chatSelectedOrder.set(chatId, selectedOrder);
+              activeChatOrderMap.set(chatId, selectedOrder.orderNumber);
+              linkOrderNumberToId(selectedOrder.id, selectedOrder.orderNumber);
+            }
+
             chatTripActive.set(chatId, true);
-            await syncOrderToFirestore(activeOrderId, {
+            updateCachedOrderStatus(selectedOrder.orderNumber, 'dispatched', {
+              dispatchedAt: new Date().toISOString(),
+              speed: 68
+            });
+
+            await syncOrderToFirestore(selectedOrder.orderNumber, {
               status: 'dispatched',
               dispatchedAt: new Date().toISOString(),
               speed: 68
@@ -636,56 +871,56 @@ export function startTelegramBotPolling() {
 
             await sendTelegramMessage(
               chatId,
-              `🟢 <b>Рейс начат!</b>\n\nЛогисты видят ваше перемещение на карте.\nУдачной дороги! 🛣️`,
-              TRANSIT_KEYBOARD
+              `🟢 <b>Рейс начат!</b>\n` +
+              `📦 <b>Рейс:</b> ${selectedOrder.orderNumber} (${selectedOrder.destinationCity})\n` +
+              `Фура начала движение по трассе на мониторах логистов.\n\n` +
+              `Удачной дороги! 🛣️`,
+              buildInTransitKeyboard(selectedOrder)
             );
             chatLastMessageTime.set(chatId, Date.now());
+            continue;
           }
+
           // Driver marks cargo delivered ("Груз доставлен")
-          else if (
+          if (
             lowerText.includes('доставлен') || 
             lowerText.includes('завершить') || 
             lowerText.includes('приехал') || 
             lowerText.includes('выгруз')
           ) {
             chatTripActive.set(chatId, false);
-            await syncOrderToFirestore(activeOrderId, {
-              status: 'delivered',
-              deliveredAt: new Date().toISOString()
-            });
+            const finishedOrder = selectedOrder || availableOrders[0];
+            if (finishedOrder) {
+              updateCachedOrderStatus(finishedOrder.orderNumber, 'delivered');
+              await syncOrderToFirestore(finishedOrder.orderNumber, {
+                status: 'delivered',
+                deliveredAt: new Date().toISOString()
+              });
+            }
 
+            chatSelectedOrder.delete(chatId);
             await sendTelegramMessage(
               chatId,
-              `🏁 <b>Рейс успешно завершён!</b>\n\nСпасибо за доставку груза! 🚛✨`,
-              START_KEYBOARD
+              `🏁 <b>Рейс успешно завершён!</b>\n` +
+              `Груз доставлен в город ${finishedOrder?.destinationCity || ''}. Спасибо за работу! 🚛✨\n\n` +
+              `Выберите следующий рейс:`,
+              buildOrderSelectionKeyboard(getAvailableOrdersForDriver())
             );
             chatLastMessageTime.set(chatId, Date.now());
+            continue;
           }
-          // Driver sent order number e.g. "REG-1002" or "1002"
-          else {
-            const orderMatch = text.match(/([a-zA-Z]{0,4}-?\d{3,6})/i);
-            if (orderMatch) {
-              const matchedOrder = orderMatch[1].toUpperCase();
-              activeChatOrderMap.set(chatId, matchedOrder);
-              chatTripActive.set(chatId, false);
 
-              await sendTelegramMessage(
-                chatId,
-                `📦 <b>Рейс ${matchedOrder} привязан.</b>\n\nНажмите <b>«🚚 ВЫЕХАЛ В РЕЙС»</b> ниже для старта поездки 👇`,
-                START_KEYBOARD
-              );
-              chatLastMessageTime.set(chatId, Date.now());
-            } 
-            // Generic text: Anti-spam rate limited to max 1 reply per 60 seconds
-            else if (canSendAntiSpam(chatId, 60000)) {
-              const isTripActive = chatTripActive.get(chatId);
-              await sendTelegramMessage(
-                chatId,
-                `Для управления рейсом нажмите кнопку внизу 👇`,
-                isTripActive ? TRANSIT_KEYBOARD : START_KEYBOARD
-              );
-              chatLastMessageTime.set(chatId, Date.now());
-            }
+          // Anti-spam generic reply
+          if (canSendAntiSpam(chatId, 60000)) {
+            const kb = selectedOrder
+              ? (chatTripActive.get(chatId) ? buildInTransitKeyboard(selectedOrder) : buildSelectedOrderKeyboard(selectedOrder))
+              : buildOrderSelectionKeyboard(availableOrders);
+            await sendTelegramMessage(
+              chatId,
+              `Для управления рейсом используйте кнопку внизу 👇`,
+              kb
+            );
+            chatLastMessageTime.set(chatId, Date.now());
           }
         }
       }
