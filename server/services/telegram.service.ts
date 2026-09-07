@@ -477,6 +477,34 @@ async function sendTelegramMessage(chatId: number, text: string, replyMarkup?: a
 }
 
 // Real-time Telegram Bot Polling Loop
+// State and anti-spam tracking for Telegram chats
+const chatLastMessageTime = new Map<number, number>();
+const chatTripActive = new Map<number, boolean>();
+
+function canSendAntiSpam(chatId: number, minIntervalMs: number = 60000): boolean {
+  const last = chatLastMessageTime.get(chatId) || 0;
+  return Date.now() - last > minIntervalMs;
+}
+
+// 1-Click Keyboard: The ONLY button the driver needs before departure!
+const START_KEYBOARD = {
+  keyboard: [
+    [{ text: "🚚 ВЫЕХАЛ В РЕЙС", request_location: true }]
+  ],
+  resize_keyboard: true,
+  one_time_keyboard: false
+};
+
+// While on the road: Only 1 button to finish upon delivery
+const TRANSIT_KEYBOARD = {
+  keyboard: [
+    [{ text: "🏁 Груз доставлен (Завершить)" }]
+  ],
+  resize_keyboard: true,
+  one_time_keyboard: false
+};
+
+// Real-time Telegram Bot Polling Loop
 let lastUpdateId = 0;
 let isPollingStarted = false;
 
@@ -485,8 +513,6 @@ export function startTelegramBotPolling() {
   isPollingStarted = true;
 
   console.log(`🤖 [Telegram Bot] @${TELEGRAM_BOT_USERNAME} polling service active...`);
-
-  const liveLocationAckChats = new Set<number>();
 
   const poll = async () => {
     try {
@@ -513,28 +539,33 @@ export function startTelegramBotPolling() {
         const chatId = msg.chat?.id;
         if (!chatId) continue;
 
+        const activeOrderId = activeChatOrderMap.get(chatId) || 'all';
+
+        // 1. LIVE LOCATION STREAM (edited_message) - STRICT ZERO SPAM:
+        // Update coordinates in memory & Firestore silently without sending ANY chat message!
+        if (update.edited_message) {
+          const loc = update.edited_message.location;
+          if (loc) {
+            updateDriverLocation({
+              orderId: activeOrderId,
+              driverPhone: msg.from?.phone_number || msg.from?.username || `id:${chatId}`,
+              lat: loc.latitude,
+              lng: loc.longitude,
+              heading: loc.heading,
+              speed: loc.speed !== undefined ? Math.round(loc.speed * 3.6) : undefined,
+              updatedAt: new Date().toISOString()
+            }, 'dispatched');
+            console.log(`📡 [Telegram Live GPS Stream] Order: ${activeOrderId} | Lat: ${loc.latitude.toFixed(5)}, Lng: ${loc.longitude.toFixed(5)}`);
+          }
+          continue;
+        }
+
         const text = (msg.text || '').trim();
         const location = msg.location;
 
-        const DRIVER_KEYBOARD = {
-          keyboard: [
-            [
-              { text: "🚚 Я выехал в путь (Начать рейс)" },
-              { text: "📍 Отправить геолокацию", request_location: true }
-            ],
-            [
-              { text: "🏁 Груз доставлен (Завершить)" },
-              { text: "ℹ️ Информация о рейсе" }
-            ]
-          ],
-          resize_keyboard: true,
-          one_time_keyboard: false
-        };
-
-        // Check if driver sent location coordinates (button click or live location stream)
+        // 2. DRIVER PRESSED "🚚 ВЫЕХАЛ В РЕЙС" (location sent with 1-click)
         if (location) {
           const { latitude, longitude } = location;
-          const activeOrderId = activeChatOrderMap.get(chatId) || 'all';
 
           updateDriverLocation({
             orderId: activeOrderId,
@@ -542,72 +573,82 @@ export function startTelegramBotPolling() {
             lat: latitude,
             lng: longitude,
             heading: location.heading,
-            speed: location.speed !== undefined ? Math.round(location.speed * 3.6) : undefined,
+            speed: location.speed !== undefined ? Math.round(location.speed * 3.6) : 68,
             updatedAt: new Date().toISOString()
           }, 'dispatched');
 
-          // Case A: Driver sent a one-time location snapshot
-          if (update.message) {
+          const isAlreadyActive = chatTripActive.get(chatId);
+
+          if (!isAlreadyActive) {
+            chatTripActive.set(chatId, true);
+            await syncOrderToFirestore(activeOrderId, {
+              status: 'dispatched',
+              dispatchedAt: new Date().toISOString(),
+              currentLat: latitude,
+              currentLng: longitude,
+              speed: 68
+            });
+
+            // Send EXACTLY ONE confirmation message and switch to transit keyboard
             await sendTelegramMessage(
               chatId,
-              `✅ <b>Координаты приняты!</b>\n\n📍 <b>Точка:</b> ${latitude.toFixed(5)}° N, ${longitude.toFixed(5)}° E\n📦 <b>Рейс:</b> ${activeOrderId}\n\n🚨 <b>ДЛЯ АВТО-ДВИЖЕНИЯ В ПУТИ:</b>\nЧтобы фура непрерывно двигалась на мониторе логиста, включите трансляцию:\n1️⃣ Нажмите 📎 <b>(Скрепка)</b> возле поля ввода\n2️⃣ Выберите 📍 <b>«Геолокация»</b>\n3️⃣ Нажмите <b>«Транслировать геопозицию на 8 часов»</b>.`,
-              DRIVER_KEYBOARD
+              `🟢 <b>Рейс начат!</b>\n\nКоординаты приняты. Логисты видят ваше перемещение на карте.\nУдачной дороги! 🛣️`,
+              TRANSIT_KEYBOARD
             );
-          } 
-          // Case B: Driver is streaming Live Location while driving
-          else if (update.edited_message) {
-            console.log(`📡 [Telegram Live GPS Stream] Order: ${activeOrderId} | Lat: ${latitude.toFixed(5)}, Lng: ${longitude.toFixed(5)} | Heading: ${location.heading || 0}°`);
-            if (!liveLocationAckChats.has(chatId)) {
-              liveLocationAckChats.add(chatId);
-              await sendTelegramMessage(
-                chatId,
-                `🟢 <b>Прямая трансляция движения АКТИВНА!</b>\n\nВаше перемещение отображается на мониторе логиста CRM в реальном времени. Удачной дороги! 🛣️`,
-                DRIVER_KEYBOARD
-              );
-            }
+            chatLastMessageTime.set(chatId, Date.now());
+          } else {
+            // Already in transit - coordinates updated quietly, NO SPAM!
+            console.log(`📍 [GPS updated quietly] Order: ${activeOrderId} | ${latitude}, ${longitude}`);
           }
-        } else if (text.startsWith('/start')) {
-          // Extract order ID if passed as parameter e.g. /start REG-1002
+        } 
+        // 3. /start COMMAND
+        else if (text.startsWith('/start')) {
           const parts = text.split(' ');
           const orderParam = parts.length > 1 ? parts[1].toUpperCase() : 'all';
           activeChatOrderMap.set(chatId, orderParam);
+          chatTripActive.set(chatId, false);
 
           await sendTelegramMessage(
             chatId,
-            `👋 <b>Здравствуйте, Водитель!</b>\n\nВы подключились к системе GPS-мониторинга <b>Silk Road Logistics CRM</b>.\n${orderParam !== 'all' ? `📦 <b>Ваш рейс:</b> ${orderParam}\n\n` : ''}🔘 <b>Управление рейсом через кнопки внизу:</b>\n\n1️⃣ Нажмите <b>«🚚 Я выехал в путь»</b> при выезде со склада.\n2️⃣ Нажмите <b>«📍 Отправить геолокацию»</b> или включите трансляцию через скрепку 📎 на 8 часов.\n3️⃣ Нажмите <b>«🏁 Груз доставлен»</b> по прибытии на место.`,
-            DRIVER_KEYBOARD
+            `👋 <b>Здравствуйте!</b>\n${orderParam !== 'all' ? `📦 <b>Рейс:</b> ${orderParam}\n\n` : ''}Для начала поездки нажмите кнопку <b>«🚚 ВЫЕХАЛ В РЕЙС»</b> ниже 👇`,
+            START_KEYBOARD
           );
-        } else if (text) {
+          chatLastMessageTime.set(chatId, Date.now());
+        } 
+        // 4. TEXT MESSAGES
+        else if (text) {
           const lowerText = text.toLowerCase();
-          const activeOrderId = activeChatOrderMap.get(chatId) || 'all';
 
-          // Driver marks that they are in transit ("В пути" / "Выехал")
+          // Driver marks start of trip via text ("Выехал в рейс" fallback)
           if (
             lowerText.includes('выехал') || 
-            lowerText.includes('в пути') || 
-            lowerText.includes('начать рейс') || 
-            lowerText.includes('поехал') ||
-            lowerText.includes('в дороге')
+            lowerText.includes('в путь') || 
+            lowerText.includes('рейс') || 
+            lowerText.includes('начать') || 
+            lowerText.includes('поехал')
           ) {
-            // Update in memory and sync to Firestore
+            chatTripActive.set(chatId, true);
             await syncOrderToFirestore(activeOrderId, {
               status: 'dispatched',
-              dispatchedAt: new Date().toISOString()
+              dispatchedAt: new Date().toISOString(),
+              speed: 68
             });
 
             await sendTelegramMessage(
               chatId,
-              `🟢 <b>Статус рейса изменен на «В ПУТИ В РЕГИОН»!</b>\n\n📦 <b>Рейс:</b> ${activeOrderId}\n🕒 <b>Время выезда:</b> ${new Date().toLocaleTimeString('ru-RU')}\n\nЛогисты и заказчики видят, что вы отправились по маршруту. На интерактивной карте фура начала движение!\n\n📍 <b>Отправьте геолокацию:</b>\nНажмите кнопку <b>«📍 Отправить геолокацию»</b> внизу либо включите <b>Трансляцию геопозиции на 8 часов</b> через скрепку 📎!`,
-              DRIVER_KEYBOARD
+              `🟢 <b>Рейс начат!</b>\n\nЛогисты видят ваше перемещение на карте.\nУдачной дороги! 🛣️`,
+              TRANSIT_KEYBOARD
             );
+            chatLastMessageTime.set(chatId, Date.now());
           }
-          // Driver marks that cargo is delivered
+          // Driver marks cargo delivered ("Груз доставлен")
           else if (
             lowerText.includes('доставлен') || 
             lowerText.includes('завершить') || 
             lowerText.includes('приехал') || 
             lowerText.includes('выгруз')
           ) {
+            chatTripActive.set(chatId, false);
             await syncOrderToFirestore(activeOrderId, {
               status: 'delivered',
               deliveredAt: new Date().toISOString()
@@ -615,41 +656,35 @@ export function startTelegramBotPolling() {
 
             await sendTelegramMessage(
               chatId,
-              `🏁 <b>Рейс успешно завершен!</b>\n\n📦 Статус заявки ${activeOrderId} в CRM обновлен на <b>«Доставлено»</b>.\nСпасибо за безопасную доставку груза! 🚛✨`,
-              DRIVER_KEYBOARD
+              `🏁 <b>Рейс успешно завершён!</b>\n\nСпасибо за доставку груза! 🚛✨`,
+              START_KEYBOARD
             );
+            chatLastMessageTime.set(chatId, Date.now());
           }
-          // Driver requests route / order info
-          else if (
-            lowerText.includes('инфо') || 
-            lowerText.includes('рейс') || 
-            lowerText.includes('статус') ||
-            lowerText.includes('маршрут')
-          ) {
-            const prog = getDriverLocation(activeOrderId);
-            await sendTelegramMessage(
-              chatId,
-              `ℹ️ <b>Информация о вашем рейсе:</b>\n\n📦 <b>Заявка:</b> ${activeOrderId}\n🛣️ <b>Маршрут:</b> ${prog.originCity} ➔ ${prog.destinationCity}\n🏁 <b>Осталось:</b> ${prog.remainingDistanceKm} км (~${prog.progressPercent}%)\n⏱️ <b>ETA прибытия:</b> ${prog.etaFormatted}\n🚗 <b>Скорость:</b> ${prog.speed} км/ч\n\n<i>Для обновления точки нажмите «📍 Отправить геолокацию»</i>`,
-              DRIVER_KEYBOARD
-            );
-          }
-          // Driver typed order number
+          // Driver sent order number e.g. "REG-1002" or "1002"
           else {
             const orderMatch = text.match(/([a-zA-Z]{0,4}-?\d{3,6})/i);
             if (orderMatch) {
               const matchedOrder = orderMatch[1].toUpperCase();
               activeChatOrderMap.set(chatId, matchedOrder);
+              chatTripActive.set(chatId, false);
+
               await sendTelegramMessage(
                 chatId,
-                `✅ <b>Рейс успешно привязан: ${matchedOrder}</b>\n\nКогда выедете со склада, нажмите <b>«🚚 Я выехал в путь»</b>, а затем отправьте геолокацию.`,
-                DRIVER_KEYBOARD
+                `📦 <b>Рейс ${matchedOrder} привязан.</b>\n\nНажмите <b>«🚚 ВЫЕХАЛ В РЕЙС»</b> ниже для старта поездки 👇`,
+                START_KEYBOARD
               );
-            } else {
+              chatLastMessageTime.set(chatId, Date.now());
+            } 
+            // Generic text: Anti-spam rate limited to max 1 reply per 60 seconds
+            else if (canSendAntiSpam(chatId, 60000)) {
+              const isTripActive = chatTripActive.get(chatId);
               await sendTelegramMessage(
                 chatId,
-                `🚚 <b>Silk Road Logistics CRM</b>\n\nВыберите действие на клавиатуре внизу:\n• <b>«🚚 Я выехал в путь»</b>\n• <b>«📍 Отправить геолокацию»</b>\n• <b>«🏁 Груз доставлен»</b>\n• Либо напишите номер рейса (например: <code>1002</code>).`,
-                DRIVER_KEYBOARD
+                `Для управления рейсом нажмите кнопку внизу 👇`,
+                isTripActive ? TRANSIT_KEYBOARD : START_KEYBOARD
               );
+              chatLastMessageTime.set(chatId, Date.now());
             }
           }
         }
@@ -665,3 +700,4 @@ export function startTelegramBotPolling() {
 
   poll();
 }
+
