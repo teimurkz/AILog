@@ -29,6 +29,7 @@ import { onTruckPositionUpdate, onDeliveryEnded, joinOrderRoom, leaveOrderRoom }
 import { LeafletRouteMap } from './LeafletRouteMap';
 import { RegionalTruckOrder } from '../../types';
 import { KAZAKHSTAN_ROADS } from '../../utils/kazakhstanRoads';
+import { auth } from '../../firebase';
 
 interface RouteMapModalProps {
   isOpen: boolean;

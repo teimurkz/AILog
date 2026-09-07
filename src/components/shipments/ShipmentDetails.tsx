@@ -23,6 +23,7 @@ import { Shipment, ShipmentLog, ShipmentStatus } from '../../types';
 import { cn } from '../../lib/utils';
 import { isShipmentDelayed } from '../../utils/shipmentUtils';
 import { useAuth } from '../../contexts/AuthContext';
+import { auth } from '../../firebase';
 
 interface ShipmentDetailsProps {
   shipment: Shipment;

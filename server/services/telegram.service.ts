@@ -6,7 +6,7 @@ import { broadcastRealtimeEvent } from "../routes/realtime.routes.js";
 import { emitTruckPositionUpdate, emitDeliveryEnded } from "./socket.service.js";
 import { processIncomingTelemetry } from "./gps-engine.service.js";
 
-export { LocationPoint };
+export type { LocationPoint };
 
 export interface DriverLocation {
   orderId: string;
@@ -148,6 +148,8 @@ export interface RegionalOrderSummary {
   currentLat?: number;
   currentLng?: number;
   speed?: number;
+  heading?: number;
+  lastGpsUpdate?: string;
 }
 
 // Session and chat state maps
@@ -1044,8 +1046,8 @@ function buildActiveTripInlineKeyboard(orderNumber: string) {
 function buildSelectedOrderKeyboard(order: RegionalOrderSummary) {
   return {
     keyboard: [
-      [{ text: `📍 Разрешить геопозицию и начать рейс`, request_location: true }],
-      [{ text: "🔄 Выбрать другой рейс" }]
+      [{ text: "🛑 Завершить рейс" }],
+      [{ text: "🔄 Сменить рейс" }]
     ],
     resize_keyboard: true,
     one_time_keyboard: false
@@ -1162,7 +1164,7 @@ export function startTelegramBotPolling() {
                 msgId,
                 `✅ <b>Выбран рейс: ${matched.orderNumber}</b>\n` +
                 `🛣️ <b>Маршрут:</b> ${matched.originCity || 'Алматы'} ➔ <b>${matched.destinationCity}</b>\n\n` +
-                `📍 Для запуска GPS-отслеживания рейса нажмите кнопку внизу экрана 👇`
+                `🛰️ Включите онлайн-трансляцию геопозиции по инструкции ниже 👇`
               );
             }
 
@@ -1172,13 +1174,15 @@ export function startTelegramBotPolling() {
 
             await sendTelegramMessage(
               chatId,
-              `📍 <b>Два способа транслировать GPS логисту:</b>\n\n` +
-              `📱 <b>1. Мобильный Веб-Трекер (Рекомендуется):</b>\n` +
-              `👉 <a href="${trackerUrl}">Открыть трекер рейса</a>\n` +
-              `Нажмите ссылку в браузере телефона и нажмите «Начать рейс». Экран не гаснет, трекинг работает автоматически.\n\n` +
-              `📎 <b>2. Непрерывно через Telegram:</b>\n` +
-              `Нажмите скрепку 📎 ➔ «Геопозиция» ➔ «Транслировать геопозицию» (на 8 часов).\n\n` +
-              `Либо нажмите кнопку <b>«📍 Отправить точку старта»</b> внизу экрана 👇`,
+              `✅ <b>Рейс ${matched.orderNumber} готов к отправке!</b>\n` +
+              `🛣️ <b>Направление:</b> ${matched.originCity || 'Алматы'} ➔ <b>${matched.destinationCity}</b>\n\n` +
+              `🛰️ <b>КАК ВКЛЮЧИТЬ НЕПРЕРЫВНУЮ ТРАНСЛЯЦИЮ ГЕОПОЗИЦИИ:</b>\n` +
+              `Чтобы машина непрерывно двигалась по карте логиста в реальном времени, включите именно <b>ТРАНСЛЯЦИЮ</b>:\n\n` +
+              `1️⃣ Нажмите <b>скрепку 📎</b> внизу (слева от поля ввода сообщения)\n` +
+              `2️⃣ Нажмите <b>«Геопозиция»</b> 📍\n` +
+              `3️⃣ Нажмите <b>«Транслировать мою геопозицию...»</b> ➔ выберите <b>«8 часов»</b> ⏱️\n\n` +
+              `<i>⚠️ ВНИМАНИЕ: не нажимайте «Отправить свою геопозицию» (это разовая статичная точка, от неё фура не едет). Выбирайте пункт «Транслировать геопозицию»!</i>\n\n` +
+              `Как только Telegram начнёт трансляцию, сервер подхватит Live-поток и будет обновлять координаты машины на мониторах логистов в реальном времени до завершения рейса. 🚛💨`,
               buildSelectedOrderKeyboard(matched)
             );
             chatLastMessageTime.set(chatId, Date.now());
@@ -1286,18 +1290,40 @@ export function startTelegramBotPolling() {
         const availableOrders = getAvailableOrdersForDriver(driverIdent, chatId);
         let selectedOrder = chatSelectedOrder.get(chatId);
 
-        // 1. LIVE LOCATION STREAM (edited_message) - FILTER: ACTIVE TRIPS ONLY
+        // 1. LIVE LOCATION STREAM (edited_message) - continuous real-time updates from Telegram
         if (update.edited_message) {
           const loc = update.edited_message.location;
-          const isTripActive = chatTripActive.get(chatId) === true;
-          if (loc && isTripActive) {
-            let activeOrder = selectedOrder;
+          if (loc) {
+            let activeOrder = chatSelectedOrder.get(chatId);
             if (!activeOrder) {
               const orderNum = activeChatOrderMap.get(chatId);
               if (orderNum) {
-                activeOrder = activeOrdersList.find(o => o.orderNumber.toUpperCase() === orderNum.toUpperCase() || o.id === orderNum);
+                const stored = storageService.getOrder(orderNum);
+                if (stored) {
+                  activeOrder = {
+                    id: stored.id,
+                    orderNumber: stored.orderNumber,
+                    destinationCity: stored.destinationCity,
+                    originCity: stored.originCity || 'Алматы',
+                    status: stored.status,
+                    assignedDriver: stored.assignedDriver,
+                    assignedTruckPlate: stored.assignedTruckPlate
+                  };
+                  chatSelectedOrder.set(chatId, activeOrder);
+                }
               }
             }
+            if (!activeOrder) {
+              const avail = getAvailableOrdersForDriver(driverIdent, chatId);
+              if (avail.length > 0) {
+                activeOrder = avail[0];
+                chatSelectedOrder.set(chatId, activeOrder);
+                activeChatOrderMap.set(chatId, activeOrder.orderNumber);
+              }
+            }
+
+            chatTripActive.set(chatId, true);
+
             const orderId = activeOrder?.id || activeChatOrderMap.get(chatId) || 'all';
             const orderNum = activeOrder?.orderNumber || activeChatOrderMap.get(chatId) || 'all';
             const speedKmh = loc.speed !== undefined ? Math.max(0, Math.round(loc.speed * 3.6)) : 0;
@@ -1353,14 +1379,27 @@ export function startTelegramBotPolling() {
         const text = (msg.text || '').trim();
         const location = msg.location;
 
-        // 2. DRIVER SENDS LOCATION (button click or paperclip)
+        // 2. DRIVER SENDS LOCATION (Initial Live Location or Static Point)
         if (location) {
           const { latitude, longitude } = location;
+          const isLive = Boolean(location.live_period);
           
           if (!selectedOrder) {
             const orderNum = activeChatOrderMap.get(chatId);
             if (orderNum) {
-              selectedOrder = activeOrdersList.find(o => o.orderNumber.toUpperCase() === orderNum.toUpperCase() || o.id === orderNum);
+              const stored = storageService.getOrder(orderNum);
+              if (stored) {
+                selectedOrder = {
+                  id: stored.id,
+                  orderNumber: stored.orderNumber,
+                  destinationCity: stored.destinationCity,
+                  originCity: stored.originCity || 'Алматы',
+                  status: stored.status,
+                  assignedDriver: stored.assignedDriver,
+                  assignedTruckPlate: stored.assignedTruckPlate
+                };
+                chatSelectedOrder.set(chatId, selectedOrder);
+              }
             }
           }
 
@@ -1385,9 +1424,9 @@ export function startTelegramBotPolling() {
             ? `${msg.from.first_name}${msg.from.last_name ? ' ' + msg.from.last_name : ''}${msg.from.username ? ' (@' + msg.from.username + ')' : ''}`
             : (msg.from?.username ? `@${msg.from.username}` : `Водитель Telegram (${chatId})`);
 
-          const isAlreadyInTransit = chatTripActive.get(chatId) === true || selectedOrder.status === 'dispatched';
           const speedCalculated = location.speed !== undefined ? Math.max(0, Math.round(location.speed * 3.6)) : 0;
 
+          // Always record coordinates
           updateDriverLocation({
             orderId: selectedOrder.id,
             driverPhone: msg.from?.phone_number || msg.from?.username || `id:${chatId}`,
@@ -1410,47 +1449,18 @@ export function startTelegramBotPolling() {
           chatTripActive.set(chatId, true);
           saveSessionsToCache();
 
-          await syncOrderToFirestore(selectedOrder.orderNumber, {
-            status: 'dispatched',
-            assignedDriver: driverTitle,
-            currentLat: latitude,
-            currentLng: longitude,
-            speed: speedCalculated
-          });
-          if (selectedOrder.id && selectedOrder.id !== selectedOrder.orderNumber) {
-            await syncOrderToFirestore(selectedOrder.id, {
-              status: 'dispatched',
-              assignedDriver: driverTitle,
-              currentLat: latitude,
-              currentLng: longitude,
-              speed: speedCalculated
-            });
-          }
-
-          if (isAlreadyInTransit) {
-            // In transit GPS update: short confirmation
-            await sendTelegramMessage(
-              chatId,
-              `📍 <b>Координаты обновлены!</b>\n` +
-              `Скорость: ${speedCalculated} км/ч\n` +
-              `Фура на связи, слежка продолжается. 🛣️`,
-              buildInTransitKeyboard(selectedOrder)
-            );
-          } else {
-            // First time departure confirmation - PIN MESSAGE WITH INLINE BUTTON [🛑 Завершить рейс]
-            const appBaseUrl = process.env.BASE_URL || process.env.APP_URL || 'http://localhost:3000';
-            const trackerUrl = `${appBaseUrl}/gps?order=${encodeURIComponent(selectedOrder.orderNumber)}`;
-
+          if (isLive) {
+            // TRUE LIVE LOCATION STREAM STARTED!
+            const liveHours = location.live_period ? Math.round(location.live_period / 3600) : 8;
             const sentMsg = await sendTelegramMessage(
               chatId,
-              `🟢 <b>Рейс начат!</b>\n\n` +
+              `🟢 <b>ТРАНСЛЯЦИЯ ГЕОПОЗИЦИИ АКТИВНА (${liveHours} ч.)!</b> 🛰️\n\n` +
               `📦 <b>Рейс:</b> ${selectedOrder.orderNumber}\n` +
               `🛣️ <b>Маршрут:</b> ${selectedOrder.originCity || 'Алматы'} ➔ <b>${selectedOrder.destinationCity}</b>\n` +
-              `🚛 <b>Тягач:</b> ${selectedOrder.assignedTruckPlate || 'Не указан'}\n` +
+              `🚛 <b>Тягач:</b> ${selectedOrder.assignedTruckPlate || 'Назначен'}\n` +
               `👤 <b>Водитель:</b> ${driverTitle}\n\n` +
-              `🛰️ <b>GPS-отслеживание активно:</b>\n` +
-              `Включите непрерывную трансляцию (📎 ➔ «Геопозиция» ➔ «Транслировать геопозицию на 8 часов») или откройте <a href="${trackerUrl}">Веб-трекер</a>.\n\n` +
-              `По завершении разгрузки нажмите кнопку ниже:`,
+              `✅ <b>Ваши координаты непрерывно передаются в CRM логисту в реальном времени!</b>\n` +
+              `По завершении разгрузки нажмите кнопку ниже 👇`,
               buildActiveTripInlineKeyboard(selectedOrder.orderNumber)
             );
 
@@ -1462,7 +1472,21 @@ export function startTelegramBotPolling() {
 
             await sendTelegramMessage(
               chatId,
-              `Удачной дороги! 🛣️ Для завершения рейса используйте закреплённое сообщение вверху или кнопку внизу экрана 👇`,
+              `Удачной дороги! 🛣️ Слежка по GPS активна до момента нажатия «🛑 Завершить рейс».`,
+              buildInTransitKeyboard(selectedOrder)
+            );
+          } else {
+            // DRIVER SENT A STATIC (ONE-TIME) POINT!
+            // Explicitly warn that Telegram doesn't track motion from a static point and tell them how to start Live Location!
+            await sendTelegramMessage(
+              chatId,
+              `⚠️ <b>ВНИМАНИЕ: Вы отправили РАЗОВУЮ геопозицию (точку), а не трансляцию!</b>\n\n` +
+              `📍 Стартовая точка принята, но чтобы фура <b>непрерывно двигалась на карте в реальном времени</b>, Telegram требует включить именно <b>ТРАНСЛЯЦИЮ</b>:\n\n` +
+              `👇 <b>Как включить трансляцию за 3 шага:</b>\n` +
+              `1️⃣ Нажмите <b>скрепку 📎</b> внизу (слева от поля ввода)\n` +
+              `2️⃣ Выберите <b>«Геопозиция»</b> 📍\n` +
+              `3️⃣ Выберите <b>«Транслировать мою геопозицию...»</b> ➔ на <b>8 часов</b> ⏱️\n\n` +
+              `<i>(Не нажимайте «Отправить свою геопозицию» — выбирайте именно пункт со словом «Транслировать»!)</i>`,
               buildInTransitKeyboard(selectedOrder)
             );
           }
@@ -1557,7 +1581,12 @@ export function startTelegramBotPolling() {
               chatId,
               `✅ <b>Выбран рейс: ${matchedOrder.orderNumber}</b>\n` +
               `🛣️ <b>Направление:</b> ${matchedOrder.originCity || 'Алматы'} ➔ <b>${matchedOrder.destinationCity}</b>\n\n` +
-              `Нажмите кнопку <b>«📍 Разрешить геопозицию и начать рейс»</b> ниже 👇`,
+              `🛰️ <b>КАК ВКЛЮЧИТЬ НЕПРЕРЫВНУЮ ТРАНСЛЯЦИЮ ГЕОПОЗИЦИИ:</b>\n` +
+              `Чтобы машина непрерывно двигалась по карте логиста в реальном времени, включите <b>ТРАНСЛЯЦИЮ</b>:\n\n` +
+              `1️⃣ Нажмите <b>скрепку 📎</b> внизу (слева от поля ввода сообщения)\n` +
+              `2️⃣ Выберите <b>«Геопозиция»</b> 📍\n` +
+              `3️⃣ Выберите <b>«Транслировать мою геопозицию...»</b> ➔ на <b>8 часов</b> ⏱️\n\n` +
+              `<i>⚠️ Не нажимайте «Отправить свою геопозицию» (это разовая точка). Выбирайте именно «Транслировать геопозицию»!</i>`,
               buildSelectedOrderKeyboard(matchedOrder)
             );
             chatLastMessageTime.set(chatId, Date.now());
