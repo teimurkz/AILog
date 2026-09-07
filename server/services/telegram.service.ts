@@ -568,6 +568,33 @@ async function sendTelegramMessage(chatId: number, text: string, replyMarkup?: a
   }
 }
 
+// Answer callback query from inline buttons
+async function answerCallbackQuery(callbackQueryId: string, text?: string) {
+  try {
+    await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+      callback_query_id: callbackQueryId,
+      text: text || ''
+    });
+  } catch (error: any) {
+    // Ignore callback query ack errors
+  }
+}
+
+// Edit existing message text and markup (for smooth inline updates)
+async function editTelegramMessageText(chatId: number, messageId: number, text: string, replyMarkup?: any) {
+  try {
+    await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText`, {
+      chat_id: chatId,
+      message_id: messageId,
+      text,
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup
+    });
+  } catch (error: any) {
+    console.warn("Could not edit telegram message:", error?.response?.data?.description || error.message);
+  }
+}
+
 // Real-time Telegram Bot Polling Loop
 // State and anti-spam tracking for Telegram chats
 const chatLastMessageTime = new Map<number, number>();
@@ -581,7 +608,29 @@ function canSendAntiSpam(chatId: number, minIntervalMs: number = 60000): boolean
 // Driver chat state: which order has this driver selected?
 const chatSelectedOrder = new Map<number, RegionalOrderSummary>();
 
-// Build dynamic keyboard with available new / active trips
+// Build dynamic INLINE keyboard with clickable trip buttons
+function buildOrderSelectionInlineKeyboard(orders: RegionalOrderSummary[]) {
+  const inline_keyboard: Array<Array<{ text: string; callback_data: string }>> = [];
+  
+  const slice = orders.slice(0, 8);
+  for (const o of slice) {
+    const origin = o.originCity || 'Алматы';
+    inline_keyboard.push([
+      {
+        text: `🚛 ${o.orderNumber}: ${origin} ➔ ${o.destinationCity}`,
+        callback_data: `sel_order:${o.orderNumber}`
+      }
+    ]);
+  }
+  
+  inline_keyboard.push([
+    { text: "🔄 Обновить список заявок", callback_data: "refresh_orders" }
+  ]);
+  
+  return { inline_keyboard };
+}
+
+// Build dynamic reply keyboard with available new / active trips (fallback)
 function buildOrderSelectionKeyboard(orders: RegionalOrderSummary[]) {
   const keyboard: Array<Array<{ text: string }>> = [];
   
@@ -667,7 +716,7 @@ export function startTelegramBotPolling() {
           params: {
             offset: lastUpdateId + 1,
             timeout: 20,
-            allowed_updates: JSON.stringify(["message", "edited_message"])
+            allowed_updates: JSON.stringify(["message", "edited_message", "callback_query"])
           },
           timeout: 25000
         }
@@ -676,6 +725,72 @@ export function startTelegramBotPolling() {
       const updates = response.data?.result || [];
       for (const update of updates) {
         lastUpdateId = update.update_id;
+
+        // 0. HANDLE INLINE BUTTON CLICKS (callback_query)
+        if (update.callback_query) {
+          const cb = update.callback_query;
+          const cbId = cb.id;
+          const chatId = cb.message?.chat?.id;
+          const msgId = cb.message?.message_id;
+          const data = (cb.data || '').trim();
+
+          if (!chatId) {
+            await answerCallbackQuery(cbId);
+            continue;
+          }
+
+          if (data.startsWith('sel_order:')) {
+            const orderNum = data.replace('sel_order:', '');
+            const matched = findMatchingOrder(orderNum, activeOrdersList);
+            if (matched) {
+              chatSelectedOrder.set(chatId, matched);
+              activeChatOrderMap.set(chatId, matched.orderNumber);
+              linkOrderNumberToId(matched.id, matched.orderNumber);
+              chatTripActive.set(chatId, false);
+
+              await answerCallbackQuery(cbId, `Выбран рейс ${matched.orderNumber}`);
+
+              // Update inline message text to confirm selection
+              if (msgId) {
+                await editTelegramMessageText(
+                  chatId,
+                  msgId,
+                  `✅ <b>Выбран рейс: ${matched.orderNumber}</b>\n` +
+                  `🛣️ <b>Маршрут:</b> ${matched.originCity || 'Алматы'} ➔ <b>${matched.destinationCity}</b>\n\n` +
+                  `Нажмите кнопку ниже: <b>«🚚 ВЫЕХАЛ В РЕЙС»</b> 👇`
+                );
+              }
+
+              // Send bottom departure button
+              await sendTelegramMessage(
+                chatId,
+                `👇 Нажмите большую кнопку внизу экрана для подтверждения выезда и включения GPS:`,
+                buildSelectedOrderKeyboard(matched)
+              );
+              chatLastMessageTime.set(chatId, Date.now());
+              continue;
+            }
+          }
+
+          if (data === 'refresh_orders') {
+            const freshOrders = getAvailableOrdersForDriver();
+            await answerCallbackQuery(cbId, "Список обновлён");
+            if (msgId) {
+              await editTelegramMessageText(
+                chatId,
+                msgId,
+                `👋 <b>Здравствуйте, Водитель!</b>\n\n` +
+                `📦 <b>Выберите ваш рейс из списка:</b>\n` +
+                `Логист сразу увидит, какую заявку и в какой город вы везёте:`,
+                buildOrderSelectionInlineKeyboard(freshOrders)
+              );
+            }
+            continue;
+          }
+
+          await answerCallbackQuery(cbId);
+          continue;
+        }
 
         const msg = update.message || update.edited_message;
         if (!msg) continue;
@@ -790,14 +905,14 @@ export function startTelegramBotPolling() {
             }
           }
 
-          // If no order param, show available orders list
+          // If no order param, show available orders list with INLINE buttons
           chatTripActive.set(chatId, false);
           await sendTelegramMessage(
             chatId,
             `👋 <b>Здравствуйте, Водитель!</b>\n\n` +
             `📦 <b>Выберите ваш рейс из списка:</b>\n` +
             `Логист сразу увидит, какую заявку и в какой город вы везёте:`,
-            buildOrderSelectionKeyboard(availableOrders)
+            buildOrderSelectionInlineKeyboard(availableOrders)
           );
           chatLastMessageTime.set(chatId, Date.now());
           continue;
@@ -818,7 +933,7 @@ export function startTelegramBotPolling() {
             await sendTelegramMessage(
               chatId,
               `📦 <b>Доступные заявки на выезд:</b>\nВыберите рейс и направление:`,
-              buildOrderSelectionKeyboard(getAvailableOrdersForDriver())
+              buildOrderSelectionInlineKeyboard(getAvailableOrdersForDriver())
             );
             chatLastMessageTime.set(chatId, Date.now());
             continue;
@@ -904,7 +1019,7 @@ export function startTelegramBotPolling() {
               `🏁 <b>Рейс успешно завершён!</b>\n` +
               `Груз доставлен в город ${finishedOrder?.destinationCity || ''}. Спасибо за работу! 🚛✨\n\n` +
               `Выберите следующий рейс:`,
-              buildOrderSelectionKeyboard(getAvailableOrdersForDriver())
+              buildOrderSelectionInlineKeyboard(getAvailableOrdersForDriver())
             );
             chatLastMessageTime.set(chatId, Date.now());
             continue;
@@ -926,7 +1041,12 @@ export function startTelegramBotPolling() {
       }
     } catch (err: any) {
       if (err.code !== 'ECONNABORTED') {
-        console.warn("Telegram polling warning:", err.message);
+        if (err?.response?.status === 409) {
+          console.warn("⚠️ Telegram polling HTTP 409 Conflict: another bot instance is polling. Waiting 5s... (Revoke token in @BotFather to stop old instance)");
+          await new Promise(r => setTimeout(r, 5000));
+        } else {
+          console.warn("Telegram polling warning:", err.message);
+        }
       }
     } finally {
       setTimeout(poll, 1200);

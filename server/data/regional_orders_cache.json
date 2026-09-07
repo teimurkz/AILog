@@ -4,7 +4,9 @@
     "orderNumber": "REG-1002",
     "destinationCity": "Астана",
     "originCity": "Алматы",
-    "status": "new"
+    "status": "dispatched",
+    "dispatchedAt": "2026-09-07T05:21:05.724Z",
+    "speed": 68
   },
   {
     "id": "reg-1003-shymkent",
