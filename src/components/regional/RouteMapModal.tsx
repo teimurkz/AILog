@@ -24,8 +24,7 @@ import {
   MessageCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
-import { db, auth } from '../../firebase';
+import { ordersApi, subscribeToRealtimeStream } from '../../services/api';
 import { LeafletRouteMap } from './LeafletRouteMap';
 import { RegionalTruckOrder } from '../../types';
 import { KAZAKHSTAN_ROADS } from '../../utils/kazakhstanRoads';
@@ -199,7 +198,7 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
         setRouteData(data);
         // Sync driver coordinates to Firestore document directly from authenticated browser
         if (data.currentLat && data.currentLng && order.id) {
-          updateDoc(doc(db, 'regional_orders', order.id), {
+          ordersApi.update(order.id, {
             currentLat: data.currentLat,
             currentLng: data.currentLng,
             speed: data.speed !== undefined ? data.speed : 0,
@@ -213,30 +212,20 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
     }
   };
 
-  // 1. Real-time Cloud Firestore Document Listener (Instant update when driver sends GPS or marks in transit)
+  // 1. Real-time SSE Stream Listener (Instant update when driver sends GPS or changes trip status)
   useEffect(() => {
     if (!isOpen || !order?.id) return;
 
-    const unsub = onSnapshot(doc(db, 'regional_orders', order.id), (snap) => {
-      if (snap.exists()) {
-        const d = snap.data();
-        if (d.currentLat && d.currentLng) {
-          setRouteData(prev => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              currentLat: d.currentLat,
-              currentLng: d.currentLng,
-              speed: d.speed !== undefined ? d.speed : prev.speed,
-              locationHistory: Array.isArray(d.locationHistory) && d.locationHistory.length > 0
-                ? d.locationHistory
-                : prev.locationHistory
-            };
-          });
+    const unsub = subscribeToRealtimeStream((event, data) => {
+      if (event === 'telemetry_update' || event === 'order_updated') {
+        const matches = data?.orderId === order.id ||
+                        data?.orderNumber === order.orderNumber ||
+                        data?.orderNumberOrId === order.orderNumber ||
+                        data?.id === order.id;
+        if (matches) {
+          fetchLocationData();
         }
       }
-    }, (err) => {
-      console.warn("Firestore snapshot notice:", err);
     });
 
     return () => unsub();
@@ -275,10 +264,9 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
   const handleMarkInTransit = async () => {
     if (!order?.id) return;
     try {
-      await updateDoc(doc(db, 'regional_orders', order.id), {
+      await ordersApi.update(order.id, {
         status: 'dispatched',
-        dispatchedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        dispatchedAt: new Date().toISOString()
       });
       await fetch('/api/driver/location', {
         method: 'POST',

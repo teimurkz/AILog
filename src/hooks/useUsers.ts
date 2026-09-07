@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { usersApi, subscribeToRealtimeStream } from '../services/api';
 import { UserProfile } from '../types';
 
 export const useUsers = () => {
@@ -8,32 +7,50 @@ export const useUsers = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
-      setUsers(snapshot.docs.map(d => ({ ...d.data() } as UserProfile)));
-      setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'users');
-      setLoading(false);
+    let isCancelled = false;
+
+    const loadUsers = async () => {
+      try {
+        const list = await usersApi.getAll();
+        if (!isCancelled) {
+          setUsers(list);
+          setLoading(false);
+        }
+      } catch (err) {
+        console.warn("Failed to load users from local API:", err);
+        if (!isCancelled) setLoading(false);
+      }
+    };
+
+    loadUsers();
+
+    const unsubscribe = subscribeToRealtimeStream((eventType, data) => {
+      if (isCancelled) return;
+      if (eventType === 'user_updated' && data?.uid) {
+        setUsers(prev => {
+          const exists = prev.some(u => u.uid === data.uid);
+          return exists ? prev.map(u => (u.uid === data.uid ? { ...u, ...data } : u)) : [data, ...prev];
+        });
+      } else if (eventType === 'user_deleted' && data?.uid) {
+        setUsers(prev => prev.filter(u => u.uid !== data.uid));
+      }
     });
-    return unsub;
+
+    return () => {
+      isCancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   const changeUserRole = async (uid: string, newRole: UserProfile['role']) => {
-    try {
-      await updateDoc(doc(db, 'users', uid), { role: newRole });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
-      throw error;
-    }
+    const updated = await usersApi.update(uid, { role: newRole });
+    setUsers(prev => prev.map(u => (u.uid === uid ? { ...u, role: newRole } : u)));
+    return updated;
   };
 
   const removeUser = async (uid: string) => {
-    try {
-      await deleteDoc(doc(db, 'users', uid));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `users/${uid}`);
-      throw error;
-    }
+    await usersApi.delete(uid);
+    setUsers(prev => prev.filter(u => u.uid !== uid));
   };
 
   return { users, loading, changeUserRole, removeUser };

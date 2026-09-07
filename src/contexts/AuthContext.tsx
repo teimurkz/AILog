@@ -1,91 +1,74 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc, onSnapshot, updateDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase';
 import { UserProfile } from '../types';
+import { usersApi } from '../services/api';
 
 interface AuthContextType {
-  user: User | null;
+  user: { uid: string; email: string; displayName: string } | null;
   profile: UserProfile | null;
   loading: boolean;
   isAdmin: boolean;
   isLogistics: boolean;
   isViewer: boolean;
   isRegionalManager: boolean;
+  switchRole: (role: UserProfile['role']) => void;
 }
+
+const DEFAULT_PROFILE: UserProfile = {
+  uid: 'admin_local',
+  email: 'ti07kz@gmail.com',
+  displayName: 'Главный Администратор',
+  role: 'admin'
+};
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<UserProfile>(() => {
+    try {
+      const saved = localStorage.getItem('local_user_profile');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return DEFAULT_PROFILE;
+  });
+
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    let unsubProfile: (() => void) | null = null;
-
-    const unsubAuth = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      
-      if (unsubProfile) {
-        unsubProfile();
-        unsubProfile = null;
-      }
-
-      if (u) {
-        const userDocRef = doc(db, 'users', u.uid);
-        
-        // Initial check and creation
-        try {
-          const docSnap = await getDoc(userDocRef);
-          if (!docSnap.exists()) {
-            const initialRole = (u.email === 'ti07kz@gmail.com' || u.isAnonymous) ? 'admin' : 'viewer';
-            const newProfile: UserProfile = {
-              uid: u.uid,
-              email: u.email || '',
-              displayName: u.displayName || '',
-              role: initialRole
-            };
-            await setDoc(userDocRef, newProfile);
-            setProfile(newProfile);
-          }
-        } catch (err) {
-          console.error("Error checking/creating user profile:", err);
+    // Sync with local backend users if available
+    usersApi.getById(profile.uid)
+      .then(fetched => {
+        if (fetched) {
+          setProfile(fetched);
+          localStorage.setItem('local_user_profile', JSON.stringify(fetched));
         }
-
-        // Subscribe to user profile
-        unsubProfile = onSnapshot(userDocRef, async (snap) => {
-          if (snap.exists()) {
-            const data = snap.data() as UserProfile;
-            setProfile(data);
-            
-            // Auto-heal super admin/demo role
-            if ((u.email === 'ti07kz@gmail.com' || u.isAnonymous) && data.role !== 'admin') {
-              await updateDoc(userDocRef, { role: 'admin' });
-            }
-          }
-          setLoading(false);
-        });
-      } else {
-        setProfile(null);
-        setLoading(false);
-      }
-    });
-
-    return () => {
-      unsubAuth();
-      if (unsubProfile) unsubProfile();
-    };
+      })
+      .catch(() => {
+        // Fallback to local default profile
+      });
   }, []);
+
+  const switchRole = (role: UserProfile['role']) => {
+    const updated = { ...profile, role };
+    setProfile(updated);
+    localStorage.setItem('local_user_profile', JSON.stringify(updated));
+    usersApi.update(profile.uid, { role }).catch(() => {});
+  };
+
+  const user = {
+    uid: profile.uid,
+    email: profile.email,
+    displayName: profile.displayName
+  };
 
   const value = {
     user,
     profile,
     loading,
-    isAdmin: profile?.role === 'admin' || user?.email === 'ti07kz@gmail.com',
-    isLogistics: profile?.role === 'logistics' || profile?.role === 'admin' || user?.email === 'ti07kz@gmail.com',
-    isViewer: profile?.role === 'viewer' && user?.email !== 'ti07kz@gmail.com',
-    isRegionalManager: profile?.role === 'regional_manager' && user?.email !== 'ti07kz@gmail.com'
+    isAdmin: profile.role === 'admin' || profile.email === 'ti07kz@gmail.com',
+    isLogistics: profile.role === 'logistics' || profile.role === 'admin' || profile.email === 'ti07kz@gmail.com',
+    isViewer: profile.role === 'viewer' && profile.email !== 'ti07kz@gmail.com',
+    isRegionalManager: profile.role === 'regional_manager' && profile.email !== 'ti07kz@gmail.com',
+    switchRole
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -18,8 +18,6 @@ import {
   X,
   Shield
 } from 'lucide-react';
-import { signOut } from 'firebase/auth';
-import { auth } from '../../firebase';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Language } from '../../translations';
@@ -155,27 +153,21 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
           </div>
         </nav>
 
-        {/* User Profile & Sign Out Footer */}
+        {/* User Profile & Local Status Footer */}
         <div className="p-3.5 border-t border-slate-800/80 shrink-0 bg-slate-950/70">
           <div className={cn("flex items-center gap-2.5 px-2 py-1.5 mb-1.5", isRTL && "flex-row-reverse")}>
-            <div className="w-8 h-8 bg-slate-800 border border-slate-700 rounded-full flex items-center justify-center shrink-0">
-              <UserIcon className="w-4 h-4 text-slate-300" />
+            <div className="w-8 h-8 bg-blue-900/50 border border-blue-600/40 rounded-full flex items-center justify-center shrink-0">
+              <UserIcon className="w-4 h-4 text-blue-300" />
             </div>
             <div className={cn("flex-1 min-w-0", isRTL ? "text-right" : "text-left")}>
-              <p className="text-xs font-semibold text-white truncate">{auth.currentUser?.displayName || 'Пользователь'}</p>
-              <p className="text-[10px] text-slate-400 truncate">{auth.currentUser?.email || ''}</p>
+              <p className="text-xs font-semibold text-white truncate">{profile?.displayName || 'Администратор'}</p>
+              <p className="text-[10px] text-blue-400 font-mono truncate">{profile?.email || 'ti07kz@gmail.com'} ({profile?.role || 'admin'})</p>
             </div>
           </div>
-          <button 
-            onClick={() => signOut(auth)}
-            className={cn(
-              "w-full flex items-center gap-2.5 px-2.5 py-1.5 text-slate-400 hover:text-red-400 hover:bg-red-950/30 rounded-lg transition-colors text-xs font-medium",
-              isRTL && "flex-row-reverse"
-            )}
-          >
-            <LogOut className="w-3.5 h-3.5 shrink-0" />
-            <span>{t('signOut')}</span>
-          </button>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] text-emerald-400 font-medium">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Локальный режим (ПК)</span>
+          </div>
         </div>
       </aside>
     </>

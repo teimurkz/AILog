@@ -3,8 +3,7 @@ import * as XLSX from 'xlsx';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { GoogleGenAI } from "@google/genai";
 import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, Languages, Zap, ShieldCheck, Filter, RefreshCw } from 'lucide-react';
-import { collection, query, where, getDocs, doc, serverTimestamp, writeBatch } from 'firebase/firestore';
-import { db, auth } from '../../firebase';
+import { shipmentsApi } from '../../services/api';
 import { Shipment, RouteType, ShipmentStatus } from '../../types';
 import { cn } from '../../lib/utils';
 import { addDays, isValid } from 'date-fns';
@@ -415,14 +414,13 @@ export const ExcelImport = () => {
           setTranslating(false);
         }
 
-        // Fast Database Pre-Fetch (1 single query to get all existing invoice_ids)
-        const shipmentsRef = collection(db, 'shipments');
-        const dbSnapshot = await getDocs(shipmentsRef);
+        // Fast Database Pre-Fetch (get all existing invoice_ids)
+        const allShipments = await shipmentsApi.getAll();
         const map = new Map<string, string>();
-        dbSnapshot.docs.forEach(docSnap => {
-          const invId = docSnap.data().invoice_id?.toString().trim();
+        allShipments.forEach(s => {
+          const invId = s.invoice_id?.toString().trim();
           if (invId) {
-            map.set(invId, docSnap.id);
+            map.set(invId, s.id);
           }
         });
         setExistingMap(map);
@@ -481,50 +479,38 @@ export const ExcelImport = () => {
       let updatedCount = 0;
       let skippedCount = data.length - itemsToProcess.length;
 
-      // Batch Write in chunks of 400 for blazing speed
-      const chunkSize = 400;
-      for (let i = 0; i < itemsToProcess.length; i += chunkSize) {
-        const chunk = itemsToProcess.slice(i, i + chunkSize);
-        const batch = writeBatch(db);
-
+      for (let i = 0; i < itemsToProcess.length; i++) {
+        const item = itemsToProcess[i];
         setImportProgress({
-          current: Math.min(i + chunkSize, totalItems),
+          current: i + 1,
           total: totalItems,
-          message: `Пакетное добавление в базу (${Math.min(i + chunkSize, totalItems)} из ${totalItems})...`
+          message: `Сохранение в базу (${i + 1} из ${totalItems})...`
         });
 
-        for (const item of chunk) {
-          const arrival_deadline = addDays(new Date(item.departure_date), 14).toISOString();
-          const docData: any = {
-            ...item,
-            est_travel_time: 14,
-            arrival_deadline,
-            last_updated: new Date().toISOString()
-          };
-          Object.keys(docData).forEach(key => docData[key] === undefined && delete docData[key]);
+        const arrival_deadline = addDays(new Date(item.departure_date), 14).toISOString();
+        const docData: any = {
+          ...item,
+          est_travel_time: 14,
+          arrival_deadline,
+          last_updated: new Date().toISOString()
+        };
 
-          const existingDocId = existingMap.get(item.invoice_id);
-          if (existingDocId) {
-            if (updateExisting) {
-              const docRef = doc(db, 'shipments', existingDocId);
-              batch.update(docRef, docData);
-              updatedCount++;
-            } else {
-              skippedCount++;
-            }
+        const existingDocId = existingMap.get(item.invoice_id);
+        if (existingDocId) {
+          if (updateExisting) {
+            await shipmentsApi.update(existingDocId, docData);
+            updatedCount++;
           } else {
-            const newDocRef = doc(collection(db, 'shipments'));
-            batch.set(newDocRef, {
-              ...docData,
-              documents_url: [],
-              createdBy: auth.currentUser?.uid || 'system',
-              createdAt: serverTimestamp()
-            });
-            createdCount++;
+            skippedCount++;
           }
+        } else {
+          await shipmentsApi.create({
+            ...docData,
+            documents_url: [],
+            createdBy: 'Excel Import'
+          });
+          createdCount++;
         }
-
-        await batch.commit();
       }
 
       setSuccess(createdCount + updatedCount);

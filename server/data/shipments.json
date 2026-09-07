@@ -1,0 +1,28 @@
+[
+  {
+    "id": "SHIP-752697",
+    "invoice_id": "Mehkaz Local 1.0",
+    "shipment_type": "Direct-Land",
+    "destination": "Almaty - Kazakhstan",
+    "goods": "Фисташки / Сухофрукты",
+    "driver_name": "Али Реза",
+    "driver_phone": "",
+    "plate_number": "12-E-999",
+    "truck_driver": "",
+    "loading_date": "",
+    "ex_border_date": "",
+    "customs_arrival_date": "",
+    "unl_date": "",
+    "transit_time": 0,
+    "route": "Tehran - Almaty",
+    "departure_date": "2026-09-07T11:15:52.694Z",
+    "est_travel_time": 10,
+    "arrival_deadline": "2026-09-07T11:15:52.697Z",
+    "status": "In Transit",
+    "documents_url": [],
+    "last_updated": "2026-09-07T11:15:52.698Z",
+    "createdBy": "Логист",
+    "items": [],
+    "isArchived": false
+  }
+]

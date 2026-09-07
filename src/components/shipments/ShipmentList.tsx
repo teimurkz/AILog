@@ -19,8 +19,7 @@ import * as XLSX from 'xlsx';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { Shipment, ShipmentStatus } from '../../types';
 import { cn } from '../../lib/utils';
-import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../../firebase';
+import { shipmentsApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { ExcelImport } from '../admin/ExcelImport';
 
@@ -109,16 +108,15 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
     setIsDelivering(true);
     try {
       for (const id of Array.from(selectedIds) as string[]) {
-        await updateDoc(doc(db, 'shipments', id), {
+        await shipmentsApi.update(id, {
           status: 'Delivered',
-          last_updated: new Date().toISOString(),
           actual_arrival_date: new Date().toISOString()
         });
       }
       setSelectedIds(new Set());
       setShowBulkDeliverConfirm(false);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'shipments');
+      console.error('Bulk deliver error:', err);
     } finally {
       setIsDelivering(false);
     }
@@ -129,12 +127,12 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
     setIsDeleting(true);
     try {
       for (const id of Array.from(selectedIds) as string[]) {
-        await deleteDoc(doc(db, 'shipments', id));
+        await shipmentsApi.delete(id);
       }
       setSelectedIds(new Set());
       setShowBulkDeleteConfirm(false);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, 'shipments');
+      console.error('Bulk delete error:', err);
     } finally {
       setIsDeleting(false);
     }

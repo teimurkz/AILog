@@ -11,6 +11,7 @@ import {
   acknowledgePendingSync,
   setCachedUserToken
 } from "../services/telegram.service.js";
+import { broadcastRealtimeEvent } from "./realtime.routes.js";
 
 const router = Router();
 
@@ -103,6 +104,17 @@ router.post("/location", (req, res) => {
       updatedAt: new Date().toISOString()
     }, status || 'dispatched');
 
+    broadcastRealtimeEvent('telemetry_update', {
+      orderId: String(orderId),
+      orderNumber: orderNumber ? String(orderNumber) : undefined,
+      lat: Number(lat),
+      lng: Number(lng),
+      speed: realSpeed,
+      heading: heading !== undefined ? Number(heading) : undefined,
+      status: status || 'dispatched',
+      updatedAt: updated.updatedAt
+    });
+
     return res.json({ success: true, location: updated });
   } catch (error: any) {
     console.error("Error updating driver location:", error);
@@ -120,6 +132,11 @@ router.post("/complete", (req, res) => {
     }
 
     updateCachedOrderStatus(String(target), 'delivered');
+    broadcastRealtimeEvent('order_completed', {
+      orderId: String(target),
+      status: 'delivered',
+      deliveredAt: new Date().toISOString()
+    });
     syncOrderToFirestore(String(target), {
       status: 'delivered',
       deliveredAt: new Date().toISOString(),

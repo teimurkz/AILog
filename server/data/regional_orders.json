@@ -176,5 +176,28 @@
     "status": "delivered",
     "assignedDriver": "Хаятулла ( +7 702 620 7090 ; ‎+7 705 242 2343)",
     "assignedTruckPlate": "488BJV13"
+  },
+  {
+    "id": "REG-4122",
+    "orderNumber": "REG-9999",
+    "destinationCity": "Астана",
+    "originCity": "Алматы",
+    "status": "dispatched",
+    "deliveryPoints": [],
+    "invoices": [],
+    "shipmentDate": "2026-09-07",
+    "truckType": "Фура 20т (Рефрижератор)",
+    "cargoDescription": "Свежая продукция",
+    "managerName": "Тест Менеджер",
+    "assignedDriver": "Ерлан (+77015554433)",
+    "assignedTruckPlate": "777 KZ 02",
+    "createdAt": "2026-09-07T11:15:52.668Z",
+    "updatedAt": "2026-09-07T11:15:52.770Z",
+    "currentLat": 43.25055,
+    "currentLng": 76.88299,
+    "speed": 78,
+    "dispatchedAt": "2026-09-07T11:15:52.740Z",
+    "heading": 320,
+    "lastGpsUpdate": "2026-09-07T11:15:52.746Z"
   }
 ]

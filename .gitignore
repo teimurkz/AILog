@@ -10,3 +10,7 @@ server/data/driver_locations.json
 server/data/driver_sessions.json
 server/data/telemetry_history.json
 server/data/*.tmp
+server/data/backups/
+scratch/
+server/uploads/*
+!server/uploads/.gitkeep

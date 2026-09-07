@@ -1,14 +1,5 @@
 import { useState, useEffect } from 'react';
-import { 
-  collection, 
-  query, 
-  onSnapshot, 
-  addDoc, 
-  deleteDoc, 
-  doc, 
-  orderBy 
-} from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { contactsApi, subscribeToRealtimeStream } from '../services/api';
 import { SavedDeliveryContact } from '../types';
 
 const STORAGE_KEY = 'regional_saved_delivery_contacts_v2';
@@ -30,103 +21,88 @@ export const useSavedDeliveryContacts = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const path = 'saved_delivery_contacts';
-    const q = query(collection(db, path), orderBy('createdAt', 'desc'));
+    let isCancelled = false;
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetched: SavedDeliveryContact[] = snapshot.docs.map(d => {
-        const data = d.data();
-        return {
-          id: d.id,
-          title: data.title || `${data.city || 'Город'} — ${data.deliveryAddress || 'Адрес'}`,
-          city: data.city || 'Астана',
-          deliveryAddress: data.deliveryAddress || '',
-          recipientPhone: data.recipientPhone || '',
-          recipientName: data.recipientName || '',
-          createdAt: data.createdAt || new Date().toISOString(),
-        };
-      });
-
-      setSavedContacts(fetched);
+    const loadContacts = async () => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(fetched));
-      } catch (e) {
-        console.warn("Error updating localStorage saved contacts:", e);
+        const list = await contactsApi.getContacts();
+        if (!isCancelled && Array.isArray(list)) {
+          setSavedContacts(list);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+          setLoading(false);
+        }
+      } catch (err) {
+        console.warn("Failed to load contacts from local API, using local storage:", err);
+        if (!isCancelled) setLoading(false);
       }
-      setLoading(false);
-    }, (error) => {
-      console.warn("Firestore listener for saved contacts encountered error, using local state:", error);
-      setLoading(false);
+    };
+
+    loadContacts();
+
+    const unsubscribe = subscribeToRealtimeStream((eventType, data) => {
+      if (isCancelled) return;
+      if (eventType === 'contact_updated' && data?.id) {
+        setSavedContacts(prev => {
+          const exists = prev.some(c => c.id === data.id);
+          const updated = exists ? prev.map(c => (c.id === data.id ? { ...c, ...data } : c)) : [data, ...prev];
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+          return updated;
+        });
+      } else if (eventType === 'contact_deleted' && data?.id) {
+        setSavedContacts(prev => {
+          const updated = prev.filter(c => c.id !== data.id);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+          return updated;
+        });
+      }
     });
 
-    return unsubscribe;
+    return () => {
+      isCancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   const addSavedContact = async (contact: Omit<SavedDeliveryContact, 'id' | 'createdAt'>) => {
-    const path = 'saved_delivery_contacts';
     const title = contact.title.trim() || `${contact.city} — ${contact.deliveryAddress.slice(0, 30)} (${contact.recipientPhone})`;
-    
-    // Check if already exists in list to avoid duplicates
+
     const existing = savedContacts.find(
-      c => c.deliveryAddress.trim() === contact.deliveryAddress.trim() && 
-           c.recipientPhone.trim() === contact.recipientPhone.trim()
+      c => c.deliveryAddress.trim().toLowerCase() === contact.deliveryAddress.trim().toLowerCase() &&
+           c.city.trim().toLowerCase() === contact.city.trim().toLowerCase()
     );
     if (existing) {
       return existing.id;
     }
 
     const newContact: SavedDeliveryContact = {
-      id: `local-${Date.now()}`,
+      id: `CNT-${Date.now().toString().slice(-5)}`,
       title,
       city: contact.city.trim(),
       deliveryAddress: contact.deliveryAddress.trim(),
       recipientPhone: contact.recipientPhone.trim(),
-      recipientName: contact.recipientName?.trim() || '',
+      recipientName: contact.recipientName.trim(),
       createdAt: new Date().toISOString(),
     };
 
-    // Update local state immediately
     const updated = [newContact, ...savedContacts];
     setSavedContacts(updated);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.warn("Error setting localStorage:", e);
-    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
-    try {
-      const docRef = await addDoc(collection(db, path), {
-        title,
-        city: contact.city.trim(),
-        deliveryAddress: contact.deliveryAddress.trim(),
-        recipientPhone: contact.recipientPhone.trim(),
-        recipientName: contact.recipientName?.trim() || '',
-        createdAt: new Date().toISOString(),
-      });
-      return docRef.id;
-    } catch (error) {
-      console.warn("Failed to write saved contact to Firestore (saved locally):", error);
-      return newContact.id;
-    }
+    contactsApi.saveContact(newContact).catch(err => {
+      console.warn("Could not sync contact to backend:", err);
+    });
+
+    return newContact.id;
   };
 
   const deleteSavedContact = async (id: string) => {
-    const path = 'saved_delivery_contacts';
     const updated = savedContacts.filter(c => c.id !== id);
     setSavedContacts(updated);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.warn("Error updating localStorage after delete:", e);
-    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
-    if (!id.startsWith('preset-') && !id.startsWith('local-')) {
-      try {
-        await deleteDoc(doc(db, path, id));
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, path);
-      }
-    }
+    contactsApi.deleteContact(id).catch(err => {
+      console.warn("Could not delete contact from backend:", err);
+    });
   };
 
   return {

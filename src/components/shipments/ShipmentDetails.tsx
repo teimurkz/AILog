@@ -17,18 +17,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { format, parseISO, differenceInDays, addDays } from 'date-fns';
-import { 
-  collection, 
-  query, 
-  orderBy, 
-  onSnapshot, 
-  addDoc, 
-  updateDoc, 
-  doc, 
-  deleteDoc 
-} from 'firebase/firestore';
-import { ref, getDownloadURL, uploadBytesResumable, deleteObject } from 'firebase/storage';
-import { db, auth, storage, handleFirestoreError, OperationType } from '../../firebase';
+import { shipmentsApi, uploadApi, subscribeToRealtimeStream } from '../../services/api';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { Shipment, ShipmentLog, ShipmentStatus } from '../../types';
 import { cn } from '../../lib/utils';
@@ -42,7 +31,7 @@ interface ShipmentDetailsProps {
 
 export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
   const { t, isRTL } = useLanguage();
-  const { isAdmin, isLogistics } = useAuth();
+  const { isAdmin, isLogistics, user } = useAuth();
   const [logs, setLogs] = useState<ShipmentLog[]>([]);
   const [newLog, setNewLog] = useState('');
   const [statusMessage, setStatusMessage] = useState(shipment.status_message || '');
@@ -55,20 +44,26 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
   const [isEditingDate, setIsEditingDate] = useState(false);
 
   useEffect(() => {
-    const q = query(
-      collection(db, `shipments/${shipment.id}/logs`),
-      orderBy('timestamp', 'desc')
-    );
-    return onSnapshot(q, (snapshot) => {
-      setLogs(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ShipmentLog)));
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, `shipments/${shipment.id}/logs`);
+    let isCancelled = false;
+    shipmentsApi.getLogs(shipment.id).then(list => {
+      if (!isCancelled) setLogs(list);
+    }).catch(() => {});
+
+    const unsub = subscribeToRealtimeStream((event, data) => {
+      if (isCancelled) return;
+      if (event === 'shipment_log_added' && data?.shipmentId === shipment.id) {
+        setLogs(prev => [data, ...prev.filter(l => l.id !== data.id)]);
+      }
     });
+
+    return () => {
+      isCancelled = true;
+      unsub();
+    };
   }, [shipment.id]);
 
   const handleUpdate = async () => {
     if (!isLogistics) return;
-    const logPath = `shipments/${shipment.id}/logs`;
     const now = new Date().toISOString();
     
     try {
@@ -86,14 +81,11 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
           updateData.actual_arrival_date = now;
         }
 
-        const statusLog = {
-          shipmentId: shipment.id,
-          timestamp: now,
+        await shipmentsApi.addLog(shipment.id, {
           location: shipment.route,
           message: t('statusUpdated').replace('{status}', t(newStatus as any)),
-          updatedBy: auth.currentUser?.displayName || 'System'
-        };
-        await addDoc(collection(db, logPath), statusLog);
+          updatedBy: user?.displayName || 'Логист'
+        });
       }
 
       // Check if date changed
@@ -102,36 +94,32 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
         const departure = parseISO(newDepartureDate);
         const arrivalDeadline = addDays(departure, shipment.est_travel_time).toISOString();
 
-        const dateLog = {
-          shipmentId: shipment.id,
-          timestamp: now,
+        await shipmentsApi.addLog(shipment.id, {
           location: shipment.route,
           message: t('departureDateUpdated').replace('{old}', oldDate).replace('{new}', newDepartureDate),
-          updatedBy: auth.currentUser?.displayName || 'System'
-        };
-        await addDoc(collection(db, logPath), dateLog);
+          updatedBy: user?.displayName || 'Логист'
+        });
         
         updateData.departure_date = departure.toISOString();
         updateData.arrival_deadline = arrivalDeadline;
       }
 
       if (newLog) {
-        const logData = {
-          shipmentId: shipment.id,
-          timestamp: now,
+        await shipmentsApi.addLog(shipment.id, {
           location: shipment.route,
           message: newLog,
-          updatedBy: auth.currentUser?.displayName || 'System'
-        };
-        await addDoc(collection(db, logPath), logData);
+          updatedBy: user?.displayName || 'Логист'
+        });
         setNewLog('');
       }
 
-      await updateDoc(doc(db, 'shipments', shipment.id), updateData);
+      await shipmentsApi.update(shipment.id, updateData);
+      const updatedLogs = await shipmentsApi.getLogs(shipment.id);
+      setLogs(updatedLogs);
 
       setIsEditingDate(false);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, logPath);
+      console.error("Failed to update shipment:", err);
     }
   };
 
@@ -141,42 +129,33 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
     if (!file) return;
 
     setUploading(true);
-    setUploadProgress(0);
-    
-    if (!storage) {
-      alert('Хранилище файлов (Firebase Storage) временно недоступно.');
-      setUploading(false);
-      return;
-    }
+    setUploadProgress(20);
 
     try {
-      const storageRef = ref(storage, `Invoices/${shipment.invoice_id}/${file.name}`);
-      const uploadTask = uploadBytesResumable(storageRef, file);
-
-      uploadTask.on('state_changed', 
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadProgress(progress);
-        }, 
-        (error) => {
-          console.error('Upload error:', error);
-          setUploading(false);
-        }, 
-        async () => {
-          const url = await getDownloadURL(uploadTask.snapshot.ref);
-          
-          // Use a Set to ensure we don't have duplicate URLs if the same file is re-uploaded
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const base64 = reader.result as string;
+          setUploadProgress(60);
+          const res = await uploadApi.uploadFile(base64, file.name, file.type);
           const currentUrls = shipment.documents_url || [];
-          const updatedUrls = Array.from(new Set([...currentUrls, url]));
-          
-          await updateDoc(doc(db, 'shipments', shipment.id), {
+          const updatedUrls = Array.from(new Set([...currentUrls, res.url]));
+
+          await shipmentsApi.update(shipment.id, {
             documents_url: updatedUrls,
             last_updated: new Date().toISOString()
           });
+
+          shipment.documents_url = updatedUrls;
+          setUploadProgress(100);
           setUploading(false);
-          setUploadProgress(0);
+        } catch (err) {
+          console.error("Upload error:", err);
+          alert("Не удалось загрузить файл");
+          setUploading(false);
         }
-      );
+      };
+      reader.readAsDataURL(file);
     } catch (err) {
       console.error('Upload error:', err);
       setUploading(false);
@@ -184,53 +163,42 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
   };
 
   const handleFileDelete = async () => {
-    if (!isLogistics) return;
-    if (!fileToDelete) return;
-
+    if (!isLogistics || !fileToDelete) return;
     try {
-      // Try to delete from storage first
-      if (storage) {
-        try {
-          const fileRef = ref(storage, fileToDelete);
-          await deleteObject(fileRef);
-        } catch (storageErr) {
-          console.warn('File not found in storage, proceeding to remove from Firestore', storageErr);
-        }
-      }
-
       const updatedUrls = (shipment.documents_url || []).filter(u => u !== fileToDelete);
-      await updateDoc(doc(db, 'shipments', shipment.id), {
+      await shipmentsApi.update(shipment.id, {
         documents_url: updatedUrls,
         last_updated: new Date().toISOString()
       });
+      shipment.documents_url = updatedUrls;
       setFileToDelete(null);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `shipments/${shipment.id}`);
+      console.error("Delete file error:", err);
     }
   };
 
   const markAsDelivered = async () => {
     if (!isLogistics) return;
     try {
-      await updateDoc(doc(db, 'shipments', shipment.id), {
+      await shipmentsApi.update(shipment.id, {
         status: 'Delivered',
         last_updated: new Date().toISOString(),
         actual_arrival_date: new Date().toISOString()
       });
       onBack();
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `shipments/${shipment.id}`);
+      console.error("Mark delivered error:", err);
     }
   };
 
   const handleDelete = async () => {
-    const canDelete = isAdmin || (isLogistics && shipment.createdBy === auth.currentUser?.uid);
+    const canDelete = isAdmin || (isLogistics && (shipment.createdBy === user?.displayName || shipment.createdBy === user?.uid));
     if (!canDelete) return;
     try {
-      await deleteDoc(doc(db, 'shipments', shipment.id));
+      await shipmentsApi.delete(shipment.id);
       onBack();
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `shipments/${shipment.id}`);
+      console.error("Delete shipment error:", err);
     }
   };
 

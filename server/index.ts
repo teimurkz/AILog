@@ -8,6 +8,12 @@ import warehouseRoutes from "./routes/warehouse.routes.js";
 import mailingRoutes from "./routes/mailing.routes.js";
 import invoiceRoutes from "./routes/invoice.routes.js";
 import driverRoutes from "./routes/driver.routes.js";
+import ordersRoutes from "./routes/orders.routes.js";
+import shipmentsRoutes from "./routes/shipments.routes.js";
+import contactsRoutes from "./routes/contacts.routes.js";
+import usersRoutes from "./routes/users.routes.js";
+import uploadRoutes from "./routes/upload.routes.js";
+import realtimeRoutes from "./routes/realtime.routes.js";
 
 import {
   startBackgroundSheetsPolling,
@@ -20,8 +26,24 @@ async function startServer() {
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-  // API Routes
+  // Static uploads directory for local documents/invoices
+  const uploadsPath = path.join(process.cwd(), "server", "uploads");
+  if (!fs.existsSync(uploadsPath)) {
+    fs.mkdirSync(uploadsPath, { recursive: true });
+  }
+  app.use("/uploads", express.static(uploadsPath));
+
+  // Local API Routes (100% independent from Firebase)
+  app.use("/api/orders", ordersRoutes);
+  app.use("/api/shipments", shipmentsRoutes);
+  app.use("/api", contactsRoutes);
+  app.use("/api/users", usersRoutes);
+  app.use("/api/upload", uploadRoutes);
+  app.use("/api/realtime", realtimeRoutes);
+
+  // Existing service routes
   app.use("/api/warehouses", warehouseRoutes);
   app.use("/api/mailing", mailingRoutes);
   app.use("/api/parse-invoice", invoiceRoutes);

@@ -2,6 +2,7 @@ import axios from "axios";
 import fs from "fs";
 import path from "path";
 import { storageService, LocationPoint } from "./storage.service.js";
+import { broadcastRealtimeEvent } from "../routes/realtime.routes.js";
 
 export { LocationPoint };
 
@@ -378,6 +379,12 @@ export function updateCachedOrderStatus(orderNumberOrId: string, status: string,
   try {
     fs.writeFileSync(ORDERS_CACHE_FILE, JSON.stringify(activeOrdersList, null, 2), 'utf8');
   } catch (e) {}
+
+  broadcastRealtimeEvent('order_updated', {
+    orderNumberOrId,
+    status,
+    ...(extra || {})
+  });
 }
 
 
@@ -583,6 +590,17 @@ export function updateDriverLocation(location: DriverLocation, status?: string):
   });
 
   console.log(`📍 [Real GPS Stored] Order: ${location.orderId} | Lat: ${location.lat.toFixed(5)}, Lng: ${location.lng.toFixed(5)} | Speed: ${actualSpeed} km/h | History: ${realHistory.length} pts`);
+
+  broadcastRealtimeEvent('telemetry_update', {
+    orderId: location.orderId,
+    lat: location.lat,
+    lng: location.lng,
+    speed: actualSpeed,
+    heading: location.heading || 0,
+    status: targetStatus,
+    updatedAt: updated.updatedAt
+  });
+
   return updated;
 }
 

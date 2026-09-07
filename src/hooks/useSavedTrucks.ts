@@ -1,14 +1,5 @@
 import { useState, useEffect } from 'react';
-import { 
-  collection, 
-  query, 
-  onSnapshot, 
-  addDoc, 
-  deleteDoc, 
-  doc, 
-  orderBy 
-} from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { contactsApi, subscribeToRealtimeStream } from '../services/api';
 import { SavedTruck } from '../types';
 
 const STORAGE_KEY = 'regional_saved_trucks_v1';
@@ -30,41 +21,57 @@ export const useSavedTrucks = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const path = 'saved_trucks';
-    const q = query(collection(db, path), orderBy('createdAt', 'desc'));
+    let isCancelled = false;
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetched: SavedTruck[] = snapshot.docs.map(d => {
-        const data = d.data();
-        return {
-          id: d.id,
-          plateNumber: data.plateNumber || '',
-          driverName: data.driverName || '',
-          driverPhone: data.driverPhone || '',
-          truckType: data.truckType || 'Фура 20т (Тент)',
-          createdAt: data.createdAt || new Date().toISOString(),
-        };
-      });
-
-      setSavedTrucks(fetched);
+    const loadTrucks = async () => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(fetched));
-      } catch (e) {
-        console.warn("Error updating localStorage saved trucks:", e);
+        const list = (await contactsApi.getTrucks()) as any[];
+        if (!isCancelled && Array.isArray(list)) {
+          const mapped: SavedTruck[] = list.map(t => ({
+            id: t.id,
+            plateNumber: t.plateNumber || '',
+            driverName: t.driverName || t.model || '',
+            driverPhone: t.driverPhone || '',
+            truckType: t.truckType || 'Фура 20т (Тент)',
+            createdAt: t.createdAt || new Date().toISOString()
+          }));
+          setSavedTrucks(mapped);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
+          setLoading(false);
+        }
+      } catch (err) {
+        console.warn("Failed to load trucks from local API, using local storage:", err);
+        if (!isCancelled) setLoading(false);
       }
-      setLoading(false);
-    }, (error) => {
-      console.warn("Firestore listener for saved trucks encountered error, using local state:", error);
-      setLoading(false);
+    };
+
+    loadTrucks();
+
+    const unsubscribe = subscribeToRealtimeStream((eventType, data) => {
+      if (isCancelled) return;
+      if (eventType === 'truck_updated' && data?.id) {
+        setSavedTrucks(prev => {
+          const exists = prev.some(t => t.id === data.id);
+          const updated = exists ? prev.map(t => (t.id === data.id ? { ...t, ...data } : t)) : [data, ...prev];
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+          return updated;
+        });
+      } else if (eventType === 'truck_deleted' && data?.id) {
+        setSavedTrucks(prev => {
+          const updated = prev.filter(t => t.id !== data.id);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+          return updated;
+        });
+      }
     });
 
-    return unsubscribe;
+    return () => {
+      isCancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   const addSavedTruck = async (truck: Omit<SavedTruck, 'id' | 'createdAt'>) => {
-    const path = 'saved_trucks';
-    
-    // Check if already exists in list
     const existing = savedTrucks.find(
       t => t.plateNumber.trim().toUpperCase() === truck.plateNumber.trim().toUpperCase()
     );
@@ -73,7 +80,7 @@ export const useSavedTrucks = () => {
     }
 
     const newTruck: SavedTruck = {
-      id: `local-truck-${Date.now()}`,
+      id: `TRK-${Date.now().toString().slice(-5)}`,
       plateNumber: truck.plateNumber.trim().toUpperCase(),
       driverName: truck.driverName.trim(),
       driverPhone: truck.driverPhone.trim(),
@@ -83,44 +90,23 @@ export const useSavedTrucks = () => {
 
     const updated = [newTruck, ...savedTrucks];
     setSavedTrucks(updated);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.warn("Error setting localStorage:", e);
-    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
-    try {
-      const docRef = await addDoc(collection(db, path), {
-        plateNumber: truck.plateNumber.trim().toUpperCase(),
-        driverName: truck.driverName.trim(),
-        driverPhone: truck.driverPhone.trim(),
-        truckType: truck.truckType?.trim() || 'Фура 20т (Тент)',
-        createdAt: new Date().toISOString(),
-      });
-      return docRef.id;
-    } catch (error) {
-      console.warn("Failed to write saved truck to Firestore (saved locally):", error);
-      return newTruck.id;
-    }
+    contactsApi.saveTruck(newTruck as any).catch(err => {
+      console.warn("Could not sync truck to backend:", err);
+    });
+
+    return newTruck.id;
   };
 
   const deleteSavedTruck = async (id: string) => {
-    const path = 'saved_trucks';
     const updated = savedTrucks.filter(t => t.id !== id);
     setSavedTrucks(updated);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.warn("Error updating localStorage after delete:", e);
-    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
-    if (!id.startsWith('local-truck-')) {
-      try {
-        await deleteDoc(doc(db, path, id));
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, path);
-      }
-    }
+    contactsApi.deleteTruck(id).catch(err => {
+      console.warn("Could not delete truck from backend:", err);
+    });
   };
 
   return {

@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, parseISO, addDays } from 'date-fns';
 import { Plus, Trash2 } from 'lucide-react';
-import { collection, addDoc } from 'firebase/firestore';
-import { db, auth, handleFirestoreError, OperationType } from '../../firebase';
+import { shipmentsApi } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { cn } from '../../lib/utils';
 
@@ -39,10 +39,11 @@ export const NewShipmentModal = ({ isOpen, onClose }: NewShipmentModalProps) => 
     setItems(newItems);
   };
 
+  const { user } = useAuth();
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const path = 'shipments';
     try {
       const departure = parseISO(formData.departure_date);
       const arrivalDeadline = addDays(departure, formData.est_travel_time).toISOString();
@@ -55,16 +56,14 @@ export const NewShipmentModal = ({ isOpen, onClose }: NewShipmentModalProps) => 
         status: 'In Transit',
         documents_url: [],
         last_updated: new Date().toISOString(),
-        createdBy: auth.currentUser?.uid || 'system'
+        createdBy: user?.displayName || 'Логист'
       };
 
-      // Remove undefined keys manually to prevent Firestore errors
-      Object.keys(shipmentData).forEach(key => shipmentData[key] === undefined && delete shipmentData[key]);
-
-      await addDoc(collection(db, path), shipmentData);
+      await shipmentsApi.create(shipmentData);
       onClose();
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, path);
+    } catch (error: any) {
+      console.error("Failed to create shipment:", error);
+      alert(error.message || "Ошибка при создании рейса");
     } finally {
       setLoading(false);
     }
