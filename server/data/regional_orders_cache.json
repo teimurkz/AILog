@@ -1,42 +1,5 @@
 [
   {
-    "id": "reg-1002-astana",
-    "orderNumber": "REG-1002",
-    "destinationCity": "Астана",
-    "originCity": "Алматы",
-    "status": "dispatched",
-    "dispatchedAt": "2026-09-07T05:21:05.724Z",
-    "speed": 68
-  },
-  {
-    "id": "reg-1003-shymkent",
-    "orderNumber": "REG-1003",
-    "destinationCity": "Шымкент",
-    "originCity": "Алматы",
-    "status": "new"
-  },
-  {
-    "id": "reg-1004-karaganda",
-    "orderNumber": "REG-1004",
-    "destinationCity": "Караганда",
-    "originCity": "Алматы",
-    "status": "new"
-  },
-  {
-    "id": "reg-1005-taraz",
-    "orderNumber": "REG-1005",
-    "destinationCity": "Тараз",
-    "originCity": "Алматы",
-    "status": "new"
-  },
-  {
-    "id": "reg-1006-balkhash",
-    "orderNumber": "REG-1006",
-    "destinationCity": "Балхаш",
-    "originCity": "Алматы",
-    "status": "new"
-  },
-  {
     "id": "858vtVPr9jBVe0MHUKtm",
     "orderNumber": "REG-4949",
     "destinationCity": "Астана",
