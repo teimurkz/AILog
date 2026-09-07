@@ -15,10 +15,15 @@ interface LeafletRouteMapProps {
   originCity: string;
   destinationCity: string;
   speed: number;
+  heading?: number;
   etaFormatted: string;
   waypoints: Array<{ name: string; lat: number; lng: number; reached: boolean }>;
   detailedRoadPolyline?: LocationPoint[];
   locationHistory?: LocationPoint[];
+  truckPlate?: string;
+  driverName?: string;
+  lastPingSecondsAgo?: number;
+  signalStatus?: string;
   height?: string;
 }
 
@@ -28,10 +33,15 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
   originCity,
   destinationCity,
   speed,
+  heading = 0,
   etaFormatted,
   waypoints,
   detailedRoadPolyline,
   locationHistory,
+  truckPlate = 'Госномер не указан',
+  driverName = 'Водитель не назначен',
+  lastPingSecondsAgo = 0,
+  signalStatus = 'in_transit',
   height = "h-[360px]",
 }) => {
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -162,7 +172,7 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
     }
   }, [destinationCity, detailedRoadPolyline, waypoints]);
 
-  // 2. Real-time Smooth Update for Truck Position & Trajectory Polyline
+  // 2. Real-time Smooth Update for Truck Position, Heading, Popup & Trajectory Polyline
   useEffect(() => {
     if (!mapInstanceRef.current) return;
     const map = mapInstanceRef.current;
@@ -171,7 +181,7 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
       ? locationHistory.map(pt => [pt.lat, pt.lng])
       : [];
 
-    // A. Update or create driven trajectory line (Green solid line only if real points exist)
+    // A. Update or create driven trajectory line (Green solid line)
     if (historyPoints.length > 1) {
       if (!trajectoryPolylineRef.current) {
         trajectoryPolylineRef.current = L.polyline(historyPoints, {
@@ -207,45 +217,109 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
       }
     }
 
-    // C. Update or create neat truck marker with smooth CSS transition
-    const createTruckIcon = (spd: number, eta: string) => {
-      const isMoving = spd > 5;
-      const statusLabel = isMoving ? `${spd} км/ч • ${eta}` : `Стоянка • ${eta}`;
-      const badgeColor = isMoving ? '#10b981' : '#f59e0b';
-      const gradient = isMoving ? 'linear-gradient(135deg, #10b981, #059669)' : 'linear-gradient(135deg, #f59e0b, #d97706)';
+    // C. Signal loss evaluation (> 15 minutes = 900 seconds)
+    const isSignalLost = lastPingSecondsAgo > 900;
+    const isStationary = speed < 4;
+    const isMoving = speed >= 4 && !isSignalLost;
+
+    // Formatting last activity text
+    let lastActiveText = "только что";
+    if (lastPingSecondsAgo >= 60) {
+      const mins = Math.floor(lastPingSecondsAgo / 60);
+      lastActiveText = `${mins} мин. назад`;
+    } else if (lastPingSecondsAgo > 5) {
+      lastActiveText = `${lastPingSecondsAgo} сек. назад`;
+    }
+
+    // Badge styling and labels
+    let badgeColor = '#10b981'; // Green
+    let gradient = 'linear-gradient(135deg, #10b981, #059669)';
+    let statusLabel = `${speed} км/ч • ${etaFormatted}`;
+
+    if (isSignalLost) {
+      badgeColor = '#ef4444'; // Red
+      gradient = 'linear-gradient(135deg, #64748b, #475569)';
+      statusLabel = `⚠️ Связь потеряна (${lastActiveText})`;
+    } else if (isStationary) {
+      badgeColor = '#f59e0b'; // Amber
+      gradient = 'linear-gradient(135deg, #f59e0b, #d97706)';
+      statusLabel = `Стоянка • ${etaFormatted}`;
+    }
+
+    // D. Truck Icon with heading rotation (0-360°) and heading arrow
+    const createTruckIcon = (
+      spd: number, 
+      headDeg: number, 
+      label: string, 
+      grad: string, 
+      bColor: string, 
+      pulse: boolean
+    ) => {
+      // Smooth heading angle rotation
+      const rotationDeg = Math.round(headDeg || 0);
 
       return L.divIcon({
         className: 'custom-neat-truck-marker',
         html: `
-          <div style="position:relative;display:flex;align-items:center;transition:all 0.8s ease-out;">
-            <!-- Pulse Ring when moving -->
-            ${isMoving ? '<div style="position:absolute;width:34px;height:34px;background:rgba(16,185,129,0.4);border-radius:50%;animation:ping 1.8s cubic-bezier(0,0,0.2,1) infinite;"></div>' : ''}
+          <div style="position:relative;display:flex;align-items:center;">
+            <!-- Pulse Ring when moving actively -->
+            ${pulse ? '<div style="position:absolute;width:38px;height:38px;background:rgba(16,185,129,0.35);border-radius:50%;animation:ping 1.8s cubic-bezier(0,0,0.2,1) infinite;"></div>' : ''}
             
-            <!-- Compact Truck Badge -->
-            <div style="position:relative;background:${gradient};color:white;width:32px;height:32px;border-radius:50%;border:2px solid white;box-shadow:0 4px 14px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;font-size:16px;">
-              🚚
+            <!-- Rotating Directional Truck Badge -->
+            <div style="position:relative;background:${grad};color:white;width:36px;height:36px;border-radius:50%;border:2px solid white;box-shadow:0 4px 14px rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;transform:rotate(${rotationDeg}deg);transition:transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);z-index:2;">
+              <!-- Front Pointer Triangle -->
+              <div style="position:absolute;top:-4px;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:7px solid white;"></div>
+              <span style="font-size:16px;display:inline-block;transform:rotate(-${rotationDeg}deg);transition:transform 0.6s cubic-bezier(0.4,0,0.2,1);">🚚</span>
             </div>
 
-            <!-- Speed & ETA Badge -->
-            <div style="position:absolute;left:36px;background:rgba(15,23,42,0.92);color:white;padding:3px 8px;border-radius:8px;font-size:10px;font-weight:bold;border:1px solid ${badgeColor};white-space:nowrap;box-shadow:0 4px 10px rgba(0,0,0,0.3);backdrop-filter:blur(4px);">
-              ${statusLabel}
+            <!-- Plate, Speed & Status Badge -->
+            <div style="position:absolute;left:40px;background:rgba(15,23,42,0.94);color:white;padding:3px 8px;border-radius:8px;font-size:10px;font-weight:bold;border:1px solid ${bColor};white-space:nowrap;box-shadow:0 4px 10px rgba(0,0,0,0.3);backdrop-filter:blur(4px);z-index:1;">
+              <span style="color:#94a3b8;margin-right:4px;">${truckPlate}</span> ${label}
             </div>
           </div>
         `,
-        iconSize: [160, 36],
-        iconAnchor: [16, 18],
+        iconSize: [220, 38],
+        iconAnchor: [18, 19],
       });
     };
 
+    // E. Interactive Leaflet Popup Content
+    const popupContent = `
+      <div style="font-family:system-ui,-apple-system,sans-serif;padding:6px;min-width:190px;color:#0f172a;">
+        <div style="font-weight:bold;font-size:13px;display:flex;align-items:center;gap:6px;margin-bottom:6px;color:#0f172a;border-bottom:1px solid #e2e8f0;padding-bottom:4px;">
+          <span style="font-size:15px;">🚚</span> <span>${truckPlate}</span>
+        </div>
+        <div style="font-size:11px;color:#475569;margin-bottom:3px;">
+          👤 <b>Водитель:</b> ${driverName}
+        </div>
+        <div style="font-size:11px;color:#475569;margin-bottom:3px;">
+          ⚡ <b>Скорость:</b> <span style="color:${isMoving ? '#059669' : '#d97706'};font-weight:bold;">${speed} км/ч</span>
+        </div>
+        <div style="font-size:11px;color:#475569;margin-bottom:3px;">
+          🧭 <b>Курс:</b> ${Math.round(heading)}°
+        </div>
+        <div style="font-size:11px;color:#475569;margin-bottom:3px;">
+          ⏱️ <b>Сигнал:</b> ${lastActiveText}
+        </div>
+        <div style="font-size:10px;padding:3px 8px;border-radius:6px;background:${isSignalLost ? '#fee2e2' : isMoving ? '#d1fae5' : '#fef3c7'};color:${isSignalLost ? '#dc2626' : isMoving ? '#065f46' : '#92400e'};font-weight:bold;margin-top:6px;text-align:center;">
+          ${isSignalLost ? '🔴 Связь потеряна (>15 мин)' : isMoving ? '🟢 В движении по трассе' : '🟡 Стоянка / Остановка'}
+        </div>
+      </div>
+    `;
+
+    const icon = createTruckIcon(speed, heading, statusLabel, gradient, badgeColor, isMoving);
+
     if (!truckMarkerRef.current) {
-      truckMarkerRef.current = L.marker([currentLat, currentLng], {
-        icon: createTruckIcon(speed, etaFormatted)
-      }).addTo(map);
+      truckMarkerRef.current = L.marker([currentLat, currentLng], { icon })
+        .bindPopup(popupContent)
+        .addTo(map);
     } else {
+      // Smooth marker movement with Leaflet setLatLng
       truckMarkerRef.current.setLatLng([currentLat, currentLng]);
-      truckMarkerRef.current.setIcon(createTruckIcon(speed, etaFormatted));
+      truckMarkerRef.current.setIcon(icon);
+      truckMarkerRef.current.setPopupContent(popupContent);
     }
-  }, [currentLat, currentLng, speed, etaFormatted, locationHistory, waypoints]);
+  }, [currentLat, currentLng, speed, heading, etaFormatted, locationHistory, waypoints, truckPlate, driverName, lastPingSecondsAgo, signalStatus]);
 
   // Recenter map smooth view to truck position
   const handleRecenterTruck = () => {
@@ -280,6 +354,13 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
 
   return (
     <div className={`relative w-full ${height} rounded-2xl overflow-hidden border border-slate-700 shadow-inner group`}>
+      {/* CSS for smooth marker transition */}
+      <style>{`
+        .leaflet-marker-icon.custom-neat-truck-marker {
+          transition: transform 1.2s cubic-bezier(0.25, 1, 0.5, 1) !important;
+        }
+      `}</style>
+
       {/* Floating View Control Tools */}
       <div className="absolute top-3 right-3 z-[400] flex flex-col gap-1.5 bg-slate-900/90 p-1.5 rounded-xl border border-slate-700 shadow-xl backdrop-blur-md">
         <button

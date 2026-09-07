@@ -1,8 +1,10 @@
 import "dotenv/config";
+import http from "http";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs";
+import { initSocketServer } from "./services/socket.service.js";
 
 import warehouseRoutes from "./routes/warehouse.routes.js";
 import mailingRoutes from "./routes/mailing.routes.js";
@@ -23,6 +25,8 @@ import { startTelegramBotPolling } from "./services/telegram.service.js";
 
 async function startServer() {
   const app = express();
+  const httpServer = http.createServer(app);
+  const io = initSocketServer(httpServer);
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   app.use(express.json({ limit: '50mb' }));
@@ -72,7 +76,7 @@ async function startServer() {
   startMailingScheduler();
   startTelegramBotPolling();
 
-  app.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
   });
 }

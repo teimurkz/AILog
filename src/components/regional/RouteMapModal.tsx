@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ordersApi, subscribeToRealtimeStream } from '../../services/api';
+import { onTruckPositionUpdate, onDeliveryEnded, joinOrderRoom, leaveOrderRoom } from '../../services/socket';
 import { LeafletRouteMap } from './LeafletRouteMap';
 import { RegionalTruckOrder } from '../../types';
 import { KAZAKHSTAN_ROADS } from '../../utils/kazakhstanRoads';
@@ -212,12 +213,65 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
     }
   };
 
-  // 1. Real-time SSE Stream Listener (Instant update when driver sends GPS or changes trip status)
+  // 1. Real-time WebSocket (Socket.io) & SSE Stream Listener
   useEffect(() => {
     if (!isOpen || !order?.id) return;
 
-    const unsub = subscribeToRealtimeStream((event, data) => {
-      if (event === 'telemetry_update' || event === 'order_updated') {
+    // Join order room in Socket.io
+    joinOrderRoom(order.id);
+    if (order.orderNumber) joinOrderRoom(order.orderNumber);
+
+    // A. Socket.io position update (sub-second latency without page reload)
+    const unsubSocketUpdate = onTruckPositionUpdate((data) => {
+      const matches = data?.orderId === order.id ||
+                      data?.orderId === order.orderNumber ||
+                      data?.truckNumber === order.orderNumber ||
+                      data?.truckNumber === order.assignedTruckPlate;
+      if (matches) {
+        setRouteData(prev => {
+          if (!prev) return prev;
+          const newHistory = [
+            ...(prev.locationHistory || []),
+            { lat: data.lat, lng: data.lng, timestamp: data.updatedAt }
+          ];
+          return {
+            ...prev,
+            currentLat: data.lat,
+            currentLng: data.lng,
+            speed: data.speed !== undefined ? data.speed : prev.speed,
+            heading: data.heading !== undefined ? data.heading : prev.heading,
+            updatedAt: data.updatedAt,
+            lastPingSecondsAgo: 0,
+            signalStatus: (data.status as any) || (data.speed && data.speed > 5 ? 'in_transit' : 'parked'),
+            signalStatusText: (data.speed && data.speed > 5) ? `🟢 В движении (${data.speed} км/ч)` : '🟢 На связи (Стоянка)',
+            locationHistory: newHistory
+          };
+        });
+      }
+    });
+
+    // B. Socket.io delivery ended event (driver completed trip in bot)
+    const unsubDeliveryEnded = onDeliveryEnded((data) => {
+      const matches = data?.orderId === order.id ||
+                      data?.orderId === order.orderNumber ||
+                      data?.orderNumber === order.orderNumber;
+      if (matches) {
+        order.status = 'delivered';
+        setRouteData(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            speed: 0,
+            signalStatus: 'delivered',
+            signalStatusText: '🏁 Груз доставлен (Рейс завершен)'
+          };
+        });
+      }
+    });
+
+    // C. SSE Stream Listener (fallback)
+    const unsubSSE = subscribeToRealtimeStream((event, data) => {
+      if (event === 'telemetry_update' || event === 'order_updated' || event === 'order_completed') {
         const matches = data?.orderId === order.id ||
                         data?.orderNumber === order.orderNumber ||
                         data?.orderNumberOrId === order.orderNumber ||
@@ -228,8 +282,14 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
       }
     });
 
-    return () => unsub();
-  }, [isOpen, order?.id]);
+    return () => {
+      leaveOrderRoom(order.id);
+      if (order.orderNumber) leaveOrderRoom(order.orderNumber);
+      unsubSocketUpdate();
+      unsubDeliveryEnded();
+      unsubSSE();
+    };
+  }, [isOpen, order?.id, order?.orderNumber]);
 
   // 2. Auto-refresh GPS coordinates every 3 seconds while modal is open
   useEffect(() => {
@@ -521,10 +581,15 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                   originCity="Алматы"
                   destinationCity={destCity}
                   speed={routeData?.speed ?? 0}
+                  heading={routeData?.heading ?? 0}
                   etaFormatted={routeData?.etaFormatted || 'Ожидает выезда'}
                   waypoints={waypoints}
                   detailedRoadPolyline={routeData?.detailedRoadPolyline}
                   locationHistory={routeData?.locationHistory}
+                  truckPlate={truckPlate}
+                  driverName={driverName}
+                  lastPingSecondsAgo={routeData?.lastPingSecondsAgo ?? 0}
+                  signalStatus={routeData?.signalStatus}
                   height={isFullscreen ? "h-[calc(96vh-320px)] min-h-[480px]" : "h-[380px]"}
                 />
 

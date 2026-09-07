@@ -3,6 +3,8 @@ import fs from "fs";
 import path from "path";
 import { storageService, LocationPoint } from "./storage.service.js";
 import { broadcastRealtimeEvent } from "../routes/realtime.routes.js";
+import { emitTruckPositionUpdate, emitDeliveryEnded } from "./socket.service.js";
+import { processIncomingTelemetry } from "./gps-engine.service.js";
 
 export { LocationPoint };
 
@@ -152,6 +154,7 @@ export interface RegionalOrderSummary {
 const chatSelectedOrder = new Map<number, RegionalOrderSummary>();
 const chatTripActive = new Map<number, boolean>();
 const chatLastMessageTime = new Map<number, number>();
+const chatPinnedMsgMap = new Map<number, number>();
 
 const ORDERS_CACHE_FILE = path.join(process.cwd(), "server", "data", "regional_orders_cache.json");
 const SESSIONS_CACHE_FILE = path.join(process.cwd(), "server", "data", "driver_sessions.json");
@@ -220,6 +223,9 @@ function loadSessionsFromCache() {
             }
             activeChatOrderMap.set(s.chatId, s.orderNumber);
             chatTripActive.set(s.chatId, !!s.tripActive);
+            if (s.pinnedMessageId) {
+              chatPinnedMsgMap.set(s.chatId, s.pinnedMessageId);
+            }
             if (s.orderId && s.orderNumber) {
               linkOrderNumberToId(s.orderId, s.orderNumber);
             }
@@ -239,6 +245,7 @@ function saveSessionsToCache() {
       orderId: string;
       orderNumber: string;
       tripActive: boolean;
+      pinnedMessageId?: number;
       lastUpdated: string;
     }> = [];
     for (const [chatId, orderNum] of activeChatOrderMap.entries()) {
@@ -248,6 +255,7 @@ function saveSessionsToCache() {
         orderId: selected?.id || orderNum,
         orderNumber: orderNum,
         tripActive: !!chatTripActive.get(chatId),
+        pinnedMessageId: chatPinnedMsgMap.get(chatId),
         lastUpdated: new Date().toISOString()
       });
     }
@@ -601,6 +609,20 @@ export function updateDriverLocation(location: DriverLocation, status?: string):
     updatedAt: updated.updatedAt
   });
 
+  const storedOrderForSocket = storageService.getOrder(location.orderId) || (alias ? storageService.getOrder(alias) : undefined);
+  emitTruckPositionUpdate({
+    orderId: location.orderId,
+    truckNumber: storedOrderForSocket?.assignedTruckPlate || alias || location.orderId,
+    lat: location.lat,
+    lng: location.lng,
+    speed: actualSpeed,
+    heading: location.heading || 0,
+    status: targetStatus,
+    driverPhone: location.driverPhone,
+    assignedDriver: storedOrderForSocket?.assignedDriver,
+    updatedAt: updated.updatedAt
+  });
+
   return updated;
 }
 
@@ -814,17 +836,42 @@ export function getDriverLocation(
 
 
 // Send message via Telegram Bot API
-async function sendTelegramMessage(chatId: number, text: string, replyMarkup?: any) {
+async function sendTelegramMessage(chatId: number, text: string, replyMarkup?: any): Promise<any> {
   try {
-    await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    const res = await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       chat_id: chatId,
       text,
       parse_mode: 'HTML',
       reply_markup: replyMarkup
     });
+    return res.data?.result;
   } catch (error: any) {
     console.error("Error sending Telegram message:", error?.response?.data || error.message);
+    return null;
   }
+}
+
+// Pin message in chat (e.g. for active trip tracking with finish button)
+async function pinTelegramChatMessage(chatId: number, messageId: number) {
+  try {
+    await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/pinChatMessage`, {
+      chat_id: chatId,
+      message_id: messageId,
+      disable_notification: true
+    });
+  } catch (e: any) {
+    console.warn("Could not pin telegram message:", e?.response?.data?.description || e.message);
+  }
+}
+
+// Unpin message in chat
+async function unpinTelegramChatMessage(chatId: number, messageId?: number) {
+  try {
+    await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/unpinChatMessage`, {
+      chat_id: chatId,
+      ...(messageId ? { message_id: messageId } : {})
+    });
+  } catch (e) {}
 }
 
 // Answer callback query from inline buttons
@@ -912,6 +959,19 @@ function buildOrderSelectionKeyboard(orders: RegionalOrderSummary[]) {
   };
 }
 
+function buildActiveTripInlineKeyboard(orderNumber: string) {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: "🛑 Завершить рейс",
+          callback_data: `finish_trip:${orderNumber}`
+        }
+      ]
+    ]
+  };
+}
+
 function buildSelectedOrderKeyboard(order: RegionalOrderSummary) {
   return {
     keyboard: [
@@ -926,7 +986,7 @@ function buildSelectedOrderKeyboard(order: RegionalOrderSummary) {
 function buildInTransitKeyboard(order: RegionalOrderSummary) {
   return {
     keyboard: [
-      [{ text: "🏁 Груз доставлен (Завершить)" }],
+      [{ text: "🛑 Завершить рейс" }],
       [{ text: "🔄 Сменить рейс" }]
     ],
     resize_keyboard: true,
@@ -1055,6 +1115,63 @@ export function startTelegramBotPolling() {
             continue;
           }
 
+          if (data.startsWith('finish_trip:')) {
+            const orderNum = data.replace('finish_trip:', '').trim();
+            await answerCallbackQuery(cbId, "Рейс завершается...");
+
+            chatTripActive.set(chatId, false);
+            const selected = chatSelectedOrder.get(chatId);
+            const finishedNum = orderNum || selected?.orderNumber || activeChatOrderMap.get(chatId) || '';
+            const orderId = selected?.id || finishedNum;
+
+            if (finishedNum) {
+              updateCachedOrderStatus(finishedNum, 'delivered');
+              storageService.updateOrderStatus(finishedNum, 'delivered', {
+                deliveredAt: new Date().toISOString()
+              });
+              emitDeliveryEnded(orderId, finishedNum);
+              broadcastRealtimeEvent('order_completed', {
+                orderId: finishedNum,
+                status: 'delivered',
+                deliveredAt: new Date().toISOString()
+              });
+              await syncOrderToFirestore(finishedNum, {
+                status: 'delivered',
+                deliveredAt: new Date().toISOString(),
+                speed: 0
+              });
+            }
+
+            // Edit message text to "Рейс завершен, спасибо!"
+            if (msgId) {
+              await editTelegramMessageText(
+                chatId,
+                msgId,
+                `🏁 <b>Рейс ${finishedNum} завершен, спасибо!</b>\n\n` +
+                `Груз успешно доставлен. Отслеживание геопозиции остановлено. 🚛✨`
+              );
+            }
+
+            // Unpin pinned message
+            const pinnedId = chatPinnedMsgMap.get(chatId) || msgId;
+            if (pinnedId) {
+              await unpinTelegramChatMessage(chatId, pinnedId);
+              chatPinnedMsgMap.delete(chatId);
+            }
+
+            chatSelectedOrder.delete(chatId);
+            activeChatOrderMap.delete(chatId);
+            saveSessionsToCache();
+
+            const nextOrders = getAvailableOrdersForDriver();
+            await sendTelegramMessage(
+              chatId,
+              `📦 <b>Выберите следующий рейс:</b>`,
+              buildOrderSelectionInlineKeyboard(nextOrders)
+            );
+            continue;
+          }
+
           if (data === 'refresh_orders') {
             const freshOrders = getAvailableOrdersForDriver();
             await answerCallbackQuery(cbId, "Список обновлён");
@@ -1096,10 +1213,11 @@ export function startTelegramBotPolling() {
         const availableOrders = getAvailableOrdersForDriver();
         let selectedOrder = chatSelectedOrder.get(chatId);
 
-        // 1. LIVE LOCATION STREAM (edited_message) - STRICT ZERO SPAM:
+        // 1. LIVE LOCATION STREAM (edited_message) - FILTER: ACTIVE TRIPS ONLY
         if (update.edited_message) {
           const loc = update.edited_message.location;
-          if (loc) {
+          const isTripActive = chatTripActive.get(chatId) === true;
+          if (loc && isTripActive) {
             let activeOrder = selectedOrder;
             if (!activeOrder) {
               const orderNum = activeChatOrderMap.get(chatId);
@@ -1111,14 +1229,30 @@ export function startTelegramBotPolling() {
             const orderNum = activeOrder?.orderNumber || activeChatOrderMap.get(chatId) || 'all';
             const speedKmh = loc.speed !== undefined ? Math.max(0, Math.round(loc.speed * 3.6)) : 0;
 
+            const destCity = activeOrder?.destinationCity || 'Астана';
+            const destKey = destCity.toLowerCase().includes('шымкент') || destCity.toLowerCase().includes('тараз') ? 'shymkent' : 'astana';
+            const highwayPolyline = DETAILED_HIGHWAYS[destKey] || DETAILED_HIGHWAYS.astana;
+            const destNode = HIGHWAY_NODES[destKey] || HIGHWAY_NODES.astana;
+
+            const processed = processIncomingTelemetry({
+              orderId,
+              lat: loc.latitude,
+              lng: loc.longitude,
+              speed: speedKmh,
+              heading: loc.heading,
+              accuracy: loc.horizontal_accuracy,
+              roadPolyline: highwayPolyline,
+              destination: { lat: destNode.lat, lng: destNode.lng }
+            });
+
             updateDriverLocation({
               orderId,
               driverPhone: msg.from?.phone_number || msg.from?.username || `id:${chatId}`,
-              lat: loc.latitude,
-              lng: loc.longitude,
-              heading: loc.heading,
-              speed: speedKmh,
-              updatedAt: new Date().toISOString()
+              lat: processed.lat,
+              lng: processed.lng,
+              heading: processed.heading,
+              speed: processed.speed,
+              updatedAt: processed.timestamp
             }, 'dispatched');
 
             if (orderNum !== orderId) {
@@ -1126,18 +1260,19 @@ export function startTelegramBotPolling() {
             }
             if (activeOrder) {
               updateCachedOrderStatus(activeOrder.orderNumber, 'dispatched', {
-                currentLat: loc.latitude,
-                currentLng: loc.longitude,
-                speed: speedKmh
+                currentLat: processed.lat,
+                currentLng: processed.lng,
+                speed: processed.speed,
+                heading: processed.heading
               });
               syncOrderToFirestore(activeOrder.orderNumber, {
                 status: 'dispatched',
-                currentLat: loc.latitude,
-                currentLng: loc.longitude,
-                speed: speedKmh
+                currentLat: processed.lat,
+                currentLng: processed.lng,
+                speed: processed.speed
               });
             }
-            console.log(`📡 [Telegram Live GPS Stream] Order: ${orderNum} | Lat: ${loc.latitude.toFixed(5)}, Lng: ${loc.longitude.toFixed(5)} | Speed: ${speedKmh} km/h`);
+            console.log(`📡 [Telegram Live GPS Stream] Order: ${orderNum} | Lat: ${processed.lat.toFixed(5)}, Lng: ${processed.lng.toFixed(5)} | Speed: ${processed.speed} km/h | Heading: ${processed.heading}°`);
           }
           continue;
         }
@@ -1229,19 +1364,32 @@ export function startTelegramBotPolling() {
               buildInTransitKeyboard(selectedOrder)
             );
           } else {
-            // First time departure confirmation
+            // First time departure confirmation - PIN MESSAGE WITH INLINE BUTTON [🛑 Завершить рейс]
             const appBaseUrl = process.env.BASE_URL || process.env.APP_URL || 'http://localhost:3000';
             const trackerUrl = `${appBaseUrl}/gps?order=${encodeURIComponent(selectedOrder.orderNumber)}`;
 
-            await sendTelegramMessage(
+            const sentMsg = await sendTelegramMessage(
               chatId,
               `🟢 <b>Рейс начат!</b>\n\n` +
               `📦 <b>Рейс:</b> ${selectedOrder.orderNumber}\n` +
               `🛣️ <b>Маршрут:</b> ${selectedOrder.originCity || 'Алматы'} ➔ <b>${selectedOrder.destinationCity}</b>\n` +
+              `🚛 <b>Тягач:</b> ${selectedOrder.assignedTruckPlate || 'Не указан'}\n` +
               `👤 <b>Водитель:</b> ${driverTitle}\n\n` +
               `🛰️ <b>GPS-отслеживание активно:</b>\n` +
-              `Для непрерывной передачи в движении откройте <a href="${trackerUrl}">Мобильный трекер</a> или включите трансляцию геопозиции в Telegram (📎 ➔ «Геопозиция» ➔ «Транслировать на 8 часов»).\n\n` +
-              `Удачной дороги! 🛣️`,
+              `Включите непрерывную трансляцию (📎 ➔ «Геопозиция» ➔ «Транслировать геопозицию на 8 часов») или откройте <a href="${trackerUrl}">Веб-трекер</a>.\n\n` +
+              `По завершении разгрузки нажмите кнопку ниже:`,
+              buildActiveTripInlineKeyboard(selectedOrder.orderNumber)
+            );
+
+            if (sentMsg?.message_id) {
+              chatPinnedMsgMap.set(chatId, sentMsg.message_id);
+              saveSessionsToCache();
+              await pinTelegramChatMessage(chatId, sentMsg.message_id);
+            }
+
+            await sendTelegramMessage(
+              chatId,
+              `Удачной дороги! 🛣️ Для завершения рейса используйте закреплённое сообщение вверху или кнопку внизу экрана 👇`,
               buildInTransitKeyboard(selectedOrder)
             );
           }
@@ -1415,18 +1563,45 @@ export function startTelegramBotPolling() {
           ) {
             chatTripActive.set(chatId, false);
             const finishedOrder = selectedOrder;
-            if (finishedOrder) {
-              updateCachedOrderStatus(finishedOrder.orderNumber, 'delivered');
-              await syncOrderToFirestore(finishedOrder.orderNumber, {
+            const orderNum = finishedOrder?.orderNumber || activeChatOrderMap.get(chatId) || '';
+            const orderId = finishedOrder?.id || orderNum;
+
+            if (orderNum) {
+              updateCachedOrderStatus(orderNum, 'delivered');
+              storageService.updateOrderStatus(orderNum, 'delivered', {
+                deliveredAt: new Date().toISOString()
+              });
+              emitDeliveryEnded(orderId, orderNum);
+              broadcastRealtimeEvent('order_completed', {
+                orderId: orderNum,
                 status: 'delivered',
                 deliveredAt: new Date().toISOString()
               });
-              if (finishedOrder.id && finishedOrder.id !== finishedOrder.orderNumber) {
-                await syncOrderToFirestore(finishedOrder.id, {
+              await syncOrderToFirestore(orderNum, {
+                status: 'delivered',
+                deliveredAt: new Date().toISOString(),
+                speed: 0
+              });
+              if (orderId && orderId !== orderNum) {
+                await syncOrderToFirestore(orderId, {
                   status: 'delivered',
-                  deliveredAt: new Date().toISOString()
+                  deliveredAt: new Date().toISOString(),
+                  speed: 0
                 });
               }
+            }
+
+            // Edit and unpin pinned message
+            const pinnedId = chatPinnedMsgMap.get(chatId);
+            if (pinnedId) {
+              await editTelegramMessageText(
+                chatId,
+                pinnedId,
+                `🏁 <b>Рейс ${orderNum} завершен, спасибо!</b>\n\n` +
+                `Груз успешно доставлен. Отслеживание геопозиции остановлено. 🚛✨`
+              );
+              await unpinTelegramChatMessage(chatId, pinnedId);
+              chatPinnedMsgMap.delete(chatId);
             }
 
             chatSelectedOrder.delete(chatId);

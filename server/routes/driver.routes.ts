@@ -12,6 +12,7 @@ import {
   setCachedUserToken
 } from "../services/telegram.service.js";
 import { broadcastRealtimeEvent } from "./realtime.routes.js";
+import { emitTruckPositionUpdate, emitDeliveryEnded } from "../services/socket.service.js";
 
 const router = Router();
 
@@ -115,6 +116,18 @@ router.post("/location", (req, res) => {
       updatedAt: updated.updatedAt
     });
 
+    emitTruckPositionUpdate({
+      orderId: String(orderId),
+      truckNumber: orderNumber ? String(orderNumber) : undefined,
+      lat: Number(lat),
+      lng: Number(lng),
+      speed: realSpeed,
+      heading: heading !== undefined ? Number(heading) : undefined,
+      status: status || 'dispatched',
+      driverPhone: driverPhone,
+      updatedAt: updated.updatedAt
+    });
+
     return res.json({ success: true, location: updated });
   } catch (error: any) {
     console.error("Error updating driver location:", error);
@@ -137,6 +150,7 @@ router.post("/complete", (req, res) => {
       status: 'delivered',
       deliveredAt: new Date().toISOString()
     });
+    emitDeliveryEnded(String(target), orderNumber ? String(orderNumber) : undefined);
     syncOrderToFirestore(String(target), {
       status: 'delivered',
       deliveredAt: new Date().toISOString(),

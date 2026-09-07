@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { ordersApi, subscribeToRealtimeStream } from '../services/api';
+import { onTruckPositionUpdate, onDeliveryEnded } from '../services/socket';
 import { RegionalTruckOrder, RegionalOrderStatus } from '../types';
 
 export const playNotificationSound = () => {
@@ -143,9 +144,43 @@ export const useRegionalOrders = () => {
       }
     });
 
+    // 3. Socket.io Real-time WebSocket Listeners
+    const unsubSocketUpdate = onTruckPositionUpdate((data) => {
+      if (isCancelled || !data?.orderId) return;
+      setOrders(prev =>
+        prev.map(o => {
+          if (o.id === data.orderId || o.orderNumber === data.orderId || o.orderNumber === data.truckNumber) {
+            return {
+              ...o,
+              currentLat: data.lat,
+              currentLng: data.lng,
+              speed: data.speed,
+              heading: data.heading,
+              lastGpsUpdate: data.updatedAt || new Date().toISOString()
+            };
+          }
+          return o;
+        })
+      );
+    });
+
+    const unsubSocketDelivered = onDeliveryEnded((data) => {
+      if (isCancelled || !data?.orderId) return;
+      setOrders(prev =>
+        prev.map(o => {
+          if (o.id === data.orderId || o.orderNumber === data.orderId || o.orderNumber === data.orderNumber) {
+            return { ...o, status: 'delivered', speed: 0 };
+          }
+          return o;
+        })
+      );
+    });
+
     return () => {
       isCancelled = true;
       unsubscribe();
+      unsubSocketUpdate();
+      unsubSocketDelivered();
     };
   }, []);
 
