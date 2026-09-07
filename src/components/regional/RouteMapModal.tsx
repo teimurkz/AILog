@@ -259,6 +259,7 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
   const truckPlate = order.assignedTruckPlate || 'Не указан';
   const botLink = `https://t.me/${botUsername}?start=${encodeURIComponent(order.orderNumber || order.id)}`;
   const webTrackerLink = `${window.location.origin}/gps?order=${encodeURIComponent(order.orderNumber || order.id)}`;
+  const driverPhoneClean = ((order as any).driverPhone || order.recipientPhone || order.assignedDriver || '').replace(/[^0-9]/g, '');
   const whatsappShareUrl = `https://wa.me/${driverPhoneClean}?text=${encodeURIComponent(`Здравствуйте! Подтвердите выезд по рейсу ${order.orderNumber}: в Telegram-боте @${botUsername} выберите заявку и нажмите «Разрешить геопозицию» (либо откройте мобильный трекер: ${webTrackerLink}).`)}`;
 
   const handleCopyLink = () => {
