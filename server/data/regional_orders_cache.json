@@ -4,19 +4,21 @@
     "orderNumber": "REG-4825",
     "destinationCity": "Астана",
     "originCity": "Алматы",
-    "status": "dispatched",
+    "status": "assigned",
     "assignedDriver": "+7 777 933 9046‬ (Роман)",
     "assignedTruckPlate": "",
-    "currentLat": 43.238949,
-    "currentLng": 76.889709,
-    "speed": 72
+    "currentLat": 43.2391,
+    "currentLng": 76.8898,
+    "speed": 0,
+    "heading": 180,
+    "lastGpsUpdate": "2026-09-07T11:35:50.869Z"
   },
   {
     "id": "Zut9CnNeGHe7qUN2vQO1",
     "orderNumber": "REG-2070",
     "destinationCity": "Шымкент",
     "originCity": "Алматы",
-    "status": "dispatched",
+    "status": "assigned",
     "assignedDriver": "Нурлан  (+7 775 438 8778‬)",
     "assignedTruckPlate": "",
     "currentLat": 43.2391,
@@ -28,7 +30,7 @@
     "orderNumber": "REG-2392",
     "destinationCity": "Шымкент",
     "originCity": "Алматы",
-    "status": "delivered",
+    "status": "loading",
     "assignedDriver": "+7 702 402 4770  (Жасулан)",
     "assignedTruckPlate": ""
   },
@@ -55,7 +57,7 @@
     "orderNumber": "REG-7476",
     "destinationCity": "Астана",
     "originCity": "Алматы",
-    "status": "delivered",
+    "status": "new",
     "assignedDriver": "Арыстан (+7 775 166 3492)",
     "assignedTruckPlate": ""
   },
@@ -82,7 +84,7 @@
     "orderNumber": "REG-5172",
     "destinationCity": "Актау",
     "originCity": "Алматы",
-    "status": "delivered",
+    "status": "new",
     "assignedDriver": "Алибек ( +7 (778) 139-31-10) , номер накладной 53272",
     "assignedTruckPlate": ""
   },

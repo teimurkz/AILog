@@ -344,19 +344,56 @@ export function getActiveOrdersList(): RegionalOrderSummary[] {
 }
 
 // Return ONLY genuine unassigned orders from CRM (or orders assigned to this specific driver)
-export function getAvailableOrdersForDriver(driverIdentifier?: string): RegionalOrderSummary[] {
+export function getAvailableOrdersForDriver(driverIdentifier?: string, chatId?: number): RegionalOrderSummary[] {
+  // Always synchronize directly with local storageService so orders added/updated in CRM appear instantly!
+  const storedList = storageService.getUniqueOrders();
+
+  activeOrdersList = storedList.map(o => {
+    linkOrderNumberToId(o.id, o.orderNumber);
+    return {
+      id: o.id,
+      orderNumber: o.orderNumber,
+      destinationCity: o.destinationCity,
+      originCity: o.originCity || 'Алматы',
+      status: o.status,
+      assignedDriver: o.assignedDriver,
+      assignedTruckPlate: o.assignedTruckPlate,
+      dispatchedAt: o.dispatchedAt,
+      currentLat: o.currentLat,
+      currentLng: o.currentLng,
+      speed: o.speed
+    };
+  });
+
   const cleanDriverId = driverIdentifier ? driverIdentifier.toLowerCase().replace(/[^a-z0-9а-яё]/gi, '') : '';
+  const currentChatOrderNum = chatId ? activeChatOrderMap.get(chatId) : undefined;
 
   return activeOrdersList.filter(o => {
     // Exclude delivered, cancelled
-    if (o.status === 'delivered' || o.status === 'cancelled') {
+    const st = (o.status || '').toLowerCase();
+    if (st === 'delivered' || st === 'cancelled' || st === 'доставлено' || st === 'отменено') {
       return false;
+    }
+
+    // If this order is the one currently selected by THIS chat, always keep it available
+    if (currentChatOrderNum && (o.orderNumber.toUpperCase() === currentChatOrderNum.toUpperCase() || o.id === currentChatOrderNum)) {
+      return true;
+    }
+
+    // If another driver has already taken this order in an active Telegram session, hide it from other drivers
+    for (const [otherChatId, otherOrderNum] of activeChatOrderMap.entries()) {
+      if (chatId && otherChatId === chatId) continue;
+      if (otherOrderNum && (otherOrderNum.toUpperCase() === o.orderNumber.toUpperCase() || otherOrderNum === o.id)) {
+        if (chatTripActive.get(otherChatId)) {
+          return false;
+        }
+      }
     }
 
     const assigned = (o.assignedDriver || '').trim();
     const cleanAssigned = assigned.toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
 
-    // If order already has an assigned driver
+    // If order has an assigned driver
     if (assigned.length > 0) {
       if (cleanDriverId && cleanAssigned) {
         // If it matches this driver's name, phone, or username -> show it to them!
@@ -364,23 +401,52 @@ export function getAvailableOrdersForDriver(driverIdentifier?: string): Regional
           return true;
         }
       }
-      // Assigned to someone else -> HIDE from other drivers!
-      return false;
+
+      // Orders in 'new' or 'loading' or 'assigned' are shown to drivers so they can accept and start the trip
+      if (st === 'new' || st === 'loading' || st === 'assigned' || st === 'новый' || st === 'на погрузке' || st === 'назначена фура') {
+        return true;
+      }
+
+      // If already dispatched by someone else, hide
+      if (st === 'dispatched' || st === 'в пути') {
+        return false;
+      }
     }
 
-    // Unassigned orders in 'new' or 'loading' are available for drivers to take
+    // Unassigned orders in 'new', 'loading', 'assigned' are available for drivers to take
     return true;
   });
 }
 
 export function updateCachedOrderStatus(orderNumberOrId: string, status: string, extra?: Partial<RegionalOrderSummary>) {
   const clean = orderNumberOrId.toLowerCase();
+  let found = false;
+
   activeOrdersList = activeOrdersList.map(o => {
     if (o.id.toLowerCase() === clean || o.orderNumber.toLowerCase() === clean) {
+      found = true;
       return { ...o, status, ...(extra || {}) };
     }
     return o;
   });
+
+  // If order was newly created, add it immediately to activeOrdersList
+  if (!found) {
+    activeOrdersList.unshift({
+      id: extra?.id || orderNumberOrId,
+      orderNumber: extra?.orderNumber || orderNumberOrId,
+      destinationCity: extra?.destinationCity || 'Астана',
+      originCity: extra?.originCity || 'Алматы',
+      status,
+      assignedDriver: extra?.assignedDriver,
+      assignedTruckPlate: extra?.assignedTruckPlate,
+      dispatchedAt: extra?.dispatchedAt,
+      currentLat: extra?.currentLat,
+      currentLng: extra?.currentLng,
+      speed: extra?.speed
+    });
+    linkOrderNumberToId(extra?.id || orderNumberOrId, extra?.orderNumber || orderNumberOrId);
+  }
 
   storageService.updateOrderStatus(orderNumberOrId, status as any, extra as any);
 
@@ -897,7 +963,10 @@ async function editTelegramMessageText(chatId: number, messageId: number, text: 
       reply_markup: replyMarkup
     });
   } catch (error: any) {
-    console.warn("Could not edit telegram message:", error?.response?.data?.description || error.message);
+    const desc = error?.response?.data?.description || error.message || '';
+    if (!desc.includes('message is not modified')) {
+      console.warn("Could not edit telegram message:", desc);
+    }
   }
 }
 
@@ -1059,13 +1128,14 @@ export function startTelegramBotPolling() {
 
           if (data.startsWith('sel_order:')) {
             const orderNum = data.replace('sel_order:', '');
-            const availableNow = getAvailableOrdersForDriver();
+            const driverIdent = cb.from?.username || cb.from?.first_name || '';
+            const availableNow = getAvailableOrdersForDriver(driverIdent, chatId);
             const matched = availableNow.find(o => o.orderNumber.toUpperCase() === orderNum.toUpperCase())
               || findMatchingOrder(orderNum, availableNow);
 
             if (!matched) {
               await answerCallbackQuery(cbId, "⚠️ Этот рейс уже взят другим водителем!");
-              const fresh = getAvailableOrdersForDriver();
+              const fresh = getAvailableOrdersForDriver(driverIdent, chatId);
               if (msgId) {
                 await editTelegramMessageText(
                   chatId,
@@ -1163,7 +1233,8 @@ export function startTelegramBotPolling() {
             activeChatOrderMap.delete(chatId);
             saveSessionsToCache();
 
-            const nextOrders = getAvailableOrdersForDriver();
+            const driverIdent = cb.from?.username || cb.from?.first_name || '';
+            const nextOrders = getAvailableOrdersForDriver(driverIdent, chatId);
             await sendTelegramMessage(
               chatId,
               `📦 <b>Выберите следующий рейс:</b>`,
@@ -1173,7 +1244,8 @@ export function startTelegramBotPolling() {
           }
 
           if (data === 'refresh_orders') {
-            const freshOrders = getAvailableOrdersForDriver();
+            const driverIdent = cb.from?.username || cb.from?.first_name || '';
+            const freshOrders = getAvailableOrdersForDriver(driverIdent, chatId);
             await answerCallbackQuery(cbId, "Список обновлён");
             if (msgId) {
               if (freshOrders.length === 0) {
@@ -1210,7 +1282,8 @@ export function startTelegramBotPolling() {
         const chatId = msg.chat?.id;
         if (!chatId) continue;
 
-        const availableOrders = getAvailableOrdersForDriver();
+        const driverIdent = msg.from?.username || msg.from?.first_name || '';
+        const availableOrders = getAvailableOrdersForDriver(driverIdent, chatId);
         let selectedOrder = chatSelectedOrder.get(chatId);
 
         // 1. LIVE LOCATION STREAM (edited_message) - FILTER: ACTIVE TRIPS ONLY
@@ -1292,7 +1365,7 @@ export function startTelegramBotPolling() {
           }
 
           if (!selectedOrder) {
-            const available = getAvailableOrdersForDriver();
+            const available = getAvailableOrdersForDriver(driverIdent, chatId);
             if (available.length === 0) {
               await sendTelegramMessage(
                 chatId,
@@ -1464,14 +1537,14 @@ export function startTelegramBotPolling() {
             await sendTelegramMessage(
               chatId,
               `📦 <b>Доступные заявки на выезд:</b>\nВыберите рейс и направление:`,
-              buildOrderSelectionInlineKeyboard(getAvailableOrdersForDriver())
+              buildOrderSelectionInlineKeyboard(getAvailableOrdersForDriver(driverIdent, chatId))
             );
             chatLastMessageTime.set(chatId, Date.now());
             continue;
           }
 
           // Check if driver selected one of the orders from the keyboard buttons
-          const availableNow = getAvailableOrdersForDriver();
+          const availableNow = getAvailableOrdersForDriver(driverIdent, chatId);
           const matchedOrder = findMatchingOrder(text, availableNow);
           if (matchedOrder && !lowerText.includes('доставлен') && !lowerText.includes('выехал')) {
             chatSelectedOrder.set(chatId, matchedOrder);
@@ -1499,7 +1572,7 @@ export function startTelegramBotPolling() {
             lowerText.includes('начать')
           ) {
             if (!selectedOrder) {
-              const freshAvail = getAvailableOrdersForDriver();
+              const freshAvail = getAvailableOrdersForDriver(driverIdent, chatId);
               if (freshAvail.length === 0) {
                 await sendTelegramMessage(
                   chatId,
@@ -1608,7 +1681,7 @@ export function startTelegramBotPolling() {
             activeChatOrderMap.delete(chatId);
             saveSessionsToCache();
 
-            const nextOrders = getAvailableOrdersForDriver();
+            const nextOrders = getAvailableOrdersForDriver(driverIdent, chatId);
             await sendTelegramMessage(
               chatId,
               `🏁 <b>Рейс успешно завершён!</b>\n` +
