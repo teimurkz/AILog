@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
 
 import warehouseRoutes from "./routes/warehouse.routes.js";
 import mailingRoutes from "./routes/mailing.routes.js";
@@ -26,17 +27,20 @@ async function startServer() {
   app.use("/api/parse-invoice", invoiceRoutes);
   app.use("/api/driver", driverRoutes);
 
+  const distPath = path.join(process.cwd(), "dist");
+  const hasDist = fs.existsSync(path.join(distPath, "index.html"));
+
   // Vite middleware for development / static serving for production
-  if (process.env.NODE_ENV !== "production") {
+  if (!hasDist && process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    app.get("*", (req, res, next) => {
+      if (req.path.startsWith("/api")) return next();
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
