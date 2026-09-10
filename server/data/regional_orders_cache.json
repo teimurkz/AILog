@@ -4,35 +4,46 @@
     "orderNumber": "REG-4825",
     "destinationCity": "Астана",
     "originCity": "Алматы",
-    "status": "assigned",
+    "status": "delivered",
     "assignedDriver": "+7 777 933 9046‬ (Роман)",
     "assignedTruckPlate": "",
     "currentLat": 43.2391,
     "currentLng": 76.8898,
     "speed": 0,
+    "createdAt": "2026-09-07T11:22:16.348Z",
+    "updatedAt": "2026-09-07T11:51:13.919Z",
+    "dispatchedAt": "2026-09-07T11:35:50.703Z",
     "heading": 180,
-    "lastGpsUpdate": "2026-09-07T11:35:50.869Z"
+    "lastGpsUpdate": "2026-09-07T11:35:50.869Z",
+    "deliveredAt": "2026-09-07T11:51:13.918Z"
   },
   {
     "id": "Zut9CnNeGHe7qUN2vQO1",
     "orderNumber": "REG-2070",
     "destinationCity": "Шымкент",
     "originCity": "Алматы",
-    "status": "assigned",
+    "status": "delivered",
     "assignedDriver": "Нурлан  (+7 775 438 8778‬)",
     "assignedTruckPlate": "",
     "currentLat": 43.2391,
     "currentLng": 76.8898,
-    "speed": 0
+    "speed": 0,
+    "createdAt": "2026-09-07T11:22:16.361Z",
+    "updatedAt": "2026-09-07T11:51:03.873Z",
+    "deliveredAt": "2026-09-07T11:51:03.873Z"
   },
   {
     "id": "20omgR9XQHXj7GTBduHn",
     "orderNumber": "REG-2392",
     "destinationCity": "Шымкент",
     "originCity": "Алматы",
-    "status": "loading",
+    "status": "delivered",
     "assignedDriver": "+7 702 402 4770  (Жасулан)",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "createdAt": "2026-09-07T11:22:16.371Z",
+    "updatedAt": "2026-09-07T11:51:08.810Z",
+    "deliveredAt": "2026-09-07T11:51:08.810Z",
+    "speed": 0
   },
   {
     "id": "KgdmrwyJhjHaUjpuYvGj",
@@ -41,7 +52,9 @@
     "originCity": "Алматы",
     "status": "delivered",
     "assignedDriver": "Фуркат (+7 778 153 5340)",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "createdAt": "2026-09-07T11:22:16.382Z",
+    "updatedAt": "2026-09-07T11:22:16.382Z"
   },
   {
     "id": "HGqiMaAkb0L366NRtG9c",
@@ -50,16 +63,22 @@
     "originCity": "Алматы",
     "status": "delivered",
     "assignedDriver": "Шохрух (+7 702 972 7372 )",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "createdAt": "2026-09-07T11:22:16.394Z",
+    "updatedAt": "2026-09-07T11:22:16.394Z"
   },
   {
     "id": "UpBt8RMPk1O98gWyQUkW",
     "orderNumber": "REG-7476",
     "destinationCity": "Астана",
     "originCity": "Алматы",
-    "status": "new",
+    "status": "delivered",
     "assignedDriver": "Арыстан (+7 775 166 3492)",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "createdAt": "2026-09-07T11:22:16.415Z",
+    "updatedAt": "2026-09-07T11:50:58.163Z",
+    "deliveredAt": "2026-09-07T11:50:58.163Z",
+    "speed": 0
   },
   {
     "id": "Gjymi8euIK2cLNlCxTaT",
@@ -68,7 +87,9 @@
     "originCity": "Алматы",
     "status": "delivered",
     "assignedDriver": "Вахибжан (+7 702 769 9585)",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "createdAt": "2026-09-07T11:22:16.451Z",
+    "updatedAt": "2026-09-07T11:22:16.451Z"
   },
   {
     "id": "5VmtdtMCkiVkBrhW0RoQ",
@@ -77,16 +98,22 @@
     "originCity": "Алматы",
     "status": "delivered",
     "assignedDriver": "Камалжан  (+7 702 175 5758)",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "createdAt": "2026-09-07T11:22:16.473Z",
+    "updatedAt": "2026-09-07T11:22:16.473Z"
   },
   {
     "id": "lLhkNM7iojOwMYJTKt4u",
     "orderNumber": "REG-5172",
     "destinationCity": "Актау",
     "originCity": "Алматы",
-    "status": "new",
+    "status": "delivered",
     "assignedDriver": "Алибек ( +7 (778) 139-31-10) , номер накладной 53272",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "createdAt": "2026-09-07T11:22:16.484Z",
+    "updatedAt": "2026-09-07T11:50:53.518Z",
+    "deliveredAt": "2026-09-07T11:50:53.518Z",
+    "speed": 0
   },
   {
     "id": "SPOcuwOZg6F8QFxt88id",
@@ -95,7 +122,9 @@
     "originCity": "Алматы",
     "status": "delivered",
     "assignedDriver": "Марат (+7 705 104 6795)",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "createdAt": "2026-09-07T11:22:16.499Z",
+    "updatedAt": "2026-09-07T11:22:16.499Z"
   },
   {
     "id": "yvAFvnKP3S4gU1kojlNo",
@@ -106,7 +135,9 @@
     "assignedTruckPlate": "",
     "currentLat": 43.2391,
     "currentLng": 76.8898,
-    "speed": 0
+    "speed": 0,
+    "createdAt": "2026-09-07T11:22:16.513Z",
+    "updatedAt": "2026-09-07T11:22:16.513Z"
   },
   {
     "id": "dBGik386AjPH1KOnCK8n",
@@ -115,7 +146,9 @@
     "originCity": "Алматы",
     "status": "delivered",
     "assignedDriver": "Рамазан (+7 775 681 1025 )",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "createdAt": "2026-09-07T11:22:16.526Z",
+    "updatedAt": "2026-09-07T11:22:16.526Z"
   },
   {
     "id": "BwCH0dXLbJoc6A91BqXT",
@@ -124,7 +157,9 @@
     "originCity": "Алматы",
     "status": "delivered",
     "assignedDriver": "Жасулан (+7 702 402 4770)",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "createdAt": "2026-09-07T11:22:16.539Z",
+    "updatedAt": "2026-09-07T11:22:16.539Z"
   },
   {
     "id": "batbYDkm2y1n1ffFGVBm",
@@ -133,7 +168,9 @@
     "originCity": "Алматы",
     "status": "delivered",
     "assignedDriver": "Александр (+7 771 455 5095)",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "createdAt": "2026-09-07T11:22:16.554Z",
+    "updatedAt": "2026-09-07T11:22:16.554Z"
   },
   {
     "id": "YMf1fbE2Xt8nyLp8n1BW",
@@ -141,7 +178,9 @@
     "destinationCity": "алматы",
     "originCity": "Алматы",
     "status": "delivered",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "createdAt": "2026-09-07T11:22:16.568Z",
+    "updatedAt": "2026-09-07T11:22:16.568Z"
   },
   {
     "id": "97VhqdbwH5gdtb1ILW3G",
@@ -150,7 +189,9 @@
     "originCity": "Алматы",
     "status": "delivered",
     "assignedDriver": "Досбол (+7 776 799 0058)",
-    "assignedTruckPlate": ""
+    "assignedTruckPlate": "",
+    "createdAt": "2026-09-07T11:22:16.584Z",
+    "updatedAt": "2026-09-07T11:22:16.584Z"
   },
   {
     "id": "31nZt8kioUbQQuERVu6H",
@@ -159,7 +200,9 @@
     "originCity": "Алматы",
     "status": "delivered",
     "assignedDriver": "Алибек Водитель  +7 (778) 139-31-10",
-    "assignedTruckPlate": "770AEL12"
+    "assignedTruckPlate": "770AEL12",
+    "createdAt": "2026-09-07T11:22:16.603Z",
+    "updatedAt": "2026-09-07T11:22:16.603Z"
   },
   {
     "id": "6Nc2huKMaXsAMUQP8sDB",
@@ -168,7 +211,9 @@
     "originCity": "Алматы",
     "status": "delivered",
     "assignedDriver": "Валерий ( 87473601827)",
-    "assignedTruckPlate": "935AMI01"
+    "assignedTruckPlate": "935AMI01",
+    "createdAt": "2026-09-07T11:22:16.622Z",
+    "updatedAt": "2026-09-07T11:22:16.622Z"
   },
   {
     "id": "KPMr8K6mCBm3c4QLnPdw",
@@ -177,6 +222,83 @@
     "originCity": "Алматы",
     "status": "delivered",
     "assignedDriver": "Хаятулла ( +7 702 620 7090 ; ‎+7 705 242 2343)",
-    "assignedTruckPlate": "488BJV13"
+    "assignedTruckPlate": "488BJV13",
+    "createdAt": "2026-09-07T11:22:16.640Z",
+    "updatedAt": "2026-09-07T11:22:16.640Z"
+  },
+  {
+    "id": "REG-4122",
+    "orderNumber": "REG-9999",
+    "destinationCity": "Астана",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "deliveryPoints": [],
+    "invoices": [],
+    "shipmentDate": "2026-09-07",
+    "truckType": "Фура 20т (Рефрижератор)",
+    "cargoDescription": "Свежая продукция",
+    "managerName": "Тест Менеджер",
+    "assignedDriver": "Ерлан (+77015554433)",
+    "assignedTruckPlate": "777 KZ 02",
+    "createdAt": "2026-09-07T11:15:52.668Z",
+    "updatedAt": "2026-09-07T11:35:26.599Z",
+    "currentLat": 43.238942,
+    "currentLng": 76.889709,
+    "speed": 62,
+    "dispatchedAt": "2026-09-07T11:15:52.740Z",
+    "heading": 180,
+    "lastGpsUpdate": "2026-09-10T05:38:36.755Z",
+    "deliveredAt": "2026-09-07T11:35:26.599Z",
+    "driverConsent": true
+  },
+  {
+    "id": "REG-9677",
+    "orderNumber": "REG-9888",
+    "destinationCity": "Астана",
+    "originCity": "Алматы",
+    "status": "delivered",
+    "deliveryAddress": "Астана",
+    "recipientPhone": "+7 701",
+    "deliveryPoints": [
+      {
+        "id": "dp-1",
+        "address": "Астана",
+        "recipientPhone": "+7 701",
+        "recipientName": "",
+        "note": ""
+      }
+    ],
+    "invoiceNumber": "Астана",
+    "invoiceFileName": "",
+    "invoiceFileData": "",
+    "invoiceFileType": "",
+    "invoices": [
+      {
+        "id": "inv-1",
+        "invoiceNumber": "Астана",
+        "fileName": "",
+        "fileData": "",
+        "fileType": "",
+        "fileSize": ""
+      }
+    ],
+    "shipmentDate": "2026-09-08",
+    "truckType": "Автотранспорт",
+    "palletsCount": "",
+    "weight": "",
+    "cargoDescription": "Молочная продукция / сыр / масло",
+    "managerName": "Главный Администратор",
+    "managerPhone": "+7 701",
+    "comments": "",
+    "createdAt": "2026-09-07T11:38:44.984Z",
+    "updatedAt": "2026-09-07T12:22:27.534Z",
+    "currentLat": 43.3631441213373,
+    "currentLng": 76.8885662741771,
+    "speed": 0,
+    "heading": 244,
+    "lastGpsUpdate": "2026-09-07T12:22:17.473Z",
+    "dispatchedAt": "2026-09-07T11:51:33.394Z",
+    "assignedDriver": "Тима (@TeimurF)",
+    "deliveredAt": "2026-09-07T12:22:27.534Z"
   }
 ]

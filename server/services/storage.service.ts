@@ -58,6 +58,8 @@ export interface RegionalOrderRecord {
   speed?: number;
   heading?: number;
   lastGpsUpdate?: string;
+  driverConsent?: boolean;
+  driverConsentAt?: string;
   locationHistory?: Array<{ lat: number; lng: number; timestamp?: string }>;
   createdAt?: string;
   createdByEmail?: string;

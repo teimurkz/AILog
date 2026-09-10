@@ -58,6 +58,9 @@ interface RouteData {
   routeWaypoints: Array<{ name: string; lat: number; lng: number; reached: boolean }>;
   detailedRoadPolyline?: Array<{ lat: number; lng: number }>;
   locationHistory?: Array<{ lat: number; lng: number; timestamp?: string }>;
+  hasRealGps?: boolean;
+  isTrackingActive?: boolean;
+  driverConsent?: boolean;
 }
 
 export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, order }) => {
@@ -198,14 +201,13 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
       if (res.ok) {
         const data = await res.json();
         setRouteData(data);
-        // Sync driver coordinates to Firestore document directly from authenticated browser
-        if (data.currentLat && data.currentLng && order.id) {
+        // Sync real driver coordinates to Firestore document directly from authenticated browser
+        if (data.hasRealGps && data.currentLat && data.currentLng && order.id) {
           ordersApi.update(order.id, {
             currentLat: data.currentLat,
             currentLng: data.currentLng,
             speed: data.speed !== undefined ? data.speed : 0,
-            lastGpsUpdate: new Date().toISOString(),
-            ...(order.status === 'new' || order.status === 'loading' ? { status: 'dispatched' } : {})
+            lastGpsUpdate: new Date().toISOString()
           }).catch(() => {});
         }
       }
@@ -237,6 +239,9 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
           ];
           return {
             ...prev,
+            hasRealGps: true,
+            isTrackingActive: true,
+            driverConsent: true,
             currentLat: data.lat,
             currentLng: data.lng,
             speed: data.speed !== undefined ? data.speed : prev.speed,
@@ -577,8 +582,8 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                 </div>
 
                 <LeafletRouteMap
-                  currentLat={routeData?.currentLat ?? 46.8481}
-                  currentLng={routeData?.currentLng ?? 74.9804}
+                  currentLat={routeData?.currentLat ?? 43.2389}
+                  currentLng={routeData?.currentLng ?? 76.8897}
                   originCity="Алматы"
                   destinationCity={destCity}
                   speed={routeData?.speed ?? 0}
@@ -592,6 +597,9 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                   lastPingSecondsAgo={routeData?.lastPingSecondsAgo ?? 0}
                   signalStatus={routeData?.signalStatus}
                   height={isFullscreen ? "h-[calc(96vh-320px)] min-h-[480px]" : "h-[380px]"}
+                  hasRealGps={routeData?.hasRealGps}
+                  isTrackingActive={routeData?.isTrackingActive}
+                  driverConsent={routeData?.driverConsent}
                 />
 
                 <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -618,7 +626,7 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                       <span>{copiedLink ? 'Скопировано! ✓' : 'Ссылка водителю'}</span>
                     </button>
                     <div className="font-mono text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                      GPS: {routeData?.currentLat ? routeData.currentLat.toFixed(5) : '—'}° N, {routeData?.currentLng ? routeData.currentLng.toFixed(5) : '—'}° E
+                      GPS: {routeData?.hasRealGps && routeData?.currentLat ? `${routeData.currentLat.toFixed(5)}° N, ${routeData.currentLng.toFixed(5)}° E` : 'Ожидание сигнала'}
                     </div>
                   </div>
                 </div>

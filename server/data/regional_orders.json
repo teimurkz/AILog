@@ -4,43 +4,46 @@
     "orderNumber": "REG-4825",
     "destinationCity": "Астана",
     "originCity": "Алматы",
-    "status": "assigned",
+    "status": "delivered",
     "assignedDriver": "+7 777 933 9046‬ (Роман)",
     "assignedTruckPlate": "",
     "currentLat": 43.2391,
     "currentLng": 76.8898,
     "speed": 0,
     "createdAt": "2026-09-07T11:22:16.348Z",
-    "updatedAt": "2026-09-07T11:35:50.966Z",
+    "updatedAt": "2026-09-07T11:51:13.919Z",
     "dispatchedAt": "2026-09-07T11:35:50.703Z",
     "heading": 180,
     "lastGpsUpdate": "2026-09-07T11:35:50.869Z",
-    "deliveredAt": "2026-09-07T11:35:50.966Z"
+    "deliveredAt": "2026-09-07T11:51:13.918Z"
   },
   {
     "id": "Zut9CnNeGHe7qUN2vQO1",
     "orderNumber": "REG-2070",
     "destinationCity": "Шымкент",
     "originCity": "Алматы",
-    "status": "assigned",
+    "status": "delivered",
     "assignedDriver": "Нурлан  (+7 775 438 8778‬)",
     "assignedTruckPlate": "",
     "currentLat": 43.2391,
     "currentLng": 76.8898,
     "speed": 0,
     "createdAt": "2026-09-07T11:22:16.361Z",
-    "updatedAt": "2026-09-07T11:22:16.361Z"
+    "updatedAt": "2026-09-07T11:51:03.873Z",
+    "deliveredAt": "2026-09-07T11:51:03.873Z"
   },
   {
     "id": "20omgR9XQHXj7GTBduHn",
     "orderNumber": "REG-2392",
     "destinationCity": "Шымкент",
     "originCity": "Алматы",
-    "status": "loading",
+    "status": "delivered",
     "assignedDriver": "+7 702 402 4770  (Жасулан)",
     "assignedTruckPlate": "",
     "createdAt": "2026-09-07T11:22:16.371Z",
-    "updatedAt": "2026-09-07T11:22:16.371Z"
+    "updatedAt": "2026-09-07T11:51:08.810Z",
+    "deliveredAt": "2026-09-07T11:51:08.810Z",
+    "speed": 0
   },
   {
     "id": "KgdmrwyJhjHaUjpuYvGj",
@@ -69,11 +72,13 @@
     "orderNumber": "REG-7476",
     "destinationCity": "Астана",
     "originCity": "Алматы",
-    "status": "new",
+    "status": "delivered",
     "assignedDriver": "Арыстан (+7 775 166 3492)",
     "assignedTruckPlate": "",
     "createdAt": "2026-09-07T11:22:16.415Z",
-    "updatedAt": "2026-09-07T11:22:16.415Z"
+    "updatedAt": "2026-09-07T11:50:58.163Z",
+    "deliveredAt": "2026-09-07T11:50:58.163Z",
+    "speed": 0
   },
   {
     "id": "Gjymi8euIK2cLNlCxTaT",
@@ -102,11 +107,13 @@
     "orderNumber": "REG-5172",
     "destinationCity": "Актау",
     "originCity": "Алматы",
-    "status": "new",
+    "status": "delivered",
     "assignedDriver": "Алибек ( +7 (778) 139-31-10) , номер накладной 53272",
     "assignedTruckPlate": "",
     "createdAt": "2026-09-07T11:22:16.484Z",
-    "updatedAt": "2026-09-07T11:22:16.484Z"
+    "updatedAt": "2026-09-07T11:50:53.518Z",
+    "deliveredAt": "2026-09-07T11:50:53.518Z",
+    "speed": 0
   },
   {
     "id": "SPOcuwOZg6F8QFxt88id",
@@ -224,7 +231,7 @@
     "orderNumber": "REG-9999",
     "destinationCity": "Астана",
     "originCity": "Алматы",
-    "status": "delivered",
+    "status": "planned",
     "deliveryPoints": [],
     "invoices": [],
     "shipmentDate": "2026-09-07",
@@ -234,21 +241,14 @@
     "assignedDriver": "Ерлан (+77015554433)",
     "assignedTruckPlate": "777 KZ 02",
     "createdAt": "2026-09-07T11:15:52.668Z",
-    "updatedAt": "2026-09-07T11:35:26.599Z",
-    "currentLat": 43.238942,
-    "currentLng": 76.889709,
-    "speed": 0,
-    "dispatchedAt": "2026-09-07T11:15:52.740Z",
-    "heading": 180,
-    "lastGpsUpdate": "2026-09-07T11:35:26.430Z",
-    "deliveredAt": "2026-09-07T11:35:26.599Z"
+    "updatedAt": "2026-09-07T11:15:52.668Z"
   },
   {
     "id": "REG-9677",
     "orderNumber": "REG-9888",
     "destinationCity": "Астана",
     "originCity": "Алматы",
-    "status": "new",
+    "status": "delivered",
     "deliveryAddress": "Астана",
     "recipientPhone": "+7 701",
     "deliveryPoints": [
@@ -283,6 +283,14 @@
     "managerPhone": "+7 701",
     "comments": "",
     "createdAt": "2026-09-07T11:38:44.984Z",
-    "updatedAt": "2026-09-07T11:38:45.002Z"
+    "updatedAt": "2026-09-07T12:22:27.534Z",
+    "currentLat": 43.3631441213373,
+    "currentLng": 76.8885662741771,
+    "speed": 0,
+    "heading": 244,
+    "lastGpsUpdate": "2026-09-07T12:22:17.473Z",
+    "dispatchedAt": "2026-09-07T11:51:33.394Z",
+    "assignedDriver": "Тима (@TeimurF)",
+    "deliveredAt": "2026-09-07T12:22:27.534Z"
   }
 ]

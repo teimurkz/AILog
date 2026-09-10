@@ -5,6 +5,14 @@ import { storageService, LocationPoint } from "./storage.service.js";
 import { broadcastRealtimeEvent } from "../routes/realtime.routes.js";
 import { emitTruckPositionUpdate, emitDeliveryEnded } from "./socket.service.js";
 import { processIncomingTelemetry } from "./gps-engine.service.js";
+import {
+  processGpsTelemetryFrame,
+  snapToHighway,
+  calculateBearingTurf,
+  calculateSpeedGeolib,
+  calculateRouteProgressTurf,
+  validateCoordinates
+} from "./gps-tracking-framework.service.js";
 
 export type { LocationPoint };
 
@@ -17,6 +25,9 @@ export interface DriverLocation {
   heading?: number;
   updatedAt: string;
   history?: LocationPoint[];
+  hasRealGps?: boolean;
+  isTrackingActive?: boolean;
+  driverConsent?: boolean;
 }
 
 export interface RouteProgress {
@@ -40,6 +51,9 @@ export interface RouteProgress {
   routeWaypoints: Array<{ name: string; lat: number; lng: number; reached: boolean }>;
   detailedRoadPolyline: LocationPoint[];
   locationHistory: LocationPoint[];
+  hasRealGps: boolean;
+  isTrackingActive: boolean;
+  driverConsent?: boolean;
 }
 
 // In-memory store for driver locations and active chat-order mappings
@@ -150,11 +164,15 @@ export interface RegionalOrderSummary {
   speed?: number;
   heading?: number;
   lastGpsUpdate?: string;
+  driverConsent?: boolean;
+  driverConsentAt?: string;
+  cargoDescription?: string;
 }
 
 // Session and chat state maps
 const chatSelectedOrder = new Map<number, RegionalOrderSummary>();
 const chatTripActive = new Map<number, boolean>();
+const chatDriverConsent = new Map<number, boolean>();
 const chatLastMessageTime = new Map<number, number>();
 const chatPinnedMsgMap = new Map<number, number>();
 
@@ -225,6 +243,9 @@ function loadSessionsFromCache() {
             }
             activeChatOrderMap.set(s.chatId, s.orderNumber);
             chatTripActive.set(s.chatId, !!s.tripActive);
+            if (s.driverConsent) {
+              chatDriverConsent.set(s.chatId, true);
+            }
             if (s.pinnedMessageId) {
               chatPinnedMsgMap.set(s.chatId, s.pinnedMessageId);
             }
@@ -247,6 +268,7 @@ function saveSessionsToCache() {
       orderId: string;
       orderNumber: string;
       tripActive: boolean;
+      driverConsent?: boolean;
       pinnedMessageId?: number;
       lastUpdated: string;
     }> = [];
@@ -257,6 +279,7 @@ function saveSessionsToCache() {
         orderId: selected?.id || orderNum,
         orderNumber: orderNum,
         tripActive: !!chatTripActive.get(chatId),
+        driverConsent: !!chatDriverConsent.get(chatId),
         pinnedMessageId: chatPinnedMsgMap.get(chatId),
         lastUpdated: new Date().toISOString()
       });
@@ -623,7 +646,10 @@ export function updateDriverLocation(location: DriverLocation, status?: string):
     ...location,
     speed: actualSpeed,
     updatedAt: location.updatedAt || now.toISOString(),
-    history: realHistory
+    history: realHistory,
+    hasRealGps: true,
+    isTrackingActive: location.isTrackingActive !== false,
+    driverConsent: true
   };
 
   driverLocationsMap.set(location.orderId, updated);
@@ -643,7 +669,8 @@ export function updateDriverLocation(location: DriverLocation, status?: string):
     currentLng: location.lng,
     speed: actualSpeed,
     heading: location.heading || 0,
-    lastGpsUpdate: updated.updatedAt
+    lastGpsUpdate: updated.updatedAt,
+    driverConsent: true
   });
   if (alias) {
     updateCachedOrderStatus(alias, targetStatus, {
@@ -651,7 +678,8 @@ export function updateDriverLocation(location: DriverLocation, status?: string):
       currentLng: location.lng,
       speed: actualSpeed,
       heading: location.heading || 0,
-      lastGpsUpdate: updated.updatedAt
+      lastGpsUpdate: updated.updatedAt,
+      driverConsent: true
     });
   }
 
@@ -688,7 +716,10 @@ export function updateDriverLocation(location: DriverLocation, status?: string):
     status: targetStatus,
     driverPhone: location.driverPhone,
     assignedDriver: storedOrderForSocket?.assignedDriver,
-    updatedAt: updated.updatedAt
+    updatedAt: updated.updatedAt,
+    hasRealGps: true,
+    isTrackingActive: location.isTrackingActive !== false,
+    driverConsent: true
   });
 
   return updated;
@@ -780,12 +811,27 @@ export function getDriverLocation(
     ];
   }
 
-  const totalDistance = calculateDistanceKm(origin.lat, origin.lng, destNode.lat, destNode.lng);
-
   // Status-aware position determination - 100% REAL, NO DEAD RECKONING
   const effectiveStatus = (orderStatus || storedOrder?.status || '').toLowerCase();
   const isDelivered = effectiveStatus === 'delivered' || effectiveStatus === 'доставлено';
   const isPending = effectiveStatus === 'new' || effectiveStatus === 'loading' || effectiveStatus === 'новый' || effectiveStatus === 'на погрузке';
+  const driverConsent = Boolean(
+    storedOrder?.driverConsent || 
+    (saved && saved.driverConsent) ||
+    effectiveStatus === 'assigned' ||
+    effectiveStatus === 'назначена фура'
+  );
+
+  // Real GPS is ONLY true if saved coordinates were explicitly reported by device and tracking is active
+  const hasRealGps = Boolean(
+    !isDelivered && 
+    saved && 
+    saved.hasRealGps && 
+    saved.isTrackingActive !== false && 
+    saved.lat && 
+    saved.lng
+  );
+  const isTrackingActive = Boolean(hasRealGps && saved?.isTrackingActive !== false);
 
   let currentLat = origin.lat;
   let currentLng = origin.lng;
@@ -802,8 +848,7 @@ export function getDriverLocation(
     heading = 0;
     signalStatus = 'delivered';
     signalStatusText = 'Груз доставлен';
-  } else if (saved) {
-    // Exact GPS coordinates reported by driver's device
+  } else if (hasRealGps && saved) {
     currentLat = saved.lat;
     currentLng = saved.lng;
     speed = saved.speed ?? 0;
@@ -830,6 +875,12 @@ export function getDriverLocation(
       const mins = Math.round(lastPingSecondsAgo / 60);
       signalStatusText = `🔴 Нет сигнала (${mins} мин. назад)`;
     }
+  } else if (driverConsent) {
+    currentLat = origin.lat;
+    currentLng = origin.lng;
+    speed = 0;
+    signalStatus = 'waiting';
+    signalStatusText = 'Водитель согласился (ожидание Live GPS)';
   } else if (isPending) {
     currentLat = origin.lat;
     currentLng = origin.lng;
@@ -837,27 +888,36 @@ export function getDriverLocation(
     signalStatus = 'waiting';
     signalStatusText = 'На погрузке / Ожидает выезда';
   } else {
-    // Dispatched, but driver has not opened tracker or sent GPS yet
     currentLat = origin.lat;
     currentLng = origin.lng;
     speed = 0;
     signalStatus = 'waiting';
-    signalStatusText = 'Ожидание GPS-сигнала от водителя';
+    signalStatusText = 'Ожидание запуска GPS-трансляции';
   }
 
-  const remainingDistance = isDelivered ? 0 : calculateDistanceKm(currentLat, currentLng, destNode.lat, destNode.lng);
+  // Progress and ETA via Turf.js framework
+  let totalDistance = calculateDistanceKm(origin.lat, origin.lng, destNode.lat, destNode.lng);
+  let remainingDistance = isDelivered ? 0 : totalDistance;
+  let progressPercent = isDelivered ? 100 : 0;
+  let etaTotalMinutes = isDelivered ? 0 : Math.round((totalDistance / 70) * 60);
 
-  let progressPercent = isDelivered 
-    ? 100 
-    : isPending || !saved
-      ? 0
-      : Math.min(99, Math.max(1, Math.round(((totalDistance - remainingDistance) / totalDistance) * 100)));
-  if (isNaN(progressPercent)) progressPercent = 0;
+  if (hasRealGps && isTrackingActive) {
+    const turfProgress = calculateRouteProgressTurf(
+      origin,
+      destNode,
+      { lat: currentLat, lng: currentLng },
+      detailedRoadPolyline
+    );
+    totalDistance = turfProgress.totalDistanceKm;
+    remainingDistance = turfProgress.remainingDistanceKm;
+    progressPercent = turfProgress.progressPercent;
+    etaTotalMinutes = turfProgress.etaMinutes;
+  }
 
   // Mark reached waypoints
   waypoints = waypoints.map((wp) => {
     if (isDelivered) return { ...wp, reached: true };
-    if (!saved) return { ...wp, reached: wp.lat === origin.lat && wp.lng === origin.lng };
+    if (!hasRealGps) return { ...wp, reached: wp.lat === origin.lat && wp.lng === origin.lng };
     const distToWp = calculateDistanceKm(currentLat, currentLng, wp.lat, wp.lng);
     const distOriginToWp = calculateDistanceKm(origin.lat, origin.lng, wp.lat, wp.lng);
     const distOriginToCurrent = calculateDistanceKm(origin.lat, origin.lng, currentLat, currentLng);
@@ -865,14 +925,11 @@ export function getDriverLocation(
     return { ...wp, reached };
   });
 
-  const calculationSpeed = speed >= 30 ? speed : 70;
-  const etaHoursDecimal = remainingDistance / calculationSpeed;
-  const etaTotalMinutes = Math.round(etaHoursDecimal * 60);
   const hours = Math.floor(etaTotalMinutes / 60);
   const mins = etaTotalMinutes % 60;
   const etaFormatted = isDelivered 
     ? "Груз доставлен" 
-    : isPending || !saved
+    : !hasRealGps
       ? "Ожидает отправки" 
       : speed >= 30
         ? (hours > 0 ? `~${hours} ч ${mins} мин` : `~${mins} мин`)
@@ -883,14 +940,14 @@ export function getDriverLocation(
     orderNumber: orderNumber || storedOrder?.orderNumber,
     currentLat,
     currentLng,
-    speed: isDelivered || isPending ? 0 : speed,
-    heading,
+    speed: isDelivered || !hasRealGps ? 0 : speed,
+    heading: hasRealGps ? heading : 0,
     originCity: 'Алматы',
     destinationCity: destNode.name,
     totalDistanceKm: totalDistance,
     remainingDistanceKm: remainingDistance,
     progressPercent,
-    etaMinutes: isDelivered || isPending ? 0 : etaTotalMinutes,
+    etaMinutes: isDelivered || !hasRealGps ? 0 : etaTotalMinutes,
     etaFormatted,
     signalStatus,
     signalStatusText,
@@ -898,7 +955,10 @@ export function getDriverLocation(
     updatedAt: saved ? saved.updatedAt : new Date().toISOString(),
     routeWaypoints: waypoints,
     detailedRoadPolyline,
-    locationHistory
+    locationHistory,
+    hasRealGps,
+    isTrackingActive,
+    driverConsent
   };
 }
 
@@ -1129,7 +1189,7 @@ export function startTelegramBotPolling() {
           }
 
           if (data.startsWith('sel_order:')) {
-            const orderNum = data.replace('sel_order:', '');
+            const orderNum = data.replace('sel_order:', '').trim();
             const driverIdent = cb.from?.username || cb.from?.first_name || '';
             const availableNow = getAvailableOrdersForDriver(driverIdent, chatId);
             const matched = availableNow.find(o => o.orderNumber.toUpperCase() === orderNum.toUpperCase())
@@ -1149,43 +1209,116 @@ export function startTelegramBotPolling() {
               continue;
             }
 
+            await answerCallbackQuery(cbId, `Подтверждение рейса ${matched.orderNumber}`);
+
+            const consentText = 
+              `📦 <b>Подтверждение рейса: ${matched.orderNumber}</b>\n` +
+              `🛣️ <b>Маршрут:</b> ${matched.originCity || 'Алматы'} ➔ <b>${matched.destinationCity}</b>\n` +
+              `🚛 <b>Тягач:</b> ${matched.assignedTruckPlate || 'Не назначен'}\n\n` +
+              `⚠️ <b>СОГЛАСИЕ НА GPS-МОНИТОРИНГ:</b>\n` +
+              `Для онлайн-мониторинга доставки в CRM логистов требуется ваше согласие на непрерывную передачу Live GPS-геопозиции фуры.\n\n` +
+              `Вы подтверждаете принятие рейса и даёте согласие на трекинг?`;
+
+            const consentMarkup = {
+              inline_keyboard: [
+                [
+                  {
+                    text: `✅ Подтверждаю рейс и даю согласие на GPS`,
+                    callback_data: `consent_trip:${matched.orderNumber}`
+                  }
+                ],
+                [
+                  {
+                    text: `❌ Отмена (назад к списку)`,
+                    callback_data: `cancel_select`
+                  }
+                ]
+              ]
+            };
+
+            if (msgId) {
+              await editTelegramMessageText(chatId, msgId, consentText, consentMarkup);
+            } else {
+              await sendTelegramMessage(chatId, consentText, consentMarkup);
+            }
+            continue;
+          }
+
+          if (data.startsWith('consent_trip:')) {
+            const orderNum = data.replace('consent_trip:', '').trim();
+            const driverTitle = cb.from?.first_name 
+              ? `${cb.from.first_name}${cb.from.last_name ? ' ' + cb.from.last_name : ''}${cb.from.username ? ' (@' + cb.from.username + ')' : ''}`
+              : (cb.from?.username ? `@${cb.from.username}` : `Водитель Telegram (${chatId})`);
+
+            const driverIdent = cb.from?.username || cb.from?.first_name || '';
+            const availableNow = getAvailableOrdersForDriver(driverIdent, chatId);
+            const matched = availableNow.find(o => o.orderNumber.toUpperCase() === orderNum.toUpperCase())
+              || findMatchingOrder(orderNum, availableNow)
+              || activeOrdersList.find(o => o.orderNumber.toUpperCase() === orderNum.toUpperCase());
+
+            if (!matched) {
+              await answerCallbackQuery(cbId, "⚠️ Этот рейс уже недоступен!");
+              continue;
+            }
+
             chatSelectedOrder.set(chatId, matched);
             activeChatOrderMap.set(chatId, matched.orderNumber);
+            chatDriverConsent.set(chatId, true);
+            chatTripActive.set(chatId, false); // Active tracking begins ONLY when real Live GPS arrives
             linkOrderNumberToId(matched.id, matched.orderNumber);
-            chatTripActive.set(chatId, false);
             saveSessionsToCache();
 
-            await answerCallbackQuery(cbId, `Выбран рейс ${matched.orderNumber}`);
+            updateCachedOrderStatus(matched.orderNumber, 'assigned', {
+              assignedDriver: driverTitle,
+              driverConsent: true
+            });
+            storageService.updateOrderStatus(matched.orderNumber, 'assigned', {
+              assignedDriver: driverTitle,
+              driverConsent: true
+            });
 
-            // Update inline message text to confirm selection
+            await answerCallbackQuery(cbId, `Рейс ${matched.orderNumber} закреплён за вами!`);
+
             if (msgId) {
               await editTelegramMessageText(
                 chatId,
                 msgId,
-                `✅ <b>Выбран рейс: ${matched.orderNumber}</b>\n` +
-                `🛣️ <b>Маршрут:</b> ${matched.originCity || 'Алматы'} ➔ <b>${matched.destinationCity}</b>\n\n` +
-                `🛰️ Включите онлайн-трансляцию геопозиции по инструкции ниже 👇`
+                `✅ <b>Рейс ${matched.orderNumber} подтверждён! Согласие на GPS получено.</b>\n` +
+                `🛣️ <b>Маршрут:</b> ${matched.originCity || 'Алматы'} ➔ <b>${matched.destinationCity}</b>\n` +
+                `👤 <b>Водитель:</b> ${driverTitle}\n\n` +
+                `<i>Следуйте инструкции ниже для включения Live-трансляции геопозиции 👇</i>`
               );
             }
 
-            // Send bottom departure button and instructions
-            const appBaseUrl = process.env.BASE_URL || process.env.APP_URL || 'http://localhost:3000';
-            const trackerUrl = `${appBaseUrl}/gps?order=${encodeURIComponent(matched.orderNumber)}`;
-
             await sendTelegramMessage(
               chatId,
-              `✅ <b>Рейс ${matched.orderNumber} готов к отправке!</b>\n` +
+              `✅ <b>РЕЙС ${matched.orderNumber} ЗАКРЕПЛЁН ЗА ВАМИ</b>\n` +
               `🛣️ <b>Направление:</b> ${matched.originCity || 'Алматы'} ➔ <b>${matched.destinationCity}</b>\n\n` +
               `🛰️ <b>КАК ВКЛЮЧИТЬ НЕПРЕРЫВНУЮ ТРАНСЛЯЦИЮ ГЕОПОЗИЦИИ:</b>\n` +
-              `Чтобы машина непрерывно двигалась по карте логиста в реальном времени, включите именно <b>ТРАНСЛЯЦИЮ</b>:\n\n` +
+              `Чтобы машина появилась на карте логиста и непрерывно двигалась в реальном времени:\n\n` +
               `1️⃣ Нажмите <b>скрепку 📎</b> внизу (слева от поля ввода сообщения)\n` +
               `2️⃣ Нажмите <b>«Геопозиция»</b> 📍\n` +
-              `3️⃣ Нажмите <b>«Транслировать мою геопозицию...»</b> ➔ выберите <b>«8 часов»</b> ⏱️\n\n` +
-              `<i>⚠️ ВНИМАНИЕ: не нажимайте «Отправить свою геопозицию» (это разовая статичная точка, от неё фура не едет). Выбирайте пункт «Транслировать геопозицию»!</i>\n\n` +
-              `Как только Telegram начнёт трансляцию, сервер подхватит Live-поток и будет обновлять координаты машины на мониторах логистов в реальном времени до завершения рейса. 🚛💨`,
+              `3️⃣ Выберите <b>«Транслировать мою геопозицию...»</b> ➔ выберите <b>«8 часов»</b> ⏱️\n\n` +
+              `<i>⚠️ ВНИМАНИЕ: не нажимайте «Отправить свою геопозицию» (это разовая статичная точка, от неё фура не едет). Выбирайте именно «Транслировать геопозицию»!</i>\n\n` +
+              `Как только начнётся трансляция, фура сразу появится на карте логиста. 🚛💨`,
               buildSelectedOrderKeyboard(matched)
             );
             chatLastMessageTime.set(chatId, Date.now());
+            continue;
+          }
+
+          if (data === 'cancel_select') {
+            await answerCallbackQuery(cbId, "Выбор отменён");
+            const driverIdent = cb.from?.username || cb.from?.first_name || '';
+            const fresh = getAvailableOrdersForDriver(driverIdent, chatId);
+            if (msgId) {
+              await editTelegramMessageText(
+                chatId,
+                msgId,
+                `📋 <b>Доступные заявки на перевозку:</b>\n\nВыберите ваш рейс из списка:`,
+                buildOrderSelectionInlineKeyboard(fresh)
+              );
+            }
             continue;
           }
 
@@ -1194,11 +1327,23 @@ export function startTelegramBotPolling() {
             await answerCallbackQuery(cbId, "Рейс завершается...");
 
             chatTripActive.set(chatId, false);
+            chatDriverConsent.delete(chatId);
             const selected = chatSelectedOrder.get(chatId);
             const finishedNum = orderNum || selected?.orderNumber || activeChatOrderMap.get(chatId) || '';
             const orderId = selected?.id || finishedNum;
 
             if (finishedNum) {
+              const loc = driverLocationsMap.get(finishedNum);
+              if (loc) {
+                loc.isTrackingActive = false;
+                loc.hasRealGps = false;
+              }
+              const cleanNum = finishedNum.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
+              const cleanLoc = driverLocationsMap.get(cleanNum);
+              if (cleanLoc) {
+                cleanLoc.isTrackingActive = false;
+                cleanLoc.hasRealGps = false;
+              }
               updateCachedOrderStatus(finishedNum, 'delivered');
               storageService.updateOrderStatus(finishedNum, 'delivered', {
                 deliveredAt: new Date().toISOString()
@@ -1313,34 +1458,44 @@ export function startTelegramBotPolling() {
                 }
               }
             }
+
             if (!activeOrder) {
-              const avail = getAvailableOrdersForDriver(driverIdent, chatId);
-              if (avail.length > 0) {
-                activeOrder = avail[0];
-                chatSelectedOrder.set(chatId, activeOrder);
-                activeChatOrderMap.set(chatId, activeOrder.orderNumber);
-              }
+              // Driver has not selected an order or consented yet
+              await sendTelegramMessage(
+                chatId,
+                `⚠️ <b>Вы ещё не выбрали рейс!</b>\nПожалуйста, сначала выберите рейс из списка и подтвердите согласие на GPS-трекинг: нажмите /start.`,
+                buildOrderSelectionInlineKeyboard(getAvailableOrdersForDriver(driverIdent, chatId))
+              );
+              continue;
             }
 
             chatTripActive.set(chatId, true);
+            chatDriverConsent.set(chatId, true);
 
-            const orderId = activeOrder?.id || activeChatOrderMap.get(chatId) || 'all';
-            const orderNum = activeOrder?.orderNumber || activeChatOrderMap.get(chatId) || 'all';
+            const orderId = activeOrder.id;
+            const orderNum = activeOrder.orderNumber;
             const speedKmh = loc.speed !== undefined ? Math.max(0, Math.round(loc.speed * 3.6)) : 0;
 
-            const destCity = activeOrder?.destinationCity || 'Астана';
+            const destCity = activeOrder.destinationCity || 'Астана';
             const destKey = destCity.toLowerCase().includes('шымкент') || destCity.toLowerCase().includes('тараз') ? 'shymkent' : 'astana';
             const highwayPolyline = DETAILED_HIGHWAYS[destKey] || DETAILED_HIGHWAYS.astana;
             const destNode = HIGHWAY_NODES[destKey] || HIGHWAY_NODES.astana;
+            const originNode = HIGHWAY_NODES.almaty;
 
-            const processed = processIncomingTelemetry({
+            // Get previous telemetry point for Geolib speed & Turf bearing calculation
+            const prevLoc = driverLocationsMap.get(orderId) || driverLocationsMap.get(orderNum);
+            const prevPoint = prevLoc ? { lat: prevLoc.lat, lng: prevLoc.lng, timestamp: prevLoc.updatedAt } : undefined;
+
+            const processed = processGpsTelemetryFrame({
               orderId,
               lat: loc.latitude,
               lng: loc.longitude,
               speed: speedKmh,
               heading: loc.heading,
               accuracy: loc.horizontal_accuracy,
-              roadPolyline: highwayPolyline,
+              prevPoint,
+              highwayPolyline,
+              origin: { lat: originNode.lat, lng: originNode.lng },
               destination: { lat: destNode.lat, lng: destNode.lng }
             });
 
@@ -1351,27 +1506,29 @@ export function startTelegramBotPolling() {
               lng: processed.lng,
               heading: processed.heading,
               speed: processed.speed,
-              updatedAt: processed.timestamp
+              updatedAt: processed.timestamp,
+              hasRealGps: true,
+              isTrackingActive: true,
+              driverConsent: true
             }, 'dispatched');
 
             if (orderNum !== orderId) {
               linkOrderNumberToId(orderId, orderNum);
             }
-            if (activeOrder) {
-              updateCachedOrderStatus(activeOrder.orderNumber, 'dispatched', {
-                currentLat: processed.lat,
-                currentLng: processed.lng,
-                speed: processed.speed,
-                heading: processed.heading
-              });
-              syncOrderToFirestore(activeOrder.orderNumber, {
-                status: 'dispatched',
-                currentLat: processed.lat,
-                currentLng: processed.lng,
-                speed: processed.speed
-              });
-            }
-            console.log(`📡 [Telegram Live GPS Stream] Order: ${orderNum} | Lat: ${processed.lat.toFixed(5)}, Lng: ${processed.lng.toFixed(5)} | Speed: ${processed.speed} km/h | Heading: ${processed.heading}°`);
+            updateCachedOrderStatus(activeOrder.orderNumber, 'dispatched', {
+              currentLat: processed.lat,
+              currentLng: processed.lng,
+              speed: processed.speed,
+              heading: processed.heading,
+              driverConsent: true
+            });
+            syncOrderToFirestore(activeOrder.orderNumber, {
+              status: 'dispatched',
+              currentLat: processed.lat,
+              currentLng: processed.lng,
+              speed: processed.speed
+            });
+            console.log(`📡 [GPS Framework Live Stream] Order: ${orderNum} | Lat: ${processed.lat.toFixed(5)}, Lng: ${processed.lng.toFixed(5)} | Snapped: ${processed.snappedToRoad} | Speed: ${processed.speed} km/h | Heading: ${processed.heading}°`);
           }
           continue;
         }
@@ -1404,20 +1561,12 @@ export function startTelegramBotPolling() {
           }
 
           if (!selectedOrder) {
-            const available = getAvailableOrdersForDriver(driverIdent, chatId);
-            if (available.length === 0) {
-              await sendTelegramMessage(
-                chatId,
-                `📭 Нет свободных заявок для выезда. Ожидайте назначения в CRM.`,
-                buildOrderSelectionInlineKeyboard([])
-              );
-              continue;
-            }
-            selectedOrder = available[0];
-            chatSelectedOrder.set(chatId, selectedOrder);
-            activeChatOrderMap.set(chatId, selectedOrder.orderNumber);
-            linkOrderNumberToId(selectedOrder.id, selectedOrder.orderNumber);
-            saveSessionsToCache();
+            await sendTelegramMessage(
+              chatId,
+              `⚠️ <b>Вы ещё не выбрали рейс!</b>\nПожалуйста, сначала выберите рейс из списка и подтвердите согласие на трекинг: нажмите /start.`,
+              buildOrderSelectionInlineKeyboard(getAvailableOrdersForDriver(driverIdent, chatId))
+            );
+            continue;
           }
 
           const driverTitle = msg.from?.first_name 
@@ -1426,31 +1575,54 @@ export function startTelegramBotPolling() {
 
           const speedCalculated = location.speed !== undefined ? Math.max(0, Math.round(location.speed * 3.6)) : 0;
 
-          // Always record coordinates
-          updateDriverLocation({
-            orderId: selectedOrder.id,
-            driverPhone: msg.from?.phone_number || msg.from?.username || `id:${chatId}`,
-            lat: latitude,
-            lng: longitude,
-            heading: location.heading,
-            speed: speedCalculated,
-            updatedAt: new Date().toISOString()
-          }, 'dispatched');
-          linkOrderNumberToId(selectedOrder.id, selectedOrder.orderNumber);
-
-          updateCachedOrderStatus(selectedOrder.orderNumber, 'dispatched', {
-            assignedDriver: driverTitle,
-            dispatchedAt: selectedOrder.dispatchedAt || new Date().toISOString(),
-            currentLat: latitude,
-            currentLng: longitude,
-            speed: speedCalculated
-          });
-
-          chatTripActive.set(chatId, true);
-          saveSessionsToCache();
-
           if (isLive) {
             // TRUE LIVE LOCATION STREAM STARTED!
+            const destCity = selectedOrder.destinationCity || 'Астана';
+            const destKey = destCity.toLowerCase().includes('шымкент') || destCity.toLowerCase().includes('тараз') ? 'shymkent' : 'astana';
+            const highwayPolyline = DETAILED_HIGHWAYS[destKey] || DETAILED_HIGHWAYS.astana;
+            const destNode = HIGHWAY_NODES[destKey] || HIGHWAY_NODES.astana;
+            const originNode = HIGHWAY_NODES.almaty;
+
+            const processed = processGpsTelemetryFrame({
+              orderId: selectedOrder.id,
+              lat: latitude,
+              lng: longitude,
+              speed: speedCalculated,
+              heading: location.heading,
+              accuracy: location.horizontal_accuracy,
+              highwayPolyline,
+              origin: { lat: originNode.lat, lng: originNode.lng },
+              destination: { lat: destNode.lat, lng: destNode.lng }
+            });
+
+            updateDriverLocation({
+              orderId: selectedOrder.id,
+              driverPhone: msg.from?.phone_number || msg.from?.username || `id:${chatId}`,
+              lat: processed.lat,
+              lng: processed.lng,
+              heading: processed.heading,
+              speed: processed.speed,
+              updatedAt: new Date().toISOString(),
+              hasRealGps: true,
+              isTrackingActive: true,
+              driverConsent: true
+            }, 'dispatched');
+            linkOrderNumberToId(selectedOrder.id, selectedOrder.orderNumber);
+
+            updateCachedOrderStatus(selectedOrder.orderNumber, 'dispatched', {
+              assignedDriver: driverTitle,
+              dispatchedAt: selectedOrder.dispatchedAt || new Date().toISOString(),
+              currentLat: processed.lat,
+              currentLng: processed.lng,
+              speed: processed.speed,
+              heading: processed.heading,
+              driverConsent: true
+            });
+
+            chatTripActive.set(chatId, true);
+            chatDriverConsent.set(chatId, true);
+            saveSessionsToCache();
+
             const liveHours = location.live_period ? Math.round(location.live_period / 3600) : 8;
             const sentMsg = await sendTelegramMessage(
               chatId,
@@ -1481,13 +1653,13 @@ export function startTelegramBotPolling() {
             await sendTelegramMessage(
               chatId,
               `⚠️ <b>ВНИМАНИЕ: Вы отправили РАЗОВУЮ геопозицию (точку), а не трансляцию!</b>\n\n` +
-              `📍 Стартовая точка принята, но чтобы фура <b>непрерывно двигалась на карте в реальном времени</b>, Telegram требует включить именно <b>ТРАНСЛЯЦИЮ</b>:\n\n` +
+              `📍 От разовой точки фура <b>не будет отображаться и двигаться на карте в реальном времени</b>. Telegram требует включить именно <b>ТРАНСЛЯЦИЮ</b>:\n\n` +
               `👇 <b>Как включить трансляцию за 3 шага:</b>\n` +
               `1️⃣ Нажмите <b>скрепку 📎</b> внизу (слева от поля ввода)\n` +
               `2️⃣ Выберите <b>«Геопозиция»</b> 📍\n` +
               `3️⃣ Выберите <b>«Транслировать мою геопозицию...»</b> ➔ на <b>8 часов</b> ⏱️\n\n` +
               `<i>(Не нажимайте «Отправить свою геопозицию» — выбирайте именно пункт со словом «Транслировать»!)</i>`,
-              buildInTransitKeyboard(selectedOrder)
+              buildSelectedOrderKeyboard(selectedOrder)
             );
           }
           chatLastMessageTime.set(chatId, Date.now());
@@ -1593,7 +1765,7 @@ export function startTelegramBotPolling() {
             continue;
           }
 
-          // Driver marks start of trip via text ("Выехал в рейс" text fallback)
+          // Driver indicates departure via text ("Выехал в рейс" text fallback)
           if (
             lowerText.includes('выехал') || 
             lowerText.includes('в путь') || 
@@ -1610,47 +1782,22 @@ export function startTelegramBotPolling() {
                 );
                 continue;
               }
-              selectedOrder = freshAvail[0];
-              chatSelectedOrder.set(chatId, selectedOrder);
-              activeChatOrderMap.set(chatId, selectedOrder.orderNumber);
-              linkOrderNumberToId(selectedOrder.id, selectedOrder.orderNumber);
-            }
-
-            const driverTitle = msg.from?.first_name 
-              ? `${msg.from.first_name}${msg.from.last_name ? ' ' + msg.from.last_name : ''}${msg.from.username ? ' (@' + msg.from.username + ')' : ''}`
-              : (msg.from?.username ? `@${msg.from.username}` : `Водитель Telegram (${chatId})`);
-
-            chatTripActive.set(chatId, true);
-            saveSessionsToCache();
-            updateCachedOrderStatus(selectedOrder.orderNumber, 'dispatched', {
-              assignedDriver: driverTitle,
-              dispatchedAt: new Date().toISOString(),
-              speed: 68
-            });
-
-            await syncOrderToFirestore(selectedOrder.orderNumber, {
-              status: 'dispatched',
-              assignedDriver: driverTitle,
-              dispatchedAt: new Date().toISOString(),
-              speed: 68
-            });
-            if (selectedOrder.id && selectedOrder.id !== selectedOrder.orderNumber) {
-              await syncOrderToFirestore(selectedOrder.id, {
-                status: 'dispatched',
-                assignedDriver: driverTitle,
-                dispatchedAt: new Date().toISOString(),
-                speed: 68
-              });
+              await sendTelegramMessage(
+                chatId,
+                `📦 <b>Сначала выберите рейс из списка:</b>`,
+                buildOrderSelectionInlineKeyboard(freshAvail)
+              );
+              continue;
             }
 
             await sendTelegramMessage(
               chatId,
-              `🟢 <b>Рейс начат!</b>\n` +
-              `📦 <b>Рейс:</b> ${selectedOrder.orderNumber} (${selectedOrder.destinationCity})\n` +
-              `👤 <b>Водитель:</b> ${driverTitle}\n` +
-              `Фура начала движение по трассе на мониторах логистов.\n\n` +
-              `Удачной дороги! 🛣️`,
-              buildInTransitKeyboard(selectedOrder)
+              `🛰️ <b>Для отображения фуры на карте логиста включите трансляцию геопозиции:</b>\n\n` +
+              `1️⃣ Нажмите <b>скрепку 📎</b> внизу слева\n` +
+              `2️⃣ Выберите <b>«Геопозиция»</b> 📍\n` +
+              `3️⃣ Выберите <b>«Транслировать мою геопозицию...»</b> ➔ на <b>8 часов</b> ⏱️\n\n` +
+              `<i>Как только начнётся трансляция, фура сразу появится на карте логиста. 🚛💨</i>`,
+              buildSelectedOrderKeyboard(selectedOrder)
             );
             chatLastMessageTime.set(chatId, Date.now());
             continue;

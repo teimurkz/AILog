@@ -25,6 +25,9 @@ interface LeafletRouteMapProps {
   lastPingSecondsAgo?: number;
   signalStatus?: string;
   height?: string;
+  hasRealGps?: boolean;
+  isTrackingActive?: boolean;
+  driverConsent?: boolean;
 }
 
 export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
@@ -43,6 +46,9 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
   lastPingSecondsAgo = 0,
   signalStatus = 'in_transit',
   height = "h-[360px]",
+  hasRealGps = false,
+  isTrackingActive = false,
+  driverConsent = false,
 }) => {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -111,7 +117,9 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
 
         if (isFirstRenderRef.current) {
           const bounds = polyline.getBounds();
-          bounds.extend([currentLat, currentLng]);
+          if (hasRealGps && isTrackingActive) {
+            bounds.extend([currentLat, currentLng]);
+          }
           map.fitBounds(bounds, { padding: [40, 40] });
           isFirstRenderRef.current = false;
         }
@@ -176,6 +184,22 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
   useEffect(() => {
     if (!mapInstanceRef.current) return;
     const map = mapInstanceRef.current;
+
+    // Strict condition: If no real GPS or tracking is inactive, clean up any marker/trajectory and do not draw truck
+    if (!hasRealGps || !isTrackingActive) {
+      if (truckMarkerRef.current) {
+        map.removeLayer(truckMarkerRef.current);
+        truckMarkerRef.current = null;
+      }
+      if (trajectoryPolylineRef.current) {
+        map.removeLayer(trajectoryPolylineRef.current);
+        trajectoryPolylineRef.current = null;
+      }
+      if (dotsGroupRef.current) {
+        dotsGroupRef.current.clearLayers();
+      }
+      return;
+    }
 
     const historyPoints: L.LatLngExpression[] = locationHistory && locationHistory.length > 1
       ? locationHistory.map(pt => [pt.lat, pt.lng])
@@ -319,11 +343,11 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
       truckMarkerRef.current.setIcon(icon);
       truckMarkerRef.current.setPopupContent(popupContent);
     }
-  }, [currentLat, currentLng, speed, heading, etaFormatted, locationHistory, waypoints, truckPlate, driverName, lastPingSecondsAgo, signalStatus]);
+  }, [currentLat, currentLng, speed, heading, etaFormatted, locationHistory, waypoints, truckPlate, driverName, lastPingSecondsAgo, signalStatus, hasRealGps, isTrackingActive]);
 
   // Recenter map smooth view to truck position
   const handleRecenterTruck = () => {
-    if (mapInstanceRef.current) {
+    if (mapInstanceRef.current && hasRealGps && isTrackingActive) {
       mapInstanceRef.current.flyTo([currentLat, currentLng], 12, { animate: true, duration: 1 });
     }
   };
@@ -337,7 +361,9 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
 
       const polyline = L.polyline(highwayPoints);
       const bounds = polyline.getBounds();
-      bounds.extend([currentLat, currentLng]);
+      if (hasRealGps && isTrackingActive) {
+        bounds.extend([currentLat, currentLng]);
+      }
       mapInstanceRef.current.fitBounds(bounds, { padding: [40, 40] });
     }
   };
@@ -361,15 +387,32 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
         }
       `}</style>
 
+      {/* Informative banner when GPS tracking is not active / waiting for real driver Live GPS */}
+      {(!hasRealGps || !isTrackingActive) && (
+        <div className="absolute top-3 left-3 z-[400] max-w-[80%] bg-slate-900/92 backdrop-blur-md text-white px-3.5 py-2.5 rounded-xl border border-amber-500/40 shadow-xl flex items-center gap-2.5 text-xs pointer-events-none">
+          <span className="text-base animate-pulse">🛰️</span>
+          <div>
+            <div className="font-bold text-amber-300">
+              {driverConsent ? 'Водитель согласился на рейс (ожидание Live GPS)' : 'GPS-отслеживание не запущено'}
+            </div>
+            <div className="text-[11px] text-slate-300">
+              Машина появится на карте сразу после первого сигнала Live-трансляции из Telegram-бота.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Floating View Control Tools */}
       <div className="absolute top-3 right-3 z-[400] flex flex-col gap-1.5 bg-slate-900/90 p-1.5 rounded-xl border border-slate-700 shadow-xl backdrop-blur-md">
-        <button
-          onClick={handleRecenterTruck}
-          className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-md active:scale-95 cursor-pointer"
-          title="Сфокусировать карту на местоположении фуры"
-        >
-          <span>🎯 Сфокусировать на фуре</span>
-        </button>
+        {hasRealGps && isTrackingActive && (
+          <button
+            onClick={handleRecenterTruck}
+            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-md active:scale-95 cursor-pointer"
+            title="Сфокусировать карту на местоположении фуры"
+          >
+            <span>🎯 Сфокусировать на фуре</span>
+          </button>
+        )}
         <button
           onClick={handleRecenterRoute}
           className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"

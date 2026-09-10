@@ -13,6 +13,9 @@ export interface TruckPositionUpdatePayload {
   assignedDriver?: string;
   status?: string;
   etaFormatted?: string;
+  hasRealGps?: boolean;
+  isTrackingActive?: boolean;
+  driverConsent?: boolean;
 }
 
 export interface DeliveryEndedPayload {
