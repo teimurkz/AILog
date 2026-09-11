@@ -5,6 +5,7 @@ import { signInWithPopup, GoogleAuthProvider, signInAnonymously } from 'firebase
 import { auth } from '../../firebase';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { firebaseSignInError } from '../../services/firebase-auth-errors';
 
 export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
   const { user, profile, loading, authError } = useAuth();
@@ -19,13 +20,7 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
       await signInWithPopup(auth, new GoogleAuthProvider());
     } catch (err: any) {
       console.error("Firebase Auth Error:", err);
-      if (err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-blocked') {
-        setError(t('authBlockedMessage'));
-      } else if (err.code === 'auth/unauthorized-domain') {
-        setError('Домен localhost / IP не добавлен в список авторизованных доменов OAuth в Консоли Firebase (Authentication -> Settings -> Authorized domains). Пожалуйста, воспользуйтесь кнопкой "Войти как гость (Демо)" ниже.');
-      } else {
-        setError(err.message || t('signInError'));
-      }
+      setError(firebaseSignInError(err, t('signInError')));
     } finally {
       setAuthLoading(false);
     }
@@ -38,7 +33,7 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
       await signInAnonymously(auth);
     } catch (err: any) {
       console.error("Guest Sign-in Error:", err);
-      setError(t('guestSignInError'));
+      setError(firebaseSignInError(err, t('guestSignInError')));
     } finally {
       setAuthLoading(false);
     }
@@ -67,15 +62,8 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
           <div className="mb-6 p-4 bg-amber-50 rounded-xl border border-amber-200 text-left text-xs text-amber-900 flex gap-2.5">
             <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
             <div className="space-y-2 w-full">
-              <p className="font-semibold text-amber-950">{t('authBlockedTitle')}</p>
+              <p className="font-semibold text-amber-950">Не удалось завершить вход</p>
               <p className="leading-relaxed">{error}</p>
-              <button
-                onClick={handleGuestSignIn}
-                disabled={authLoading}
-                className="mt-2 w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 text-white font-semibold rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
-              >
-                ⚡ Войти в систему без Google (Демо-доступ)
-              </button>
             </div>
           </div>
         )}

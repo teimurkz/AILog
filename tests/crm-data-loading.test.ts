@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { watchCollection, normalizeDocument, type CollectionState } from '../src/services/collection-state';
 import { DataLoadNotice } from '../src/components/common/DataLoadNotice';
 import { isShipmentDelayed } from '../src/utils/shipmentUtils';
+import { firebaseSignInError } from '../src/services/firebase-auth-errors';
 
 function fixture(timeout = 1000) {
   let next!: (data: any[], cached: boolean) => void;
@@ -95,6 +96,13 @@ test('listener initialization failures show an error rather than crashing the ap
   assert.equal(states.at(-1)!.loading, false);
   assert.match(states.at(-1)!.error!, /Нет доступа/);
   stop();
+});
+
+test('Google sign-in cancellation, blocked windows and network failures show different remedies', () => {
+  assert.match(firebaseSignInError({ code: 'auth/popup-closed-by-user' }), /завершите выбор аккаунта/);
+  assert.match(firebaseSignInError({ code: 'auth/popup-blocked' }), /Разрешите всплывающие окна/);
+  assert.match(firebaseSignInError({ code: 'auth/network-request-failed' }), /интернету/);
+  assert.match(firebaseSignInError({ code: 'auth/unauthorized-domain' }), /существующего проекта/);
 });
 
 test('document IDs and legacy fields survive reading without changing stored records', () => {
