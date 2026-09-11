@@ -741,7 +741,7 @@ export const RegionalOrders: React.FC = () => {
                             <StatusIcon className="w-3.5 h-3.5" />
                             <span>{cfg.label}</span>
                           </div>
-                          {order.status === 'dispatched' && (
+                          {isAdmin && order.status === 'dispatched' && order.hasRealGps && order.isTrackingActive && (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 animate-pulse">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                               <span>GPS онлайн</span>
@@ -788,14 +788,14 @@ export const RegionalOrders: React.FC = () => {
                       {/* Actions */}
                       <td className="py-3.5 px-4 text-center">
                         <div className="flex items-center justify-center gap-1">
-                          <button
+                          {isAdmin && <button
                             onClick={() => setSelectedMapOrder(order)}
                             className="px-2 py-1 text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1"
                             title="Открыть карту маршрута и GPS трэкинг водителя"
                           >
                             <Map className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                             <span>Карта & GPS</span>
-                          </button>
+                          </button>}
 
                           {order.recipientPhone && (
                             <a
@@ -953,13 +953,13 @@ export const RegionalOrders: React.FC = () => {
                         </button>
 
                         <div className="ml-auto flex items-center gap-1">
-                          <button
+                          {isAdmin && <button
                             onClick={() => setSelectedMapOrder(order)}
                             className="p-1 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 rounded-lg transition-colors"
                             title="Карта & GPS"
                           >
                             <Map className="w-3.5 h-3.5" />
-                          </button>
+                          </button>}
                           {canDeleteOrder(order) && (
                             <button
                               onClick={(e) => {
@@ -1497,11 +1497,11 @@ export const RegionalOrders: React.FC = () => {
       </AnimatePresence>
 
       {/* Modal 4: Interactive Route Map & Driver GPS Tracking */}
-      <RouteMapModal
+      {isAdmin && <RouteMapModal
         isOpen={!!selectedMapOrder}
         onClose={() => setSelectedMapOrder(null)}
-        order={selectedMapOrder}
-      />
+        order={orders.find(o => o.id === selectedMapOrder?.id) || selectedMapOrder}
+      />}
     </div>
   );
 };

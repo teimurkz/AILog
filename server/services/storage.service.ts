@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { usesFirebase } from './tracking-context.js';
 
 export interface LocationPoint {
   lat: number;
@@ -60,6 +61,12 @@ export interface RegionalOrderRecord {
   lastGpsUpdate?: string;
   driverConsent?: boolean;
   driverConsentAt?: string;
+  hasRealGps?: boolean;
+  isTrackingActive?: boolean;
+  trackingSource?: 'telegram_live' | 'telegram_static' | 'web';
+  trackingStartLocation?: LocationPoint;
+  liveLocationExpiresAt?: string;
+  trackingStoppedAt?: string;
   locationHistory?: Array<{ lat: number; lng: number; timestamp?: string }>;
   createdAt?: string;
   createdByEmail?: string;
@@ -137,6 +144,13 @@ export interface DriverSessionRecord {
   orderNumber: string;
   driverName?: string;
   tripActive: boolean;
+  driverConsent?: boolean;
+  consentAt?: string;
+  liveMessageId?: number;
+  liveStartedAt?: number;
+  liveExpiresAt?: string;
+  lastLocationAt?: string;
+  pinnedMessageId?: number;
   startedAt?: string;
   lastUpdated: string;
 }
@@ -176,6 +190,7 @@ function safeReadJson<T>(filePath: string, fallback: T): T {
 }
 
 function safeWriteJson(filePath: string, data: any): void {
+  if (usesFirebase()) return;
   const tempFile = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   try {
     fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf8');
@@ -210,8 +225,21 @@ class StorageService {
   private sessions: Map<number, DriverSessionRecord> = new Map();
 
   constructor() {
-    this.loadAll();
-    this.seedDefaultsIfEmpty();
+    if (!usesFirebase()) { this.loadAll(); this.seedDefaultsIfEmpty(); }
+  }
+
+  public replaceTrackingState(state: { orders: RegionalOrderRecord[]; sessions: DriverSessionRecord[]; telemetry: Record<string, LocationPoint[]> }) {
+    this.orders.clear(); this.sessions.clear(); this.telemetry.clear();
+    for (const order of state.orders) {
+      this.orders.set(order.id, order);
+      if (!usesFirebase() && order.orderNumber) this.orders.set(order.orderNumber.toUpperCase(), order);
+    }
+    state.sessions.forEach(session => this.sessions.set(session.chatId, session));
+    Object.entries(state.telemetry).forEach(([id, history]) => this.telemetry.set(id.toUpperCase(), history));
+  }
+
+  public trackingState() {
+    return { orders: this.getUniqueOrders(), sessions: this.getAllSessions(), telemetry: Object.fromEntries(this.telemetry) };
   }
 
   private loadAll() {
@@ -300,7 +328,7 @@ class StorageService {
     const seen = new Set<string>();
     const list: RegionalOrderRecord[] = [];
     for (const o of this.orders.values()) {
-      const key = (o.orderNumber || o.id).toUpperCase();
+      const key = usesFirebase() ? o.id : (o.orderNumber || o.id).toUpperCase();
       if (!seen.has(key)) {
         seen.add(key);
         list.push(o);
@@ -312,13 +340,16 @@ class StorageService {
   public getOrder(orderIdOrNumber: string): RegionalOrderRecord | undefined {
     if (!orderIdOrNumber) return undefined;
     const clean = orderIdOrNumber.trim().toUpperCase();
+    if (usesFirebase()) return this.orders.get(orderIdOrNumber.trim()) ||
+      Array.from(this.orders.values()).find(order => order.orderNumber?.toUpperCase() === clean);
     return this.orders.get(clean) || this.orders.get(orderIdOrNumber.trim());
   }
 
   public saveOrder(order: RegionalOrderRecord): RegionalOrderRecord {
     const id = order.id || `REG-${Date.now().toString().slice(-4)}`;
     const now = new Date().toISOString();
-    const existing = this.getOrder(id) || (order.orderNumber ? this.getOrder(order.orderNumber) : undefined);
+    const existing = usesFirebase() ? this.orders.get(id) :
+      this.getOrder(id) || (order.orderNumber ? this.getOrder(order.orderNumber) : undefined);
 
     const record: RegionalOrderRecord = {
       ...existing,
@@ -329,7 +360,7 @@ class StorageService {
     };
 
     this.orders.set(record.id, record);
-    if (record.orderNumber) {
+    if (!usesFirebase() && record.orderNumber) {
       this.orders.set(record.orderNumber.toUpperCase(), record);
     }
 
@@ -361,7 +392,7 @@ class StorageService {
     };
 
     if (updated.id) this.orders.set(updated.id, updated);
-    if (updated.orderNumber) this.orders.set(updated.orderNumber.toUpperCase(), updated);
+    if (!usesFirebase() && updated.orderNumber) this.orders.set(updated.orderNumber.toUpperCase(), updated);
 
     const unique = this.getUniqueOrders();
     safeWriteJson(FILES.regionalOrdersMain, unique);
@@ -374,7 +405,7 @@ class StorageService {
     if (!existing) return false;
 
     this.orders.delete(existing.id);
-    if (existing.orderNumber) this.orders.delete(existing.orderNumber.toUpperCase());
+    if (!usesFirebase() && existing.orderNumber) this.orders.delete(existing.orderNumber.toUpperCase());
 
     const unique = this.getUniqueOrders();
     safeWriteJson(FILES.regionalOrdersMain, unique);
@@ -592,14 +623,6 @@ class StorageService {
       }
       safeWriteJson(FILES.telemetry, obj);
     }
-
-    this.updateOrderStatus(orderIdOrNumber, 'dispatched', {
-      currentLat: point.lat,
-      currentLng: point.lng,
-      speed: point.speed,
-      heading: point.heading,
-      lastGpsUpdate: point.timestamp || new Date().toISOString()
-    });
 
     return history;
   }

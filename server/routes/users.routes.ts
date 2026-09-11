@@ -1,8 +1,11 @@
 import { Router } from 'express';
 import { storageService, UserProfileRecord } from '../services/storage.service';
 import { broadcastRealtimeEvent } from './realtime.routes';
+import { requireAdmin, requireSameOrigin } from '../services/crm-auth.service.js';
 
 const router = Router();
+// Otherwise a non-admin could grant themselves GPS access through this API.
+router.use(requireSameOrigin, requireAdmin);
 
 // GET /api/users - list all local users
 router.get('/', (req, res) => {

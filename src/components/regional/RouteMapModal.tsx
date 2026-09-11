@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   MapPin, 
   Truck, 
@@ -25,11 +25,13 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ordersApi, subscribeToRealtimeStream } from '../../services/api';
-import { onTruckPositionUpdate, onDeliveryEnded, joinOrderRoom, leaveOrderRoom } from '../../services/socket';
+import { onTruckPositionUpdate, onDeliveryEnded } from '../../services/socket';
 import { LeafletRouteMap } from './LeafletRouteMap';
 import { RegionalTruckOrder } from '../../types';
-import { KAZAKHSTAN_ROADS } from '../../utils/kazakhstanRoads';
-import { auth } from '../../firebase';
+import { useAuth } from '../../contexts/AuthContext';
+import { firebaseFetch } from '../../services/firebase-fetch';
+
+
 
 interface RouteMapModalProps {
   isOpen: boolean;
@@ -61,267 +63,103 @@ interface RouteData {
   hasRealGps?: boolean;
   isTrackingActive?: boolean;
   driverConsent?: boolean;
+  routeStatus?: 'waiting' | 'building' | 'road' | 'approximate';
 }
 
 export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, order }) => {
+  const { isAdmin } = useAuth();
+  return isAdmin ? <AdminRouteMapModal isOpen={isOpen} onClose={onClose} order={order} /> : null;
+};
+
+const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, order }) => {
+  const { refreshSession } = useAuth();
   const [activeTab, setActiveTab] = useState<'map' | 'telegram'>('map');
   const [loading, setLoading] = useState<boolean>(false);
   const [routeData, setRouteData] = useState<RouteData | null>(null);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
 
-  // Customizable Telegram Bot Username
-  const [botUsername, setBotUsername] = useState<string>(() => {
-    return localStorage.getItem('telegram_bot_username') || 'SilkRoadDriverBot';
-  });
-  const [isEditingBot, setIsEditingBot] = useState<boolean>(false);
-  const [tempBotInput, setTempBotInput] = useState<string>(botUsername);
+  const [botStatus, setBotStatus] = useState<{ username: string; configured: boolean; running: boolean; lastError?: string; lastPollAt?: string } | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
+  const botUsername = botStatus?.username || 'SilkRoadDriverBot';
 
-  const saveBotUsername = (newName: string) => {
-    const sanitized = newName.replace('@', '').trim() || 'SilkRoadDriverBot';
-    setBotUsername(sanitized);
-    localStorage.setItem('telegram_bot_username', sanitized);
-    setIsEditingBot(false);
-  };
-
-  // Open full map in a separate dedicated browser window
   const handleOpenStandaloneWindow = () => {
-    if (!order) return;
-    const width = 1280;
-    const height = 800;
-    const left = (window.screen.width - width) / 2;
-    const top = (window.screen.height - height) / 2;
-
-    const popup = window.open(
-      '',
-      `GPS_Map_${order.id}`,
-      `width=${width},height=${height},top=${top},left=${left},resizable=yes,scrollbars=yes`
-    );
-
-    if (popup) {
-      const lat = routeData?.currentLat ?? 46.8481;
-      const lng = routeData?.currentLng ?? 74.9804;
-      const dest = order.destinationCity || 'Астана';
-      const orderNum = order.orderNumber;
-      const truck = order.assignedTruckPlate || 'Не указан';
-      const driver = order.assignedDriver || 'Не назначен';
-      const destKey = (dest || '').toLowerCase().includes('шымкент') || (dest || '').toLowerCase().includes('тараз')
-        ? 'shymkent'
-        : 'astana';
-      const defaultRoad = KAZAKHSTAN_ROADS[destKey] || KAZAKHSTAN_ROADS.astana;
-      const roadPointsJson = JSON.stringify(routeData?.detailedRoadPolyline || defaultRoad);
-      const historyPointsJson = JSON.stringify(routeData?.locationHistory || [
-        { lat: defaultRoad[0]?.lat || 43.2389, lng: defaultRoad[0]?.lng || 76.8897 },
-        { lat, lng }
-      ]);
-
-      popup.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>📍 GPS Мониторинг Рейса ${orderNum} - ${dest}</title>
-          <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-          <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-          <style>
-            body { margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: white; }
-            #header { padding: 14px 24px; background: #1e293b; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #334155; }
-            #map { width: 100vw; height: calc(100vh - 75px); }
-            .badge { background: #2563eb; color: white; padding: 5px 12px; border-radius: 10px; font-size: 12px; font-weight: bold; }
-          </style>
-        </head>
-        <body>
-          <div id="header">
-            <div>
-              <div style="font-size:17px;font-weight:bold;display:flex;align-items:center;gap:8px;">
-                <span>🚚</span> <span>ФУРА: ${truck} (${driver})</span>
-              </div>
-              <div style="font-size:12px;color:#94a3b8;margin-top:2px;">Заявка № ${orderNum} • Трасса: Алматы ➔ ${dest}</div>
-            </div>
-            <div style="margin-left:auto;display:flex;gap:12px;align-items:center;">
-              <span class="badge" style="background:#10b981;">🟢 ТРАЕКТОРИЯ АКТИВНА</span>
-              <span class="badge" id="etaBadge">ETA: ~4 ч 30 мин</span>
-            </div>
-          </div>
-          <div id="map"></div>
-          <script>
-            var map = L.map('map').setView([${lat}, ${lng}], 6);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
-            var roadCoords = ${roadPointsJson}.map(p => [p.lat, p.lng]);
-            var highwayLine = L.polyline(roadCoords, { color: '#3b82f6', weight: 5, opacity: 0.7, dashArray: '8, 8' }).addTo(map);
-
-            var historyCoords = ${historyPointsJson}.map(p => [p.lat, p.lng]);
-            var trajectoryLine = L.polyline(historyCoords, { color: '#10b981', weight: 6, opacity: 0.95, lineCap: 'round' }).addTo(map);
-
-            var neatTruckIcon = L.divIcon({
-              className: 'truck-marker',
-              html: '<div style="position:relative;display:flex;align-items:center;"><div style="background:#10b981;color:white;width:32px;height:32px;border-radius:50%;border:2px solid white;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 4px 14px rgba(0,0,0,0.5);">🚚</div><div style="margin-left:8px;background:rgba(15,23,42,0.9);color:white;padding:3px 8px;border-radius:8px;font-size:11px;font-weight:bold;border:1px solid #10b981;white-space:nowrap;">${truck}</div></div>',
-              iconSize: [160, 36],
-              iconAnchor: [16, 18]
-            });
-            var marker = L.marker([${lat}, ${lng}], { icon: neatTruckIcon }).addTo(map);
-
-            setInterval(async () => {
-              try {
-                const res = await fetch('/api/driver/location/${order.id}?destinationCity=${encodeURIComponent(dest)}&orderNumber=${encodeURIComponent(orderNum)}&status=${encodeURIComponent(order.status || "")}');
-                if (res.ok) {
-                  const data = await res.json();
-                  marker.setLatLng([data.currentLat, data.currentLng]);
-                  document.getElementById('etaBadge').innerText = 'ETA: ' + data.etaFormatted;
-                  if (data.locationHistory && data.locationHistory.length > 0) {
-                    trajectoryLine.setLatLngs(data.locationHistory.map(p => [p.lat, p.lng]));
-                  }
-                }
-              } catch(e) {}
-            }, 3000);
-          </script>
-        </body>
-        </html>
-      `);
-      popup.document.close();
-    }
+    if (order) window.open('/gps-map?order=' + encodeURIComponent(order.id), '_blank', 'noopener,noreferrer,width=1280,height=800');
   };
 
-  // Fetch real-time driver GPS data
-  const fetchLocationData = async () => {
-    if (!order) return;
+  const fetchLocationData = useCallback(async () => {
+    if (!order?.id) return;
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
+    setLoading(true);
     try {
-      const params = new URLSearchParams({
-        destinationCity: order.destinationCity || 'Астана',
-        orderNumber: order.orderNumber || '',
-        status: order.status || '',
-        dispatchedAt: (order as any).dispatchedAt || order.updatedAt || ''
-      });
-
-      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => undefined) : undefined;
-      const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const res = await fetch(`/api/driver/location/${order.id}?${params.toString()}`, { headers });
-      if (res.ok) {
-        const data = await res.json();
-        setRouteData(data);
-        // Sync real driver coordinates to Firestore document directly from authenticated browser
-        if (data.hasRealGps && data.currentLat && data.currentLng && order.id) {
-          ordersApi.update(order.id, {
-            currentLat: data.currentLat,
-            currentLng: data.currentLng,
-            speed: data.speed !== undefined ? data.speed : 0,
-            lastGpsUpdate: new Date().toISOString()
-          }).catch(() => {});
-        }
+      const res = await firebaseFetch('/api/driver/location/' + encodeURIComponent(order.id), { signal: controller.signal, cache: 'no-store' });
+      if (res.status === 401 || res.status === 403) {
+        setRouteData(null);
+        void refreshSession();
+        throw new Error('GPS-мониторинг доступен только администратору.');
       }
-    } catch (e) {
-      console.warn("Failed to fetch driver GPS data:", e);
+      if (!res.ok) throw new Error('Не удалось получить GPS рейса. Проверьте соединение с сервером.');
+      const data = await res.json();
+      if (!controller.signal.aborted) { setRouteData(data); setGpsError(null); }
+    } catch (error) {
+      if (!controller.signal.aborted) setGpsError(error instanceof Error ? error.message : 'Нет связи с сервером GPS');
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
     }
-  };
+  }, [order?.id, refreshSession]);
 
-  // 1. Real-time WebSocket (Socket.io) & SSE Stream Listener
   useEffect(() => {
     if (!isOpen || !order?.id) return;
-
-    // Join order room in Socket.io
-    joinOrderRoom(order.id);
-    if (order.orderNumber) joinOrderRoom(order.orderNumber);
-
-    // A. Socket.io position update (sub-second latency without page reload)
-    const unsubSocketUpdate = onTruckPositionUpdate((data) => {
-      const matches = data?.orderId === order.id ||
-                      data?.orderId === order.orderNumber ||
-                      data?.truckNumber === order.orderNumber ||
-                      data?.truckNumber === order.assignedTruckPlate;
-      if (matches) {
-        setRouteData(prev => {
-          if (!prev) return prev;
-          const newHistory = [
-            ...(prev.locationHistory || []),
-            { lat: data.lat, lng: data.lng, timestamp: data.updatedAt }
-          ];
-          return {
-            ...prev,
-            hasRealGps: true,
-            isTrackingActive: true,
-            driverConsent: true,
-            currentLat: data.lat,
-            currentLng: data.lng,
-            speed: data.speed !== undefined ? data.speed : prev.speed,
-            heading: data.heading !== undefined ? data.heading : prev.heading,
-            updatedAt: data.updatedAt,
-            lastPingSecondsAgo: 0,
-            signalStatus: (data.status as any) || (data.speed && data.speed > 5 ? 'in_transit' : 'parked'),
-            signalStatusText: (data.speed && data.speed > 5) ? `🟢 В движении (${data.speed} км/ч)` : '🟢 На связи (Стоянка)',
-            locationHistory: newHistory
-          };
-        });
-      }
-    });
-
-    // B. Socket.io delivery ended event (driver completed trip in bot)
-    const unsubDeliveryEnded = onDeliveryEnded((data) => {
-      const matches = data?.orderId === order.id ||
-                      data?.orderId === order.orderNumber ||
-                      data?.orderNumber === order.orderNumber;
-      if (matches) {
-        order.status = 'delivered';
-        setRouteData(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            speed: 0,
-            signalStatus: 'delivered',
-            signalStatusText: '🏁 Груз доставлен (Рейс завершен)'
-          };
-        });
-      }
-    });
-
-    // C. SSE Stream Listener (fallback)
-    const unsubSSE = subscribeToRealtimeStream((event, data) => {
-      if (event === 'telemetry_update' || event === 'order_updated' || event === 'order_completed') {
-        const matches = data?.orderId === order.id ||
-                        data?.orderNumber === order.orderNumber ||
-                        data?.orderNumberOrId === order.orderNumber ||
-                        data?.id === order.id;
-        if (matches) {
-          fetchLocationData();
-        }
-      }
-    });
-
-    return () => {
-      leaveOrderRoom(order.id);
-      if (order.orderNumber) leaveOrderRoom(order.orderNumber);
-      unsubSocketUpdate();
-      unsubDeliveryEnded();
-      unsubSSE();
+    setRouteData(null);
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = () => {
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => void fetchLocationData(), 50);
     };
-  }, [isOpen, order?.id, order?.orderNumber]);
-
-  // 2. Auto-refresh GPS coordinates every 3 seconds while modal is open
-  useEffect(() => {
-    if (isOpen && order) {
-      fetchLocationData();
-      const interval = setInterval(() => {
-        fetchLocationData();
-      }, 3000);
-      return () => clearInterval(interval);
-    }
-  }, [isOpen, order]);
+    void fetchLocationData();
+    let disposed = false;
+    const fetchBotStatus = () => firebaseFetch('/api/driver/bot-status').then(r => r.json()).then(data => {
+      if (!disposed) setBotStatus(data);
+    }).catch(() => {});
+    void fetchBotStatus();
+    const matches = (data: any) => [data?.orderId, data?.id, data?.orderNumberOrId, data?.orderNumber]
+      .some(id => id === order.id || id === order.orderNumber);
+    const unsubSocket = onTruckPositionUpdate(data => { if (matches(data)) refresh(); });
+    const unsubEnd = onDeliveryEnded(data => { if (matches(data)) refresh(); });
+    const unsubSSE = subscribeToRealtimeStream((event, data) => {
+      if (['telemetry_update', 'order_updated', 'order_completed', 'order_deleted', 'route_updated'].includes(event) && matches(data)) refresh();
+    });
+    const interval = setInterval(() => void fetchLocationData(), 3000);
+    const botInterval = setInterval(fetchBotStatus, 15000);
+    return () => {
+      disposed = true;
+      requestRef.current?.abort();
+      clearTimeout(refreshTimer);
+      clearInterval(interval);
+      clearInterval(botInterval);
+      unsubSocket(); unsubEnd(); unsubSSE();
+    };
+  }, [isOpen, order?.id, order?.orderNumber, fetchLocationData]);
 
   if (!isOpen || !order) return null;
 
   const destCity = order.destinationCity || 'Астана';
+  const lastPingAge = routeData?.updatedAt ? Math.max(0, Math.round((Date.now() - Date.parse(routeData.updatedAt)) / 1000)) : undefined;
+  const isFreshGps = !gpsError && routeData?.isTrackingActive && lastPingAge !== undefined && lastPingAge <= 120;
   const driverName = order.assignedDriver || 'Не назначен';
   const truckPlate = order.assignedTruckPlate || 'Не указан';
-  const botLink = `https://t.me/${botUsername}?start=${encodeURIComponent(order.orderNumber || order.id)}`;
-  const webTrackerLink = `${window.location.origin}/gps?order=${encodeURIComponent(order.orderNumber || order.id)}`;
+  const botLink = `https://t.me/${botUsername}?start=${encodeURIComponent(order.id)}`;
+  const webTrackerLink = `${window.location.origin}/gps?order=${encodeURIComponent(order.id)}`;
   const driverPhoneClean = ((order as any).driverPhone || order.recipientPhone || order.assignedDriver || '').replace(/[^0-9]/g, '');
   const whatsappShareUrl = `https://wa.me/${driverPhoneClean}?text=${encodeURIComponent(
-    `Здравствуйте! Подтвердите выезд по рейсу ${order.orderNumber} (Алматы ➔ ${destCity}): откройте мобильный GPS-трекер ${webTrackerLink} и нажмите «Начать рейс» (экран телефона не гаснет, трекер работает автоматически). Либо подтвердите через Telegram-бот @${botUsername}: ${botLink}`
+    `Здравствуйте! Откройте ${botLink}, выберите рейс ${order.orderNumber}, подтвердите согласие и включите трансляцию геопозиции через скрепку → Геопозиция. После доставки нажмите «Завершить рейс».`
   )}`;
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(webTrackerLink);
+    navigator.clipboard.writeText(botLink);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);
   };
@@ -334,34 +172,17 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
         status: 'dispatched',
         dispatchedAt: new Date().toISOString()
       });
-      await fetch('/api/driver/location', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderId: order.id,
-          orderNumber: order.orderNumber,
-          lat: routeData?.currentLat || 43.2389,
-          lng: routeData?.currentLng || 76.8897,
-          speed: 0,
-          status: 'dispatched'
-        })
-      });
       fetchLocationData();
     } catch (err) {
       console.warn("Error marking in transit:", err);
     }
   };
 
-  const waypoints = routeData?.routeWaypoints || [
-    { name: 'Алматы (Склад)', lat: 43.2389, lng: 76.8897, reached: true },
-    { name: 'Балхаш', lat: 46.8481, lng: 74.9804, reached: (routeData?.progressPercent ?? 0) >= 40 },
-    { name: 'Караганда', lat: 49.8019, lng: 73.1021, reached: (routeData?.progressPercent ?? 0) >= 75 },
-    { name: destCity, lat: 51.1694, lng: 71.4491, reached: (routeData?.progressPercent ?? 0) >= 100 }
-  ];
+  const waypoints = routeData?.routeWaypoints || [];
 
   return (
     <AnimatePresence>
-      <div className={`fixed inset-0 z-50 overflow-y-auto bg-slate-900/90 backdrop-blur-md flex items-center justify-center ${isFullscreen ? 'p-2 sm:p-4' : 'p-3 sm:p-6'}`}>
+      <div className={`fixed inset-0 z-50 overflow-y-auto bg-slate-900/90 backdrop-blur-md flex items-start justify-center ${isFullscreen ? 'p-2 sm:p-4' : 'p-3 sm:p-6'}`}>
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -381,13 +202,13 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                   <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
                     🗺️ Интерактивная карта & GPS Мониторинг
                   </h3>
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                    <span>GPS Active</span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border flex items-center gap-1 ${isFreshGps ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30' : 'bg-amber-500/15 text-amber-600 border-amber-500/30'}`}>
+                    <span className={`w-2 h-2 rounded-full ${isFreshGps ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                    <span>{gpsError ? 'Нет связи' : routeData?.signalStatus === 'delivered' ? 'Рейс завершён' : routeData?.isTrackingActive && ['parked', 'in_transit'].includes(routeData.signalStatus || '') ? 'GPS на связи' : 'Ожидание GPS'}</span>
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Заявка № <strong className="text-slate-700 dark:text-slate-200">{order.orderNumber}</strong> • Маршрут: <strong>Алматы ➔ {destCity}</strong>
+                  Заявка № <strong className="text-slate-700 dark:text-slate-200">{order.orderNumber}</strong> • Маршрут: <strong>{routeData?.originCity || 'Ожидание GPS'} ➔ {destCity}</strong>
                 </p>
               </div>
             </div>
@@ -447,6 +268,7 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
             </div>
           </div>
 
+          {gpsError && <p role="alert" className="text-sm text-rose-600">{gpsError}</p>}
           {activeTab === 'map' ? (
             /* TAB 1: INTERACTIVE ROUTE MAP & ETA CALCULATOR */
             <div className="space-y-5">
@@ -459,32 +281,12 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                   </div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-blue-300">Расчетное Время Прибытия (ETA)</p>
                   <p className="text-2xl font-black mt-1 text-white">
-                    {routeData?.etaFormatted || '~4 ч 30 мин'}
+                    {routeData?.etaFormatted || 'Ожидание GPS'}
                   </p>
                   <p className="text-xs text-blue-200 mt-1 flex items-center gap-1">
                     <Clock className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Осталось {routeData?.remainingDistanceKm ?? 380} км (из {routeData?.totalDistanceKm ?? 1250} км)</span>
+                    <span>Осталось {routeData?.remainingDistanceKm ?? '—'} км (из {routeData?.totalDistanceKm ?? '—'} км)</span>
                   </p>
-                </div>
-
-                {/* Speed & Driver Info */}
-                <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Водитель & Фура</span>
-                    <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold text-[10px] rounded-md flex items-center gap-1">
-                      <Zap className="w-3 h-3 text-emerald-500" />
-                      <span>{routeData?.speed ?? 75} км/ч</span>
-                    </span>
-                  </div>
-                  <div className="mt-2">
-                    <p className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-1.5">
-                      <Truck className="w-4 h-4 text-blue-500" />
-                      <span>{truckPlate}</span>
-                    </p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      Водитель: <strong>{driverName}</strong>
-                    </p>
-                  </div>
                 </div>
 
                 {/* Speed & Driver Info */}
@@ -497,7 +299,7 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                         : 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
                     }`}>
                       <Zap className="w-3 h-3 text-emerald-500" />
-                      <span>{(routeData?.speed ?? 0) > 0 ? `${routeData?.speed} км/ч` : 'Стоянка (0 км/ч)'}</span>
+                      <span>{!isFreshGps ? 'Нет свежего GPS' : (routeData?.speed ?? 0) > 0 ? `${routeData?.speed} км/ч` : 'Стоянка (0 км/ч)'}</span>
                     </span>
                   </div>
                   <div className="mt-2">
@@ -531,7 +333,7 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                       />
                     </div>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 flex items-center justify-between">
-                      <span>Алматы</span>
+                      <span>{routeData?.originCity || 'Ожидание GPS'}</span>
                       <span className="font-semibold text-emerald-600 dark:text-emerald-400">
                         {routeData?.signalStatusText || 'Ожидание выезда'}
                       </span>
@@ -560,11 +362,11 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                       <MessageCircle className="w-3.5 h-3.5" />
                       <span>Отправить водителю в WhatsApp</span>
                     </a>
-                    {order.status !== 'dispatched' && (
+                    {!['dispatched', 'delivered', 'cancelled'].includes(order.status) && routeData?.signalStatus !== 'delivered' && (
                       <button
                         onClick={handleMarkInTransit}
                         className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
-                        title="Перевести статус заказа в 'В пути' и активировать трекинг"
+                        title="Отметить выезд. GPS поступит после отправки геопозиции водителем"
                       >
                         <Truck className="w-3.5 h-3.5" />
                         <span>🚚 Отметить «В пути»</span>
@@ -584,23 +386,31 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                 <LeafletRouteMap
                   currentLat={routeData?.currentLat ?? 43.2389}
                   currentLng={routeData?.currentLng ?? 76.8897}
-                  originCity="Алматы"
+                  originCity={routeData?.originCity || 'Ожидание GPS'}
                   destinationCity={destCity}
                   speed={routeData?.speed ?? 0}
                   heading={routeData?.heading ?? 0}
                   etaFormatted={routeData?.etaFormatted || 'Ожидает выезда'}
                   waypoints={waypoints}
-                  detailedRoadPolyline={routeData?.detailedRoadPolyline}
+                  detailedRoadPolyline={routeData?.detailedRoadPolyline || []}
                   locationHistory={routeData?.locationHistory}
                   truckPlate={truckPlate}
                   driverName={driverName}
-                  lastPingSecondsAgo={routeData?.lastPingSecondsAgo ?? 0}
+                  lastPingSecondsAgo={lastPingAge ?? 0}
                   signalStatus={routeData?.signalStatus}
+                  signalStatusText={routeData?.signalStatusText}
                   height={isFullscreen ? "h-[calc(96vh-320px)] min-h-[480px]" : "h-[380px]"}
                   hasRealGps={routeData?.hasRealGps}
                   isTrackingActive={routeData?.isTrackingActive}
                   driverConsent={routeData?.driverConsent}
                 />
+
+                <p className="text-xs text-slate-500" role="status">
+                  {routeData?.routeStatus === 'building' ? 'Строится путь по дорогам от первой GPS-точки машины до города назначения…' :
+                    routeData?.routeStatus === 'approximate' ? 'Путь по дорогам временно недоступен. Пунктир показывает ориентировочное направление от старта GPS.' :
+                    routeData?.routeStatus === 'road' ? 'Старт маршрута — первая GPS-точка рейса. Зелёная линия — полученная история движения.' :
+                    'Маршрут появится после первой геопозиции машины.'}
+                </p>
 
                 <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
                   <div className="flex items-center gap-2">
@@ -626,197 +436,32 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
                       <span>{copiedLink ? 'Скопировано! ✓' : 'Ссылка водителю'}</span>
                     </button>
                     <div className="font-mono text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                      GPS: {routeData?.hasRealGps && routeData?.currentLat ? `${routeData.currentLat.toFixed(5)}° N, ${routeData.currentLng.toFixed(5)}° E` : 'Ожидание сигнала'}
+                      GPS: {routeData?.hasRealGps ? `${routeData.currentLat.toFixed(5)}°, ${routeData.currentLng.toFixed(5)}°` : 'Ожидание сигнала'}
                     </div>
                   </div>
                 </div>
               </div>
             </div>
           ) : (
-            /* TAB 2: TELEGRAM BOT INTEGRATION & CUSTOM BOT CONFIG */
-            <div className="space-y-5 py-2">
-              <div className="p-4 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-2xl flex items-start gap-3">
-                <div className="p-2 bg-blue-600 text-white rounded-xl">
-                  <Bot className="w-5 h-5" />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-bold text-blue-900 dark:text-blue-200">
-                      Настройка Telegram-бота для водителей
-                    </h4>
-                    <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-200 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-md">
-                      Гибкое имя бота
-                    </span>
-                  </div>
-                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-                    Укажите юзернейм вашего текущего Telegram-бота. Водитель отправляет локацию в бота ➔ координаты автоматически попадают на карту CRM.
-                  </p>
-                </div>
+            <div className="space-y-4 text-sm text-slate-700 dark:text-slate-200">
+              <div className="rounded-2xl bg-blue-50 dark:bg-slate-900 p-5 space-y-3">
+                <h4 className="font-bold">Отслеживание через Telegram @{botUsername}</h4>
+                <ol className="list-decimal pl-5 space-y-2">
+                  <li>Водитель открывает бота, выбирает заявку и подтверждает согласие на GPS.</li>
+                  <li>Через 📎 → «Геопозиция» включает «Транслировать геопозицию». Для долгого рейса выбирает «Пока не отключу», если доступно, либо продлевает трансляцию.</li>
+                  <li>Координаты и время последнего сигнала появляются на карте логиста. Telegram должен иметь разрешение на геопозицию в фоне.</li>
+                  <li>После доставки водитель нажимает «Завершить рейс». Приём новых координат этой заявки прекращается.</li>
+                </ol>
+                <p>Разовая геопозиция отображается как последняя точка и не обновляется автоматически.</p>
               </div>
-
-              {/* Bot Username Configuration Box */}
-              <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <Settings className="w-4 h-4 text-blue-500" />
-                    <span>Юзернейм вашего Telegram-бота:</span>
-                  </label>
-
-                  {!isEditingBot ? (
-                    <button
-                      onClick={() => {
-                        setTempBotInput(botUsername);
-                        setIsEditingBot(true);
-                      }}
-                      className="px-2.5 py-1 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>Изменить бота</span>
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => saveBotUsername(tempBotInput)}
-                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Сохранить</span>
-                      </button>
-                      <button
-                        onClick={() => setIsEditingBot(false)}
-                        className="px-2 py-1 text-slate-500 text-xs font-medium"
-                      >
-                        Отмена
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {isEditingBot ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-500">@</span>
-                    <input
-                      type="text"
-                      value={tempBotInput}
-                      onChange={(e) => setTempBotInput(e.target.value)}
-                      placeholder="например: MyLogisticsDriverBot"
-                      className="flex-1 px-3 py-2 bg-white dark:bg-slate-800 border border-blue-400 rounded-xl text-xs font-mono font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white"
-                    />
-                  </div>
-                ) : (
-                  <div className="px-3.5 py-2.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                    <span className="text-sm font-mono font-black text-blue-600 dark:text-blue-400">
-                      @{botUsername}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      Используется для генерации прямых ссылок водителям
-                    </span>
-                  </div>
-                )}
+              <p role="status">{!botStatus ? 'Проверка подключения бота…' : botStatus.lastError ||
+                (!botStatus.configured ? 'Бот не настроен на сервере.' : !botStatus.running ? 'Приём сообщений Telegram отключён на этом сервере.' :
+                  botStatus.lastPollAt ? 'Бот подключён к Telegram.' : 'Подключение к Telegram…')}</p>
+              <div className="flex flex-wrap gap-3">
+                <a href={botLink} target="_blank" rel="noreferrer" className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">Открыть бота для этого рейса</a>
+                <button onClick={handleCopyLink} className="rounded-xl bg-slate-200 dark:bg-slate-700 px-4 py-3">{copiedLink ? 'Ссылка скопирована' : 'Копировать ссылку водителю'}</button>
               </div>
-
-              {/* METHOD 1: DIRECT MOBILE GPS TRACKER (NO INSTALLATION / 100% RELIABLE) */}
-              <div className="p-5 bg-gradient-to-br from-slate-900 via-emerald-950 to-slate-900 text-white rounded-2xl border border-emerald-500/40 shadow-xl space-y-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 bg-emerald-500 text-slate-950 rounded-xl shadow-md">
-                      <Smartphone className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-black text-white">
-                          Способ 1: Мобильный Веб-Трекер (Рекомендуется)
-                        </h4>
-                        <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-[10px] font-bold">
-                          Без установки
-                        </span>
-                      </div>
-                      <p className="text-xs text-emerald-200/80 mt-0.5">
-                        Водитель просто открывает ссылку на телефоне и нажимает зеленую кнопку. Телефон автоматически транслирует движение каждые 3 сек.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-3 bg-slate-950/70 rounded-xl border border-emerald-500/20 font-mono text-xs text-emerald-300 break-all select-all flex items-center justify-between gap-2">
-                  <span>{webTrackerLink}</span>
-                  <button
-                    onClick={handleCopyLink}
-                    className="shrink-0 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>{copiedLink ? 'Скопировано! ✓' : 'Копировать'}</span>
-                  </button>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3">
-                  <a
-                    href={whatsappShareUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
-                  >
-                    <MessageCircle className="w-4 h-4" />
-                    <span>Отправить водителю в WhatsApp</span>
-                  </a>
-
-                  <a
-                    href={webTrackerLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5"
-                  >
-                    <span>Открыть трекер</span>
-                    <ExternalLink className="w-3.5 h-3.5 opacity-70" />
-                  </a>
-                </div>
-              </div>
-
-              {/* METHOD 2: TELEGRAM BOT INTEGRATION */}
-              <div className="p-5 bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-2xl border border-slate-700 space-y-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 bg-blue-600 text-white rounded-xl shadow-md">
-                      <Send className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-black text-white">
-                          Способ 2: Telegram-бот @{botUsername}
-                        </h4>
-                        <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 border border-blue-500/40 rounded-full text-[10px] font-bold">
-                          Telegram API
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Водитель подключается к боту для отправки геолокации.
-                      </p>
-                    </div>
-                  </div>
-
-                  <a
-                    href={botLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold text-xs shadow-md transition-all flex items-center gap-1.5 active:scale-95 shrink-0"
-                  >
-                    <span>Открыть бота</span>
-                    <ExternalLink className="w-3.5 h-3.5 opacity-70" />
-                  </a>
-                </div>
-
-                {/* Telegram Bot Instructions Box */}
-                <div className="p-3.5 bg-blue-950/60 border border-blue-800/80 rounded-xl text-xs text-blue-200 space-y-1.5">
-                  <div className="flex items-center gap-1.5 font-bold text-blue-300">
-                    <Zap className="w-4 h-4 text-amber-400" />
-                    <span>Автоматическое GPS-отслеживание через Telegram:</span>
-                  </div>
-                  <p className="text-[11px] leading-relaxed text-slate-300">
-                    Водителю не нужно ничего настраивать вручную. В боте @{botUsername} он просто выбирает рейс и нажимает <strong>«📍 Разрешить геопозицию и начать рейс»</strong>. Слежка по трассе включается автоматически и идет непрерывно до нажатия кнопки «Груз доставлен».
-                  </p>
-                </div>
-              </div>
-
+              <p className="text-xs text-slate-500">Резервный <a href={webTrackerLink} target="_blank" rel="noreferrer" className="underline">веб-трекер</a> доступен после согласия в боте. Он передаёт GPS, пока страница открыта и активна; для фонового трекинга используйте Telegram.</p>
             </div>
           )}
 
@@ -824,7 +469,7 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
           <div className="flex items-center justify-between border-t border-slate-200 dark:border-slate-700 pt-4">
             <div className="text-xs text-slate-500 flex items-center gap-1.5">
               <Info className="w-4 h-4 text-blue-500" />
-              <span>Расчет времени прибытия производится на основе реальной скорости автотранспорта.</span>
+              <span>Время прибытия ориентировочное. Координаты обновляются по сигналам телефона водителя.</span>
             </div>
             <button
               onClick={onClose}
@@ -837,4 +482,23 @@ export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, o
       </div>
     </AnimatePresence>
   );
+};
+
+export const StandaloneRouteMap: React.FC = () => {
+  const { isAdmin } = useAuth();
+  if (!isAdmin) return <div className="p-8 text-center"><h1 className="text-lg font-bold">Доступ ограничен</h1><p className="my-4">GPS-мониторинг доступен только администратору.</p><a href="/" className="text-blue-600 underline">Вернуться в CRM</a></div>;
+  return <AdminStandaloneRouteMap />;
+};
+
+const AdminStandaloneRouteMap: React.FC = () => {
+  const [order, setOrder] = useState<RegionalTruckOrder | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('order');
+    if (!id) { setError('Не выбрана заявка.'); return; }
+    ordersApi.getById(id).then(setOrder).catch(() => setError('Не удалось открыть заявку.'));
+  }, []);
+  if (error) return <p role="alert">{error}</p>;
+  if (!order) return <p>Загрузка карты…</p>;
+  return <RouteMapModal isOpen order={order} onClose={() => window.close()} />;
 };

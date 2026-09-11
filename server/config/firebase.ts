@@ -42,11 +42,15 @@ if (!admin.apps.length) {
 
   const initOptions: admin.AppOptions = {
     projectId: firebaseConfig.projectId,
+    storageBucket: firebaseConfig.storageBucket,
     databaseURL: "https://logisticsapp-216d5-default-rtdb.firebaseio.com"
   };
 
   if (credential) {
     initOptions.credential = credential;
+  } else {
+    // Cloud Run uses the service account attached to the service (ADC).
+    initOptions.credential = admin.credential.applicationDefault();
   }
 
   console.log(`Initializing Firebase Admin for project: ${firebaseConfig.projectId}, database: ${firebaseConfig.firestoreDatabaseId}`);

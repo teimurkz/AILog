@@ -21,11 +21,9 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() && (
-        request.auth.token.email == "ti07kz@gmail.com" ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
-      );
+      return isAuthenticated() && request.auth.token.email_verified == true &&
+        request.auth.token.email == "ti07kz@gmail.com" &&
+        request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
 
     function isLogistics() {
@@ -50,7 +48,8 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isAuthenticated();
       allow list: if isAdmin();
-      allow create: if isOwner(userId);
+      allow create: if isOwner(userId) && request.resource.data.uid == userId &&
+        (request.resource.data.role == 'viewer' || (isAdmin() && request.resource.data.role == 'admin'));
       allow update: if isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role);
       allow delete: if isAdmin();
     }
@@ -68,10 +67,21 @@ service cloud.firestore {
     }
 
     match /regional_orders/{orderId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated();
-      allow delete: if isAdmin() || isLogistics() || (isAuthenticated() && resource.data.createdByEmail == request.auth.token.email);
+      // REST API verifies Firebase identities and strips legacy GPS fields for staff.
+      // Firestore cannot redact fields in a document; do not permit a direct bypass.
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /gps_tracking/{orderId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+    match /driver_sessions/{chatId} {
+      allow read, write: if false;
+    }
+    match /bot_state/{stateId} {
+      allow read, write: if false;
     }
 
     match /saved_delivery_contacts/{contactId} {

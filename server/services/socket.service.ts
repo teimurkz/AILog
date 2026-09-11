@@ -1,8 +1,11 @@
 import { Server as SocketIOServer, Socket } from "socket.io";
 import type { Server as HttpServer } from "http";
+import { isCrmAdmin, authenticateRequest } from './crm-auth.service.js';
+import { afterTrackingCommit } from './tracking-context.js';
 
 export interface TruckPositionUpdatePayload {
   orderId: string;
+  orderNumber?: string;
   truckNumber?: string;
   lat: number;
   lng: number;
@@ -30,7 +33,7 @@ let ioInstance: SocketIOServer | null = null;
 /**
  * Initialize Socket.io server and bind to HTTP server
  */
-export function initSocketServer(httpServer: HttpServer): SocketIOServer {
+export function initSocketServer(httpServer: HttpServer, authenticate = authenticateRequest): SocketIOServer {
   const io = new SocketIOServer(httpServer, {
     cors: {
       origin: "*",
@@ -41,6 +44,9 @@ export function initSocketServer(httpServer: HttpServer): SocketIOServer {
     pingInterval: 10000
   });
 
+  io.use((socket, next) => {
+    authenticate(socket.request, socket.handshake.auth?.token).then(() => next()).catch(() => next(new Error('Firebase authentication required')));
+  });
   io.on("connection", (socket: Socket) => {
     // Client joins order-specific room
     socket.on("join_order_room", (orderId: string) => {
@@ -82,10 +88,14 @@ export function getSocketServer(): SocketIOServer | null {
  * Emits directly to order room and globally to active dispatchers.
  */
 export function emitTruckPositionUpdate(data: TruckPositionUpdatePayload) {
+  afterTrackingCommit(() => sendTruckPositionUpdate(data));
+}
+function sendTruckPositionUpdate(data: TruckPositionUpdatePayload) {
   if (!ioInstance) return;
 
   const payload = {
     orderId: data.orderId,
+    orderNumber: data.orderNumber,
     truckNumber: data.truckNumber || "—",
     lat: Number(data.lat),
     lng: Number(data.lng),
@@ -95,22 +105,26 @@ export function emitTruckPositionUpdate(data: TruckPositionUpdatePayload) {
     driverPhone: data.driverPhone,
     assignedDriver: data.assignedDriver,
     status: data.status || "in_transit",
-    etaFormatted: data.etaFormatted
+    etaFormatted: data.etaFormatted,
+    hasRealGps: data.hasRealGps,
+    isTrackingActive: data.isTrackingActive,
+    driverConsent: data.driverConsent
   };
 
-  // Broadcast to all clients
-  ioInstance.emit("truck_position_update", payload);
+  // Re-check role for every position, including connections opened before revocation.
+  for (const socket of ioInstance.sockets.sockets.values()) {
+    if (isCrmAdmin(socket.request)) socket.emit("truck_position_update", payload);
+  }
 
-  // Also emit into specific order room
-  const cleanId = String(data.orderId).replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
-  ioInstance.to(`order:${data.orderId}`).emit("truck_position_update", payload);
-  ioInstance.to(`order:${cleanId}`).emit("truck_position_update", payload);
 }
 
 /**
  * Broadcast trip completion event
  */
 export function emitDeliveryEnded(orderId: string, orderNumber?: string) {
+  afterTrackingCommit(() => sendDeliveryEnded(orderId, orderNumber));
+}
+function sendDeliveryEnded(orderId: string, orderNumber?: string) {
   if (!ioInstance) return;
 
   const payload: DeliveryEndedPayload = {
@@ -122,14 +136,6 @@ export function emitDeliveryEnded(orderId: string, orderNumber?: string) {
 
   ioInstance.emit("delivery_ended", payload);
 
-  const cleanId = String(orderId).replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
-  ioInstance.to(`order:${orderId}`).emit("delivery_ended", payload);
-  ioInstance.to(`order:${cleanId}`).emit("delivery_ended", payload);
-  if (orderNumber) {
-    const cleanNum = String(orderNumber).replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
-    ioInstance.to(`order:${orderNumber}`).emit("delivery_ended", payload);
-    ioInstance.to(`order:${cleanNum}`).emit("delivery_ended", payload);
-  }
 
   console.log(`🏁 [Socket.io] Emitted delivery_ended for order ${orderId}`);
 }

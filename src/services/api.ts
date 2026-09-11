@@ -1,6 +1,5 @@
 /**
- * Local REST & Realtime API Client
- * 100% Local, zero external cloud dependencies.
+ * Firebase-backed REST & realtime API client.
  */
 
 import {
@@ -12,10 +11,11 @@ import {
   UserProfile
 } from '../types';
 
+import { firebaseFetch } from './firebase-fetch';
 const BASE_URL = '/api';
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await firebaseFetch(url, {
     headers: {
       'Content-Type': 'application/json',
       ...(options?.headers || {})
@@ -171,59 +171,45 @@ export const uploadApi = {
 // ---------------------------------------------------------------------------
 
 export type RealtimeEventHandler = (eventType: string, data: any) => void;
-
-let activeEventSource: EventSource | null = null;
 const listeners = new Set<RealtimeEventHandler>();
-
+let streamController: AbortController | null = null;
 export function subscribeToRealtimeStream(handler: RealtimeEventHandler): () => void {
   listeners.add(handler);
-
-  if (!activeEventSource && typeof window !== 'undefined' && 'EventSource' in window) {
-    try {
-      activeEventSource = new EventSource('/api/realtime/stream');
-
-      const eventNames = [
-        'order_created',
-        'order_updated',
-        'order_deleted',
-        'order_completed',
-        'telemetry_update',
-        'shipment_created',
-        'shipment_updated',
-        'shipment_deleted',
-        'shipment_log_added',
-        'truck_updated',
-        'truck_deleted',
-        'contact_updated',
-        'contact_deleted',
-        'user_updated',
-        'user_deleted'
-      ];
-
-      eventNames.forEach(name => {
-        activeEventSource?.addEventListener(name, (event: MessageEvent) => {
-          try {
-            const data = JSON.parse(event.data);
-            listeners.forEach(cb => cb(name, data));
-          } catch (e) {
-            console.warn(`[SSE Parse Error] ${name}:`, e);
+  if (!streamController) {
+    const controller = new AbortController();
+    streamController = controller;
+    void (async () => {
+      while (!controller.signal.aborted) {
+        try {
+          const response = await firebaseFetch('/api/realtime/stream', { signal: controller.signal });
+          if (!response.ok || !response.body) throw new Error('Realtime unavailable');
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            buffer += decoder.decode(chunk.value, { stream: true });
+            let end: number;
+            while ((end = buffer.indexOf('\n\n')) >= 0) {
+              const message = buffer.slice(0, end); buffer = buffer.slice(end + 2);
+              const type = message.match(/^event: (.+)$/m)?.[1];
+              const json = message.match(/^data: (.+)$/m)?.[1];
+              if (type && json) {
+                try { const data = JSON.parse(json); listeners.forEach(cb => cb(type, data)); } catch {}
+              }
+            }
           }
+        } catch { /* Retry with a refreshed Firebase token. */ }
+        if (!controller.signal.aborted) await new Promise<void>(resolve => {
+          const timer = setTimeout(resolve, 1500);
+          controller.signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
         });
-      });
-
-      activeEventSource.onerror = () => {
-        // EventSource automatically retries connection
-      };
-    } catch (e) {
-      console.warn('[SSE Init Error]:', e);
-    }
+      }
+    })();
   }
-
   return () => {
     listeners.delete(handler);
-    if (listeners.size === 0 && activeEventSource) {
-      activeEventSource.close();
-      activeEventSource = null;
-    }
+    if (!listeners.size) { streamController?.abort(); streamController = null; }
   };
 }

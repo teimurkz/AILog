@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { KAZAKHSTAN_ROADS } from '../../utils/kazakhstanRoads';
 
 export interface LocationPoint {
   lat: number;
@@ -24,6 +23,7 @@ interface LeafletRouteMapProps {
   driverName?: string;
   lastPingSecondsAgo?: number;
   signalStatus?: string;
+  signalStatusText?: string;
   height?: string;
   hasRealGps?: boolean;
   isTrackingActive?: boolean;
@@ -45,6 +45,7 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
   driverName = 'Водитель не назначен',
   lastPingSecondsAgo = 0,
   signalStatus = 'in_transit',
+  signalStatusText,
   height = "h-[360px]",
   hasRealGps = false,
   isTrackingActive = false,
@@ -60,7 +61,7 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
   const dotsGroupRef = useRef<L.LayerGroup | null>(null);
   const waypointsGroupRef = useRef<L.LayerGroup | null>(null);
   const truckMarkerRef = useRef<L.Marker | null>(null);
-  const currentDestRef = useRef<string>('');
+  const currentRouteRef = useRef<string>('');
 
   // 1. Map Initialization & Static Layers Setup
   useEffect(() => {
@@ -89,22 +90,17 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
 
     const map = mapInstanceRef.current;
 
-    // If destination city changed, rebuild highway polyline and static waypoint markers
-    if (currentDestRef.current !== destinationCity || !highwayPolylineRef.current) {
-      currentDestRef.current = destinationCity;
+    // The route can arrive after GPS, even when the destination is unchanged.
+    const routeShape = JSON.stringify([detailedRoadPolyline || [], waypoints]);
+    if (currentRouteRef.current !== routeShape) {
+      currentRouteRef.current = routeShape;
 
       if (highwayPolylineRef.current) {
         map.removeLayer(highwayPolylineRef.current);
+        highwayPolylineRef.current = null;
       }
 
-      const destKey = destinationCity.toLowerCase().includes('шымкент') || destinationCity.toLowerCase().includes('тараз')
-        ? 'shymkent'
-        : 'astana';
-      const defaultRoad = KAZAKHSTAN_ROADS[destKey] || KAZAKHSTAN_ROADS.astana;
-
-      const highwayPoints: L.LatLngExpression[] = detailedRoadPolyline && detailedRoadPolyline.length > 0
-        ? detailedRoadPolyline.map(pt => [pt.lat, pt.lng])
-        : defaultRoad.map(pt => [pt.lat, pt.lng]);
+      const highwayPoints: L.LatLngExpression[] = (detailedRoadPolyline || []).map(pt => [pt.lat, pt.lng]);
 
       if (highwayPoints.length > 1) {
         const polyline = L.polyline(highwayPoints, {
@@ -129,14 +125,14 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
       if (waypointsGroupRef.current) {
         waypointsGroupRef.current.clearLayers();
 
-        // Warehouse start
-        if (waypoints.length > 0) {
+        // First position reported by the truck for this trip.
+        if (waypoints.length > 1) {
           const startWp = waypoints[0];
           const startIcon = L.divIcon({
             className: 'custom-leaflet-marker',
             html: `
               <div style="background:#1e293b;color:white;padding:5px 9px;border-radius:10px;font-size:11px;font-weight:bold;border:2px solid #3b82f6;box-shadow:0 4px 12px rgba(0,0,0,0.3);display:flex;align-items:center;gap:4px;white-space:nowrap;">
-                🏭 ${startWp.name}
+                📍 ${startWp.name}
               </div>
             `,
             iconSize: [120, 32],
@@ -186,7 +182,7 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
     const map = mapInstanceRef.current;
 
     // Strict condition: If no real GPS or tracking is inactive, clean up any marker/trajectory and do not draw truck
-    if (!hasRealGps || !isTrackingActive) {
+    if (!hasRealGps) {
       if (truckMarkerRef.current) {
         map.removeLayer(truckMarkerRef.current);
         truckMarkerRef.current = null;
@@ -260,7 +256,11 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
     let gradient = 'linear-gradient(135deg, #10b981, #059669)';
     let statusLabel = `${speed} км/ч • ${etaFormatted}`;
 
-    if (isSignalLost) {
+    if (!isTrackingActive) {
+      badgeColor = '#64748b';
+      gradient = 'linear-gradient(135deg, #64748b, #475569)';
+      statusLabel = signalStatusText || 'Последняя точка';
+    } else if (isSignalLost) {
       badgeColor = '#ef4444'; // Red
       gradient = 'linear-gradient(135deg, #64748b, #475569)';
       statusLabel = `⚠️ Связь потеряна (${lastActiveText})`;
@@ -326,7 +326,7 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
           ⏱️ <b>Сигнал:</b> ${lastActiveText}
         </div>
         <div style="font-size:10px;padding:3px 8px;border-radius:6px;background:${isSignalLost ? '#fee2e2' : isMoving ? '#d1fae5' : '#fef3c7'};color:${isSignalLost ? '#dc2626' : isMoving ? '#065f46' : '#92400e'};font-weight:bold;margin-top:6px;text-align:center;">
-          ${isSignalLost ? '🔴 Связь потеряна (>15 мин)' : isMoving ? '🟢 В движении по трассе' : '🟡 Стоянка / Остановка'}
+          ${signalStatusText || (isSignalLost ? 'Нет свежего сигнала' : isMoving ? 'В движении' : 'Стоянка')}
         </div>
       </div>
     `;
@@ -337,13 +337,16 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
       truckMarkerRef.current = L.marker([currentLat, currentLng], { icon })
         .bindPopup(popupContent)
         .addTo(map);
+      if (!map.getBounds().contains([currentLat, currentLng])) {
+        map.panTo([currentLat, currentLng]);
+      }
     } else {
       // Smooth marker movement with Leaflet setLatLng
       truckMarkerRef.current.setLatLng([currentLat, currentLng]);
       truckMarkerRef.current.setIcon(icon);
       truckMarkerRef.current.setPopupContent(popupContent);
     }
-  }, [currentLat, currentLng, speed, heading, etaFormatted, locationHistory, waypoints, truckPlate, driverName, lastPingSecondsAgo, signalStatus, hasRealGps, isTrackingActive]);
+  }, [currentLat, currentLng, speed, heading, etaFormatted, locationHistory, waypoints, truckPlate, driverName, lastPingSecondsAgo, signalStatus, signalStatusText, hasRealGps, isTrackingActive]);
 
   // Recenter map smooth view to truck position
   const handleRecenterTruck = () => {
@@ -374,6 +377,11 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
+        highwayPolylineRef.current = null;
+        truckMarkerRef.current = null;
+        trajectoryPolylineRef.current = null;
+        currentRouteRef.current = '';
+        isFirstRenderRef.current = true;
       }
     };
   }, []);
@@ -393,10 +401,10 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
           <span className="text-base animate-pulse">🛰️</span>
           <div>
             <div className="font-bold text-amber-300">
-              {driverConsent ? 'Водитель согласился на рейс (ожидание Live GPS)' : 'GPS-отслеживание не запущено'}
+              {signalStatusText || (driverConsent ? 'Ожидание геопозиции водителя' : 'GPS-отслеживание не запущено')}
             </div>
             <div className="text-[11px] text-slate-300">
-              Машина появится на карте сразу после первого сигнала Live-трансляции из Telegram-бота.
+              {hasRealGps ? 'На карте сохранена последняя полученная точка.' : 'Машина появится на карте после отправки геопозиции водителем.'}
             </div>
           </div>
         </div>

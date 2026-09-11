@@ -1,3 +1,4 @@
+import { firebaseFetch } from '../services/firebase-fetch';
 import * as XLSX from 'xlsx';
 
 export function cleanInvoiceNumber(val: any): string | null {
@@ -115,7 +116,7 @@ export async function parseInvoiceFromExcel(file: File): Promise<string | null> 
 
 export async function parseInvoiceNumberServer(fileDataUrl: string, fileName: string, fileType: string): Promise<string | null> {
   try {
-    const response = await fetch('/api/parse-invoice', {
+    const response = await firebaseFetch('/api/parse-invoice', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

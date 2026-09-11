@@ -1,226 +1,76 @@
-import { Router } from "express";
-import { 
-  updateDriverLocation, 
-  getDriverLocation, 
-  linkOrderNumberToId,
-  syncActiveOrders,
-  getActiveOrdersList,
-  updateCachedOrderStatus,
-  syncOrderToFirestore,
-  getPendingFirestoreUpdates,
-  acknowledgePendingSync,
-  setCachedUserToken
-} from "../services/telegram.service.js";
-import { broadcastRealtimeEvent } from "./realtime.routes.js";
-import { emitTruckPositionUpdate, emitDeliveryEnded } from "../services/socket.service.js";
+import { tracked } from '../services/firebase-tracking.service.js';
+import { Router } from 'express';
+import { updateDriverLocation, getDriverLocation, getActiveOrdersList, completeDriverTrip,
+  getTelegramBotStatus, TrackingError, syncActiveOrders } from '../services/telegram.service.js';
+import { storageService } from '../services/storage.service.js';
+import { requireAdmin, isCrmAdmin } from '../services/crm-auth.service.js';
+import { withoutGps } from '../services/gps-access.service.js';
+import crypto from 'node:crypto';
+import { processTelegramUpdate } from '../services/telegram-bot.service.js';
+import { requireSignedIn } from '../services/crm-auth.service.js';
+import { usesFirebase } from '../services/tracking-context.js';
 
 const router = Router();
-
-// Middleware to capture client Firebase Auth JWT token if provided
-router.use((req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1];
-    if (token) setCachedUserToken(token);
-  }
-  next();
+router.post('/telegram/webhook', async (req, res) => {
+  const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const supplied = req.get('X-Telegram-Bot-Api-Secret-Token') || '';
+  const actualBytes = Buffer.from(supplied), expectedBytes = Buffer.from(expected || '');
+  if (!expected || actualBytes.length !== expectedBytes.length || !crypto.timingSafeEqual(actualBytes, expectedBytes)) return res.sendStatus(403);
+  if (!Number.isInteger(req.body?.update_id)) return res.sendStatus(400);
+  try { await processTelegramUpdate(req.body); return res.json({ ok: true }); }
+  catch { return res.status(503).json({ error: 'Retry update' }); }
 });
+const fail = (res: any, error: unknown) => res.status(error instanceof TrackingError ? error.statusCode : 500)
+  .json({ error: error instanceof Error ? error.message : 'Ошибка GPS' });
 
-// Endpoint for frontend to sync all known regional orders to server for Telegram bot
-router.post("/sync-orders", (req, res) => {
+router.get('/bot-status', requireAdmin, tracked((_req, res) => res.json(getTelegramBotStatus())));
+router.get('/orders', requireSignedIn, tracked((req, res) => res.json(isCrmAdmin(req) ? getActiveOrdersList() : withoutGps(getActiveOrdersList()))));
+// Driver screen needs trip metadata, never another driver's coordinates/history.
+router.get('/trip/:orderId', tracked((req, res) => {
+  const order = storageService.getOrder(req.params.orderId);
+  if (!order) return res.status(404).json({ error: 'Заявка не найдена.' });
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({ orderNumber: order.orderNumber, destinationCity: order.destinationCity,
+    originCity: order.originCity, status: order.status });
+}));
+// Compatibility for older clients; existing local orders stay authoritative.
+router.post('/sync-orders', requireAdmin, tracked((req, res) => {
+  if (usesFirebase()) return res.status(410).json({ error: 'Заявки читаются из Firebase. Загрузка локальной копии отключена.' });
+  if (!Array.isArray(req.body.orders)) return res.status(400).json({ error: 'orders must be an array' });
+  syncActiveOrders(req.body.orders);
+  return res.json({ success: true, count: req.body.orders.length, pendingUpdates: [] });
+}));
+router.get('/pending-sync', tracked((_req, res) => res.json({ pending: [] })));
+router.post('/ack-sync', tracked((_req, res) => res.json({ success: true })));
+
+router.post('/location', tracked((req, res) => {
   try {
-    const { orders } = req.body;
-    if (Array.isArray(orders)) {
-      syncActiveOrders(orders);
-    }
-    const pendingUpdates = getPendingFirestoreUpdates();
-    return res.json({ success: true, count: orders?.length || 0, pendingUpdates });
-  } catch (error: any) {
-    console.error("Error syncing active orders:", error);
-    return res.status(500).json({ error: error.message });
-  }
-});
+    const { orderId, lat, lng, speed, heading, accuracy, timestamp, driverPhone } = req.body;
+    if (typeof orderId !== 'string' || !orderId) throw new TrackingError('Не выбрана заявка.', 400);
+    if (speed !== undefined && (!Number.isFinite(speed) || speed < 0 || speed > 200)) throw new TrackingError('Некорректная скорость.', 400);
+    if (heading !== undefined && (!Number.isFinite(heading) || heading < 0 || heading > 360)) throw new TrackingError('Некорректное направление.', 400);
+    const location = updateDriverLocation({ orderId, lat, lng, speed, heading, accuracy, driverPhone,
+      updatedAt: timestamp || new Date().toISOString(), source: 'web', isTrackingActive: true });
+    return res.json({ success: true, acceptedAt: location.updatedAt });
+  } catch (error) { return fail(res, error); }
+}));
 
-// Endpoint for frontend to retrieve queued driver actions to commit to Firestore
-router.get("/pending-sync", (req, res) => {
+router.post('/complete', tracked((req, res) => {
   try {
-    const pending = getPendingFirestoreUpdates();
-    return res.json({ pending });
-  } catch (error: any) {
-    return res.status(500).json({ error: error.message });
-  }
-});
+    const id = req.body.orderId || req.body.orderNumber;
+    if (typeof id !== 'string' || !id) throw new TrackingError('Не выбрана заявка.', 400);
+    const order = completeDriverTrip(id);
+    return res.json({ success: true, orderId: order.id, status: order.status });
+  } catch (error) { return fail(res, error); }
+}));
 
-// Endpoint for frontend to acknowledge committed updates
-router.post("/ack-sync", (req, res) => {
+router.get('/location/:orderId', requireAdmin, tracked((req, res) => {
   try {
-    const { orderIds } = req.body;
-    if (Array.isArray(orderIds)) {
-      acknowledgePendingSync(orderIds);
-    }
-    return res.json({ success: true });
-  } catch (error: any) {
-    return res.status(500).json({ error: error.message });
-  }
-});
-
-// Endpoint to list all active orders
-router.get("/orders", (req, res) => {
-  try {
-    const list = getActiveOrdersList();
-    return res.json(list);
-  } catch (error: any) {
-    return res.status(500).json({ error: error.message });
-  }
-});
-
-// Endpoint for driver Telegram bot or mobile client to post GPS position
-router.post("/location", (req, res) => {
-  try {
-    const { orderId, orderNumber, driverPhone, lat, lng, speed, heading, accuracy, status } = req.body;
-    if (!orderId || lat === undefined || lng === undefined) {
-      return res.status(400).json({ error: "Missing required fields: orderId, lat, lng" });
-    }
-
-    const realSpeed = speed !== undefined && speed !== null && !isNaN(Number(speed)) ? Math.max(0, Number(speed)) : 0;
-
-    if (orderNumber) {
-      linkOrderNumberToId(String(orderId), String(orderNumber));
-      if (status) {
-        updateCachedOrderStatus(String(orderNumber), status, {
-          currentLat: Number(lat),
-          currentLng: Number(lng),
-          speed: realSpeed
-        });
-      }
-    }
-
-    const updated = updateDriverLocation({
-      orderId: String(orderId),
-      driverPhone: driverPhone || 'Мобильный Веб-Трекер',
-      lat: Number(lat),
-      lng: Number(lng),
-      speed: realSpeed,
-      heading: heading !== undefined ? Number(heading) : undefined,
-      updatedAt: new Date().toISOString()
-    }, status || 'dispatched');
-
-    broadcastRealtimeEvent('telemetry_update', {
-      orderId: String(orderId),
-      orderNumber: orderNumber ? String(orderNumber) : undefined,
-      lat: Number(lat),
-      lng: Number(lng),
-      speed: realSpeed,
-      heading: heading !== undefined ? Number(heading) : undefined,
-      status: status || 'dispatched',
-      updatedAt: updated.updatedAt
-    });
-
-    emitTruckPositionUpdate({
-      orderId: String(orderId),
-      truckNumber: orderNumber ? String(orderNumber) : undefined,
-      lat: Number(lat),
-      lng: Number(lng),
-      speed: realSpeed,
-      heading: heading !== undefined ? Number(heading) : undefined,
-      status: status || 'dispatched',
-      driverPhone: driverPhone,
-      updatedAt: updated.updatedAt
-    });
-
-    return res.json({ success: true, location: updated });
-  } catch (error: any) {
-    console.error("Error updating driver location:", error);
-    return res.status(500).json({ error: error.message || "Failed to update driver location" });
-  }
-});
-
-// Endpoint for driver to mark order delivered from mobile tracker
-router.post("/complete", (req, res) => {
-  try {
-    const { orderId, orderNumber } = req.body;
-    const target = orderNumber || orderId;
-    if (!target) {
-      return res.status(400).json({ error: "Missing required orderId or orderNumber" });
-    }
-
-    updateCachedOrderStatus(String(target), 'delivered');
-    broadcastRealtimeEvent('order_completed', {
-      orderId: String(target),
-      status: 'delivered',
-      deliveredAt: new Date().toISOString()
-    });
-    emitDeliveryEnded(String(target), orderNumber ? String(orderNumber) : undefined);
-    syncOrderToFirestore(String(target), {
-      status: 'delivered',
-      deliveredAt: new Date().toISOString(),
-      speed: 0
-    });
-
-    if (orderId && orderNumber && orderId !== orderNumber) {
-      syncOrderToFirestore(String(orderId), {
-        status: 'delivered',
-        deliveredAt: new Date().toISOString(),
-        speed: 0
-      });
-    }
-
-    console.log(`🏁 [Trip Completed] Order ${target} marked DELIVERED by driver`);
-    return res.json({ success: true, status: 'delivered' });
-  } catch (error: any) {
-    console.error("Error completing order:", error);
-    return res.status(500).json({ error: error.message || "Failed to complete order" });
-  }
-});
-
-// Endpoint to retrieve real-time location & ETA for a regional order
-router.get("/location/:orderId", (req, res) => {
-  try {
-    const { orderId } = req.params;
-    let destinationCity = (req.query.destinationCity as string) || "";
-    const orderNumber = (req.query.orderNumber as string) || undefined;
-    let status = (req.query.status as string) || undefined;
-    const dispatchedAt = (req.query.dispatchedAt as string) || undefined;
-
-    if (orderNumber) {
-      linkOrderNumberToId(String(orderId), String(orderNumber));
-    }
-
-    // Lookup destinationCity from known orders if not provided or default
-    const allOrders = getActiveOrdersList();
-    const cleanId = orderId.toLowerCase();
-    const cleanNum = orderNumber ? orderNumber.toLowerCase() : '';
-    const matched = allOrders.find(o => 
-      o.id.toLowerCase() === cleanId || 
-      o.orderNumber.toLowerCase() === cleanNum || 
-      o.orderNumber.toLowerCase() === cleanId
-    );
-
-    if (matched) {
-      if (!destinationCity || destinationCity === 'Астана') {
-        destinationCity = matched.destinationCity || destinationCity || 'Астана';
-      }
-      if (!status) {
-        status = matched.status || status;
-      }
-    }
-    if (!destinationCity) {
-      destinationCity = "Астана";
-    }
-
-    const routeData = getDriverLocation(
-      orderId, 
-      destinationCity, 
-      orderNumber, 
-      status, 
-      dispatchedAt
-    );
-    return res.json(routeData);
-  } catch (error: any) {
-    console.error("Error fetching driver location:", error);
-    return res.status(500).json({ error: error.message || "Failed to fetch driver location" });
-  }
-});
+    const order = storageService.getOrder(req.params.orderId);
+    if (!order) throw new TrackingError('Заявка не найдена.', 404);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json(getDriverLocation(order.id, order.destinationCity, order.orderNumber));
+  } catch (error) { return fail(res, error); }
+}));
 
 export default router;
-

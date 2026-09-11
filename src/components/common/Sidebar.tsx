@@ -32,7 +32,7 @@ interface SidebarProps {
 
 export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarProps) => {
   const { t, language, setLanguage, isRTL } = useLanguage();
-  const { profile, isAdmin, isRegionalManager } = useAuth();
+  const { profile, isAdmin, isRegionalManager, logout } = useAuth();
   
   let menuItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard') },
@@ -160,13 +160,13 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
               <UserIcon className="w-4 h-4 text-blue-300" />
             </div>
             <div className={cn("flex-1 min-w-0", isRTL ? "text-right" : "text-left")}>
-              <p className="text-xs font-semibold text-white truncate">{profile?.displayName || 'Администратор'}</p>
-              <p className="text-[10px] text-blue-400 font-mono truncate">{profile?.email || 'ti07kz@gmail.com'} ({profile?.role || 'admin'})</p>
+              <p className="text-xs font-semibold text-white truncate">{profile?.displayName}</p>
+              <p className="text-[10px] text-blue-400 font-mono truncate">{profile?.email} ({profile?.role})</p>
             </div>
           </div>
           <div className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] text-emerald-400 font-medium">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>Локальный режим (ПК)</span>
+            <button onClick={() => void logout().catch(() => alert('Не удалось выйти. Повторите попытку.'))} className="flex items-center gap-2"><LogOut className="h-3 w-3" />Выйти</button>
           </div>
         </div>
       </aside>

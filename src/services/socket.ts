@@ -1,7 +1,9 @@
 import { io, Socket } from 'socket.io-client';
+import { auth } from '../firebase';
 
 export interface TruckPositionUpdateData {
   orderId: string;
+  orderNumber?: string;
   truckNumber?: string;
   lat: number;
   lng: number;
@@ -12,6 +14,9 @@ export interface TruckPositionUpdateData {
   assignedDriver?: string;
   status?: string;
   etaFormatted?: string;
+  hasRealGps?: boolean;
+  isTrackingActive?: boolean;
+  driverConsent?: boolean;
 }
 
 export interface DeliveryEndedData {
@@ -22,6 +27,11 @@ export interface DeliveryEndedData {
 }
 
 let socketInstance: Socket | null = null;
+export function resetSocket() {
+  socketInstance?.disconnect();
+  socketInstance?.removeAllListeners();
+  socketInstance = null;
+}
 
 /**
  * Get or initialize the singleton Socket.io client instance
@@ -32,6 +42,7 @@ export function getSocket(): Socket {
     const serverUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
     
     socketInstance = io(serverUrl, {
+      auth: callback => { void auth.authStateReady().then(() => auth.currentUser?.getIdToken()).then(token => callback({ token })).catch(() => callback({})); },
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 20,
       reconnectionDelay: 1000,

@@ -8,6 +8,10 @@ coverage/
 !.env.example
 server/data/driver_locations.json
 server/data/driver_sessions.json
+server/data/telegram_polling.json
+server/data/gps_routes.json
+server/data/crm_auth.json*
+server/data/admin-access-key.txt
 server/data/telemetry_history.json
 server/data/*.tmp
 server/data/backups/

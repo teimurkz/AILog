@@ -87,6 +87,11 @@ export const useRegionalOrders = () => {
     const unsubscribe = subscribeToRealtimeStream((eventType, data) => {
       if (isCancelled) return;
 
+      if (eventType === 'connected') {
+        void loadOrders();
+        return;
+      }
+
       if (eventType === 'order_created' && data?.id) {
         setOrders(prev => {
           if (prev.some(o => o.id === data.id)) return prev;
@@ -136,7 +141,7 @@ export const useRegionalOrders = () => {
         setOrders(prev =>
           prev.map(o => {
             if (o.id === data.orderId || o.orderNumber === data.orderId) {
-              return { ...o, status: 'delivered', speed: 0 };
+              return { ...o, status: 'delivered', speed: 0, isTrackingActive: false };
             }
             return o;
           })
@@ -169,7 +174,7 @@ export const useRegionalOrders = () => {
       setOrders(prev =>
         prev.map(o => {
           if (o.id === data.orderId || o.orderNumber === data.orderId || o.orderNumber === data.orderNumber) {
-            return { ...o, status: 'delivered', speed: 0 };
+            return { ...o, status: 'delivered', speed: 0, isTrackingActive: false };
           }
           return o;
         })
@@ -221,21 +226,6 @@ export const useRegionalOrders = () => {
     };
 
     const updated = await ordersApi.update(orderId, updates);
-
-    // If starting transit, ensure GPS coordinate initialized
-    if (isDispatched) {
-      fetch('/api/driver/location', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderId,
-          status: 'dispatched',
-          lat: 43.2389,
-          lng: 76.8897,
-          speed: 0
-        })
-      }).catch(() => {});
-    }
 
     return updated;
   };

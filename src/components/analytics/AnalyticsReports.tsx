@@ -1,3 +1,4 @@
+import { firebaseFetch } from '../../services/firebase-fetch';
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   BarChart3, 
@@ -51,7 +52,7 @@ export const AnalyticsReports: React.FC = () => {
   const fetchWarehouseData = async () => {
     setLoadingWarehouse(true);
     try {
-      const res = await fetch('/api/warehouses');
+      const res = await firebaseFetch('/api/warehouses');
       if (res.ok) {
         const data: WarehouseResponse = await res.json();
         setWarehouseData(data);

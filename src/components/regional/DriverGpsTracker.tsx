@@ -51,17 +51,16 @@ export const DriverGpsTracker: React.FC = () => {
     // Fetch initial order metadata
     const fetchOrderMeta = async () => {
       try {
-        const res = await fetch(`/api/driver/location/${encodeURIComponent(orderParam)}`);
+        const res = await fetch(`/api/driver/trip/${encodeURIComponent(orderParam)}`);
         if (res.ok) {
           const data = await res.json();
           setOrderDetails({
             orderNumber: data.orderNumber || orderParam,
             destinationCity: data.destinationCity,
             originCity: data.originCity,
-            status: data.signalStatus,
-            remainingDistanceKm: data.remainingDistanceKm
+            status: data.status
           });
-          if (data.signalStatus === 'delivered' || data.isDelivered) {
+          if (data.status === 'delivered') {
             setIsDelivered(true);
           }
         }
@@ -115,6 +114,10 @@ export const DriverGpsTracker: React.FC = () => {
         setPointsSent(prev => prev + 1);
         setLastSentTime(new Date().toLocaleTimeString());
         setErrorMsg(null);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setErrorMsg(data.error || 'Сервер не принял GPS.');
+        if ([403, 404, 409].includes(res.status)) stopTracking();
       }
     } catch (err: any) {
       setErrorMsg("Ошибка связи с сервером CRM. Проверьте интернет-соединение.");
@@ -123,6 +126,11 @@ export const DriverGpsTracker: React.FC = () => {
 
   // Start continuous GPS tracking
   const startTracking = () => {
+    if (watchIdRef.current !== null || isDelivered) return;
+    if (!window.isSecureContext) {
+      setErrorMsg('Для GPS откройте трекер по защищённой HTTPS-ссылке или используйте трансляцию в Telegram.');
+      return;
+    }
     if (!navigator.geolocation) {
       setErrorMsg("Ваш мобильный браузер не поддерживает GPS геолокацию.");
       return;
@@ -344,7 +352,7 @@ export const DriverGpsTracker: React.FC = () => {
         </div>
 
         {/* Current Coordinates Display */}
-        {currentLat && currentLng && (
+        {currentLat !== null && currentLng !== null && (
           <div className="p-3 bg-slate-900/50 rounded-xl border border-slate-800/80 text-center font-mono text-xs text-slate-300">
             📍 {currentLat.toFixed(5)}° N, {currentLng.toFixed(5)}° E
           </div>
@@ -363,6 +371,7 @@ export const DriverGpsTracker: React.FC = () => {
 
         {/* ACTION BUTTONS */}
         <div className="space-y-3">
+          <p className="text-xs text-slate-400">Сначала выберите рейс и дайте согласие в Telegram-боте. Веб-трекер работает при открытой активной странице. Для работы в фоне включите трансляцию геопозиции в Telegram.</p>
           {!isTracking ? (
             <button
               onClick={startTracking}

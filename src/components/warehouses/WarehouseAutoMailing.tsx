@@ -1,3 +1,4 @@
+import { firebaseFetch } from '../../services/firebase-fetch';
 import React, { useState, useEffect } from 'react';
 import { 
   Mail, 
@@ -84,7 +85,7 @@ export const WarehouseAutoMailing: React.FC = () => {
   const handleCheckDiagnostics = async () => {
     setCheckingDiag(true);
     try {
-      const res = await fetch('/api/mailing/check-scheduler');
+      const res = await firebaseFetch('/api/mailing/check-scheduler');
       if (res.ok) {
         const d = await res.json();
         setDiagInfo(d);
@@ -101,7 +102,7 @@ export const WarehouseAutoMailing: React.FC = () => {
     setSendSuccessMsg(null);
     setSendErrorMsg(null);
     try {
-      const res = await fetch('/api/mailing/force-cron-trigger', { method: 'POST' });
+      const res = await firebaseFetch('/api/mailing/force-cron-trigger', { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.success) {
         setSendSuccessMsg('Симуляция автоматической рассылки выполнена успешно!');
@@ -121,7 +122,7 @@ export const WarehouseAutoMailing: React.FC = () => {
     setSendSuccessMsg(null);
     setSendErrorMsg(null);
     try {
-      const res = await fetch('/api/mailing/set-quick-time', {
+      const res = await firebaseFetch('/api/mailing/set-quick-time', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ offsetMinutes })
@@ -145,10 +146,10 @@ export const WarehouseAutoMailing: React.FC = () => {
     setLoading(true);
     try {
       const [subsRes, setRes, logsRes, statusRes] = await Promise.all([
-        fetch('/api/mailing/subscribers'),
-        fetch('/api/mailing/settings'),
-        fetch('/api/mailing/logs'),
-        fetch('/api/mailing/status')
+        firebaseFetch('/api/mailing/subscribers'),
+        firebaseFetch('/api/mailing/settings'),
+        firebaseFetch('/api/mailing/logs'),
+        firebaseFetch('/api/mailing/status')
       ]);
 
       if (subsRes.ok) {
@@ -180,7 +181,7 @@ export const WarehouseAutoMailing: React.FC = () => {
     // Poll live status every 10s
     const statusInterval = setInterval(async () => {
       try {
-        const res = await fetch('/api/mailing/status');
+        const res = await firebaseFetch('/api/mailing/status');
         if (res.ok) {
           const d = await res.json();
           setStatusInfo(d);
@@ -194,7 +195,7 @@ export const WarehouseAutoMailing: React.FC = () => {
   // Save Settings
   const handleSaveSettings = async () => {
     try {
-      const res = await fetch('/api/mailing/settings', {
+      const res = await firebaseFetch('/api/mailing/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
@@ -218,7 +219,7 @@ export const WarehouseAutoMailing: React.FC = () => {
     setSendErrorMsg(null);
 
     try {
-      const res = await fetch('/api/mailing/test-smtp', {
+      const res = await firebaseFetch('/api/mailing/test-smtp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
@@ -312,7 +313,7 @@ export const WarehouseAutoMailing: React.FC = () => {
         ? { ...formData, id: editingSub.id }
         : formData;
 
-      const res = await fetch('/api/mailing/subscribers', {
+      const res = await firebaseFetch('/api/mailing/subscribers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -330,7 +331,7 @@ export const WarehouseAutoMailing: React.FC = () => {
   // Toggle Active State
   const handleToggleActive = async (sub: MailingSubscriber) => {
     try {
-      await fetch('/api/mailing/subscribers', {
+      await firebaseFetch('/api/mailing/subscribers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...sub, isActive: !sub.isActive })
@@ -345,7 +346,7 @@ export const WarehouseAutoMailing: React.FC = () => {
   const handleDeleteSubscriber = async (id: string) => {
     if (!confirm('Удалить этого получателя из списка рассылки?')) return;
     try {
-      await fetch(`/api/mailing/subscribers/${id}`, { method: 'DELETE' });
+      await firebaseFetch(`/api/mailing/subscribers/${id}`, { method: 'DELETE' });
       fetchData();
     } catch (err) {
       console.error('Failed to delete subscriber:', err);
@@ -359,7 +360,7 @@ export const WarehouseAutoMailing: React.FC = () => {
     setSendErrorMsg(null);
 
     try {
-      const res = await fetch('/api/mailing/send', {
+      const res = await firebaseFetch('/api/mailing/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -394,7 +395,7 @@ export const WarehouseAutoMailing: React.FC = () => {
     setSendErrorMsg(null);
 
     try {
-      const res = await fetch('/api/mailing/send', {
+      const res = await firebaseFetch('/api/mailing/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -573,7 +574,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                   const newEnabled = !settings.enabled;
                   const updated = { ...settings, enabled: newEnabled };
                   setSettings(updated);
-                  fetch('/api/mailing/settings', {
+                  firebaseFetch('/api/mailing/settings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(updated)

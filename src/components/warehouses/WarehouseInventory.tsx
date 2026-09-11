@@ -1,3 +1,4 @@
+import { firebaseFetch } from '../../services/firebase-fetch';
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Warehouse as WarehouseIcon, 
@@ -92,7 +93,7 @@ export const WarehouseInventory: React.FC = () => {
 
   const handleAddManualLog = async (logData: Partial<WarehouseChangeLog>) => {
     try {
-      const response = await fetch('/api/warehouses/logs', {
+      const response = await firebaseFetch('/api/warehouses/logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(logData)
@@ -113,7 +114,7 @@ export const WarehouseInventory: React.FC = () => {
     try {
       const url = isManualRefresh ? '/api/warehouses/sync' : '/api/warehouses';
       const method = isManualRefresh ? 'POST' : 'GET';
-      const response = await fetch(url, { method });
+      const response = await firebaseFetch(url, { method });
       if (!response.ok) {
         throw new Error(`Server returned ${response.status}`);
       }

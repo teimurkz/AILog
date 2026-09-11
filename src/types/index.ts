@@ -106,6 +106,12 @@ export interface RegionalTruckOrder {
   speed?: number;
   heading?: number;
   lastGpsUpdate?: string;
+  hasRealGps?: boolean;
+  isTrackingActive?: boolean;
+  driverConsent?: boolean;
+  driverConsentAt?: string;
+  trackingSource?: 'telegram_live' | 'telegram_static' | 'web';
+  trackingStartLocation?: { lat: number; lng: number; timestamp?: string };
   locationHistory?: Array<{ lat: number; lng: number; timestamp?: string }>;
   createdAt: string;
   createdByEmail?: string;
