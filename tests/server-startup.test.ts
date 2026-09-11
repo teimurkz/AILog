@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import http from 'node:http';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -15,6 +16,21 @@ const tsx = import.meta.resolve('tsx');
 const config = path.join(workspace, 'vite.config.ts');
 const html = '<!doctype html><html><body>CRM startup fixture</body></html>';
 const tempRoot = fs.realpathSync.native(os.tmpdir());
+
+// Node's fetch derives Host from the URL; use HTTP directly to reproduce cloud proxy requests.
+function requestWithHost(url: string, host: string) {
+  return new Promise<{ status: number; body: string }>((resolve, reject) => {
+    const request = http.get(url, { headers: { Host: host, Accept: 'text/html' } }, response => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { body += chunk; });
+      response.on('end', () => resolve({ status: response.statusCode!, body }));
+      response.on('error', reject);
+    });
+    request.on('error', reject);
+    request.setTimeout(5000, () => request.destroy(new Error('Host check timed out')));
+  });
+}
 
 async function unusedPort() {
   const server = net.createServer();
@@ -88,6 +104,13 @@ for (const mode of ['node-production', 'node-development', 'vite-development', '
       } else {
         const response = await fetch(base + '/api/orders/regional', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
         assert.equal(response.status, 404, 'AI Studio serves only the frontend; writes must go to Firebase Functions');
+        for (const host of ['silk-road-logistics-crm-579021695433.asia-east1.run.app', 'silk-road-logistics-crm.ai.studio']) {
+          const published = await requestWithHost(base + '/gps-map', host);
+          assert.equal(published.status, 200, `Published CRM host ${host} must be accepted behind the cloud proxy`);
+          assert.match(published.body, /CRM startup fixture/);
+        }
+        const unrelated = await requestWithHost(base, 'unrelated-app.asia-east1.run.app');
+        assert.equal(unrelated.status, 403, 'Other Cloud Run applications must not bypass the host allowlist');
       }
       for (const url of ['/', '/gps-map']) {
         const response = await fetch(base + url, { headers: { Accept: 'text/html' } });
