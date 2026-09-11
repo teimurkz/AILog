@@ -4,5 +4,5 @@ export async function firebaseFetch(url: string, options: RequestInit = {}) {
   const token = await auth.currentUser?.getIdToken();
   const headers = new Headers(options.headers);
   if (token) headers.set('Authorization', 'Bearer ' + token);
-  return fetch(url, { ...options, headers });
+  return fetch(url, { ...options, headers, signal: options.signal || AbortSignal.timeout(20000) });
 }

@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { subscribeToOwnerOrders } from '../services/firestore-collections';
 import { ordersApi, subscribeToRealtimeStream } from '../services/api';
 import { onTruckPositionUpdate, onDeliveryEnded } from '../services/socket';
 import { RegionalTruckOrder, RegionalOrderStatus } from '../types';
@@ -56,32 +58,53 @@ export const triggerBrowserPush = (title: string, body: string) => {
 };
 
 export const useRegionalOrders = () => {
+  const { isAdmin } = useAuth();
   const [orders, setOrders] = useState<RegionalTruckOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
+  const retry = useCallback(() => setRevision(value => value + 1), []);
   const [lastNewOrderAlert, setLastNewOrderAlert] = useState<RegionalTruckOrder | null>(null);
   const knownOrderIdsRef = useRef<Set<string>>(new Set());
   const initialLoadDoneRef = useRef(false);
 
-  // 1. Initial load from Local Backend API
+  // The owner reads existing orders directly; staff use the API that removes GPS fields.
   useEffect(() => {
     let isCancelled = false;
 
     const loadOrders = async () => {
+      if (isAdmin) return;
       try {
         const list = await ordersApi.getAll();
         if (!isCancelled) {
           list.forEach(o => knownOrderIdsRef.current.add(o.id));
           setOrders(list);
+          setError(null);
           initialLoadDoneRef.current = true;
           setLoading(false);
         }
       } catch (err) {
-        console.error("Failed to load regional orders from local API:", err);
-        if (!isCancelled) setLoading(false);
+        if (!isCancelled) {
+          setLoading(false);
+          setError(err instanceof Error ? err.message : 'Не удалось загрузить региональные заявки.');
+        }
       }
     };
 
-    loadOrders();
+    setLoading(true);
+    setError(null);
+    const stopOwner = isAdmin ? subscribeToOwnerOrders<RegionalTruckOrder>(state => {
+      if (isCancelled) return;
+      if (state.confirmed || state.data.length) {
+        setOrders([...state.data].sort((a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0)));
+        state.data.forEach(order => knownOrderIdsRef.current.add(order.id));
+        initialLoadDoneRef.current = true;
+      }
+      setLoading(state.loading);
+      setError(state.error);
+    }) : undefined;
+    if (!isAdmin) void loadOrders();
+    window.addEventListener('online', retry);
 
     // 2. Real-time Server-Sent Events (SSE) listener
     const unsubscribe = subscribeToRealtimeStream((eventType, data) => {
@@ -184,10 +207,12 @@ export const useRegionalOrders = () => {
     return () => {
       isCancelled = true;
       unsubscribe();
+      stopOwner?.();
+      window.removeEventListener('online', retry);
       unsubSocketUpdate();
       unsubSocketDelivered();
     };
-  }, []);
+  }, [isAdmin, revision, retry]);
 
   // Actions
   const addOrder = async (orderData: Omit<RegionalTruckOrder, 'id' | 'orderNumber' | 'createdAt' | 'status'>) => {
@@ -239,6 +264,8 @@ export const useRegionalOrders = () => {
   return {
     orders,
     loading,
+    error,
+    retry,
     addOrder,
     updateOrderStatus,
     deleteOrder,

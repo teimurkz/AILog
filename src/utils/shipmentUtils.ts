@@ -6,8 +6,8 @@ export const isShipmentDelayed = (shipment: Shipment): boolean => {
   if (shipment.status === 'Delay') return true;
 
   const now = new Date();
-  const deadline = parseISO(shipment.arrival_deadline);
-  const lastUpdated = parseISO(shipment.last_updated);
+  const deadline = parseISO(shipment.arrival_deadline || '');
+  const lastUpdated = parseISO(shipment.last_updated || '');
 
   const isPastDeadline = isAfter(now, deadline);
   const isStale = differenceInDays(now, lastUpdated) >= 14;

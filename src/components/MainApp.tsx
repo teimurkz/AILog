@@ -7,6 +7,7 @@ import { cn } from '../lib/utils';
 
 // Components
 import { Sidebar } from './common/Sidebar';
+import { DataLoadNotice } from './common/DataLoadNotice';
 import { Dashboard } from './dashboard/Dashboard';
 import { ShipmentList } from './shipments/ShipmentList';
 import { ShipmentDetails } from './shipments/ShipmentDetails';
@@ -38,7 +39,9 @@ export const MainAppContent = () => {
   const [isNewModalOpen, setIsNewModalOpen] = React.useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = React.useState(false);
-  const { shipments } = useShipments();
+  const { shipments, loading: loadingShipments, error: shipmentsError, retry: retryShipments } = useShipments();
+  const shipmentTab = ['dashboard', 'shipments', 'archive'].includes(activeTab);
+  const shipmentUnavailable = shipmentTab && (loadingShipments || Boolean(shipmentsError));
 
   const isRegionalOnly = isRegionalManager && !isAdmin;
   const currentTab = isRegionalOnly && activeTab !== 'directories' ? 'regional-orders' : activeTab;
@@ -89,8 +92,8 @@ export const MainAppContent = () => {
 
         <div className="flex items-center gap-2">
           <div className="bg-emerald-50 text-emerald-700 border border-emerald-200/80 px-2 py-1 rounded-lg flex items-center gap-1.5 text-[10px] font-bold">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="hidden xs:inline">ONLINE</span>
+            <div className={cn('w-1.5 h-1.5 rounded-full', shipmentUnavailable ? 'bg-amber-500' : 'bg-slate-400')} />
+            <span className="hidden xs:inline">{shipmentUnavailable ? 'Нет связи' : 'CRM'}</span>
           </div>
         </div>
       </div>
@@ -125,6 +128,7 @@ export const MainAppContent = () => {
               {!isRegionalOnly && (
                 <button
                   onClick={() => generateDelayReport(shipments, t)}
+                  disabled={loadingShipments || Boolean(shipmentsError)}
                   className="px-3.5 py-2 bg-white border border-slate-200 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all shadow-2xs flex items-center gap-2"
                 >
                   <FileText className="w-3.5 h-3.5 text-blue-600" />
@@ -132,8 +136,8 @@ export const MainAppContent = () => {
                 </button>
               )}
               <div className="bg-white px-3.5 py-2 rounded-xl border border-slate-200 flex items-center gap-2 shadow-2xs">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-xs font-bold text-slate-700 tracking-wide uppercase">{t('systemOnline')}</span>
+                <div className={cn('w-2 h-2 rounded-full', shipmentUnavailable ? 'bg-amber-500' : 'bg-slate-400')} />
+                <span className="text-xs font-bold text-slate-700 tracking-wide uppercase">{shipmentUnavailable ? 'Данные не загружены' : 'Silk Road'}</span>
               </div>
             </div>
           </header>
@@ -147,7 +151,9 @@ export const MainAppContent = () => {
               transition={{ duration: 0.15 }}
               className="w-full min-w-0"
             >
-              {selectedShipment && !isRegionalOnly ? (
+              {shipmentUnavailable && !shipments.length && !isRegionalOnly ? (
+                <DataLoadNotice loading={loadingShipments} error={shipmentsError} onRetry={retryShipments} />
+              ) : selectedShipment && !isRegionalOnly ? (
                 <ShipmentDetails 
                   shipment={shipments.find(s => s.id === selectedShipment.id) || selectedShipment} 
                   onBack={() => setSelectedShipment(null)} 
@@ -195,6 +201,7 @@ export const MainAppContent = () => {
               )}
             </motion.div>
           </AnimatePresence>
+          {shipmentUnavailable && shipments.length > 0 && !isRegionalOnly && <DataLoadNotice loading={loadingShipments} error={shipmentsError} onRetry={retryShipments} />}
 
           <NewShipmentModal isOpen={isNewModalOpen} onClose={() => setIsNewModalOpen(false)} />
           <CommandPalette 

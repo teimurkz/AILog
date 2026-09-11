@@ -70,9 +70,9 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
     .sort((a, b) => {
       switch (sortBy) {
         case 'newest':
-          return parseISO(b.last_updated).getTime() - parseISO(a.last_updated).getTime();
+          return (Date.parse(b.last_updated || '') || 0) - (Date.parse(a.last_updated || '') || 0);
         case 'oldest':
-          return parseISO(a.last_updated).getTime() - parseISO(b.last_updated).getTime();
+          return (Date.parse(a.last_updated || '') || 0) - (Date.parse(b.last_updated || '') || 0);
         case 'invoiceAsc':
           return a.invoice_id.localeCompare(b.invoice_id);
         case 'invoiceDesc':

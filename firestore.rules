@@ -29,8 +29,9 @@ service cloud.firestore {
     function isLogistics() {
       return isAuthenticated() && (
         isAdmin() ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'logistics')
+        (request.auth.token.firebase.sign_in_provider != 'anonymous' &&
+         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['logistics', 'admin'])
       );
     }
 

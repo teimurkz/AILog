@@ -37,6 +37,7 @@ import {
   Area
 } from 'recharts';
 import { useShipments } from '../../hooks/useShipments';
+import { DataLoadNotice } from '../common/DataLoadNotice';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { generateDelayReport } from '../../utils/reports';
 import { isShipmentDelayed } from '../../utils/shipmentUtils';
@@ -44,7 +45,7 @@ import { WarehouseResponse } from '../../types';
 
 export const AnalyticsReports: React.FC = () => {
   const { t } = useLanguage();
-  const { shipments, loading: loadingShipments } = useShipments();
+  const { shipments, loading: loadingShipments, error: shipmentsError, retry: retryShipments } = useShipments();
   const [warehouseData, setWarehouseData] = useState<WarehouseResponse | null>(null);
   const [loadingWarehouse, setLoadingWarehouse] = useState<boolean>(true);
   const [generatingPdf, setGeneratingPdf] = useState<boolean>(false);
@@ -155,6 +156,8 @@ export const AnalyticsReports: React.FC = () => {
 
   // Category Colors
   const CATEGORY_COLORS = ['#3b82f6', '#f59e0b', '#ec4899', '#06b6d4', '#64748b'];
+
+  if (loadingShipments || shipmentsError) return <DataLoadNotice loading={loadingShipments} error={shipmentsError} onRetry={retryShipments} />;
 
   return (
     <div className="space-y-6 animate-fadeIn">

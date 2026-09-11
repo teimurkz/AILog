@@ -26,7 +26,7 @@ export const Dashboard = ({ shipments, onSelect }: DashboardProps) => {
   ];
 
   // Calculate Avg Delay
-  const deliveredShipments = shipments.filter(s => s.status === 'Delivered' && s.actual_arrival_date);
+  const deliveredShipments = shipments.filter(s => s.status === 'Delivered' && s.actual_arrival_date && s.arrival_deadline);
   if (deliveredShipments.length > 0) {
     const totalDelay = deliveredShipments.reduce((acc, s) => {
       const delay = Math.max(0, differenceInDays(parseISO(s.actual_arrival_date!), parseISO(s.arrival_deadline)));
@@ -116,7 +116,7 @@ export const Dashboard = ({ shipments, onSelect }: DashboardProps) => {
                             <span className="ml-1 text-[8px] opacity-75">({t('delayed')})</span>
                           )}
                         </p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">{format(parseISO(s.last_updated), 'MMM d, HH:mm')}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{Number.isFinite(Date.parse(s.last_updated || '')) ? format(parseISO(s.last_updated), 'MMM d, HH:mm') : 'Дата обновления не указана'}</p>
                       </div>
                 </div>
               );

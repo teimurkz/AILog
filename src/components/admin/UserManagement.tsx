@@ -3,12 +3,13 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { UserProfile } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import { useUsers } from '../../hooks/useUsers';
+import { DataLoadNotice } from '../common/DataLoadNotice';
 import { User as UserIcon, Settings, Lock, Trash2, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const UserManagement = () => {
-  const { users, loading, changeUserRole, removeUser } = useUsers();
+  const { users, loading, error, retry, changeUserRole, removeUser } = useUsers();
   const { t, isRTL } = useLanguage();
   const { user: currentUser } = useAuth();
   const [userToDelete, setUserToDelete] = React.useState<UserProfile | null>(null);
@@ -27,14 +28,7 @@ export const UserManagement = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="p-12 text-center">
-        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-slate-500 font-medium">Loading users...</p>
-      </div>
-    );
-  }
+  if (loading || error) return <DataLoadNotice loading={loading} error={error} onRetry={retry} />;
 
   return (
     <div className="space-y-6">

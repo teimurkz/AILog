@@ -38,6 +38,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { MessageSquare } from 'lucide-react';
 import { useRegionalOrders, playNotificationSound, triggerBrowserPush } from '../../hooks/useRegionalOrders';
+import { DataLoadNotice } from '../common/DataLoadNotice';
 import { RegionalTruckOrder, RegionalOrderStatus, InvoiceItem, DeliveryPoint } from '../../types';
 import { NewRegionalOrderModal } from './NewRegionalOrderModal';
 import { RouteMapModal } from './RouteMapModal';
@@ -94,6 +95,8 @@ export const RegionalOrders: React.FC = () => {
   const { 
     orders, 
     loading, 
+    error: loadError,
+    retry: retryOrders,
     addOrder, 
     updateOrderStatus, 
     deleteOrder, 
@@ -273,8 +276,11 @@ export const RegionalOrders: React.FC = () => {
     }
   };
 
+  if ((loading || loadError) && !orders.length) return <DataLoadNotice loading={loading} error={loadError} onRetry={retryOrders} />;
+
   return (
     <div className="space-y-6">
+      <DataLoadNotice error={loadError} onRetry={retryOrders} />
       {/* Top Toast Banner for Push / Sound Confirmation */}
       <AnimatePresence>
         {notificationToast && (

@@ -17,6 +17,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useSavedDeliveryContacts } from '../../hooks/useSavedDeliveryContacts';
 import { useSavedTrucks } from '../../hooks/useSavedTrucks';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { DataLoadNotice } from '../common/DataLoadNotice';
 
 export const DirectoriesManager: React.FC = () => {
   const { t } = useLanguage();
@@ -24,8 +25,8 @@ export const DirectoriesManager: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const { savedContacts, addSavedContact, deleteSavedContact } = useSavedDeliveryContacts();
-  const { savedTrucks, addSavedTruck, deleteSavedTruck } = useSavedTrucks();
+  const { savedContacts, addSavedContact, deleteSavedContact, loading: contactsLoading, error: contactsError, retry: retryContacts } = useSavedDeliveryContacts();
+  const { savedTrucks, addSavedTruck, deleteSavedTruck, loading: trucksLoading, error: trucksError, retry: retryTrucks } = useSavedTrucks();
 
   // Contact form state
   const [isAddContactOpen, setIsAddContactOpen] = useState(false);
@@ -111,6 +112,8 @@ export const DirectoriesManager: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {activeTab === 'contacts' && <DataLoadNotice loading={contactsLoading} error={contactsError} onRetry={retryContacts} />}
+      {activeTab === 'trucks' && <DataLoadNotice loading={trucksLoading} error={trucksError} onRetry={retryTrucks} />}
       {/* Top Banner Header */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 text-white shadow-xl border border-indigo-900/40 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />

@@ -12,6 +12,7 @@ import {
 } from '../types';
 
 import { firebaseFetch } from './firebase-fetch';
+import { readCrmCollection, readCrmDocument, readShipmentLogs, saveCrmDocument, deleteCrmDocument, addShipmentLog } from './firestore-collections';
 const BASE_URL = '/api';
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -30,6 +31,10 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
       if (err.error) msg = err.error;
     } catch {}
     throw new Error(msg);
+  }
+
+  if (!res.headers.get('content-type')?.includes('application/json')) {
+    throw new Error('Сервер CRM не отвечает на запросы данных. Проверьте, что опубликована серверная часть приложения.');
   }
 
   return res.json();
@@ -81,42 +86,31 @@ export const ordersApi = {
 
 export const shipmentsApi = {
   getAll: () => {
-    return fetchJson<Shipment[]>(`${BASE_URL}/shipments`);
+    return readCrmCollection<Shipment>('shipments');
   },
 
   getById: (id: string) => {
-    return fetchJson<Shipment>(`${BASE_URL}/shipments/${encodeURIComponent(id)}`);
+    return readCrmDocument<Shipment>('shipments', id);
   },
 
   create: (shipment: Partial<Shipment>) => {
-    return fetchJson<Shipment>(`${BASE_URL}/shipments`, {
-      method: 'POST',
-      body: JSON.stringify(shipment)
-    });
+    return saveCrmDocument<Shipment>('shipments', { ...shipment, last_updated: new Date().toISOString() }, shipment.id);
   },
 
   update: (id: string, updates: Partial<Shipment>) => {
-    return fetchJson<Shipment>(`${BASE_URL}/shipments/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates)
-    });
+    return saveCrmDocument<Shipment>('shipments', { ...updates, last_updated: new Date().toISOString() }, id, true);
   },
 
   delete: (id: string) => {
-    return fetchJson<{ success: boolean; id: string }>(`${BASE_URL}/shipments/${encodeURIComponent(id)}`, {
-      method: 'DELETE'
-    });
+    return deleteCrmDocument('shipments', id);
   },
 
   getLogs: (shipmentId: string) => {
-    return fetchJson<ShipmentLog[]>(`${BASE_URL}/shipments/${encodeURIComponent(shipmentId)}/logs`);
+    return readShipmentLogs<ShipmentLog>(shipmentId);
   },
 
   addLog: (shipmentId: string, log: { location?: string; message: string; updatedBy?: string }) => {
-    return fetchJson<ShipmentLog>(`${BASE_URL}/shipments/${encodeURIComponent(shipmentId)}/logs`, {
-      method: 'POST',
-      body: JSON.stringify(log)
-    });
+    return addShipmentLog<ShipmentLog>(shipmentId, log);
   }
 };
 
@@ -125,17 +119,17 @@ export const shipmentsApi = {
 // ---------------------------------------------------------------------------
 
 export const contactsApi = {
-  getTrucks: () => fetchJson<Truck[]>(`${BASE_URL}/saved-trucks`),
+  getTrucks: () => readCrmCollection<Truck>('saved_trucks'),
   saveTruck: (truck: Partial<Truck>) =>
-    fetchJson<Truck>(`${BASE_URL}/saved-trucks`, { method: 'POST', body: JSON.stringify(truck) }),
+    saveCrmDocument<Truck>('saved_trucks', truck, truck.id),
   deleteTruck: (id: string) =>
-    fetchJson<{ success: boolean }>(`${BASE_URL}/saved-trucks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    deleteCrmDocument('saved_trucks', id),
 
-  getContacts: () => fetchJson<SavedDeliveryContact[]>(`${BASE_URL}/delivery-contacts`),
+  getContacts: () => readCrmCollection<SavedDeliveryContact>('saved_delivery_contacts'),
   saveContact: (contact: Partial<SavedDeliveryContact>) =>
-    fetchJson<SavedDeliveryContact>(`${BASE_URL}/delivery-contacts`, { method: 'POST', body: JSON.stringify(contact) }),
+    saveCrmDocument<SavedDeliveryContact>('saved_delivery_contacts', contact, contact.id),
   deleteContact: (id: string) =>
-    fetchJson<{ success: boolean }>(`${BASE_URL}/delivery-contacts/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    deleteCrmDocument('saved_delivery_contacts', id)
 };
 
 // ---------------------------------------------------------------------------
@@ -143,14 +137,14 @@ export const contactsApi = {
 // ---------------------------------------------------------------------------
 
 export const usersApi = {
-  getAll: () => fetchJson<UserProfile[]>(`${BASE_URL}/users`),
-  getById: (uid: string) => fetchJson<UserProfile>(`${BASE_URL}/users/${encodeURIComponent(uid)}`),
+  getAll: () => readCrmCollection<UserProfile>('users'),
+  getById: (uid: string) => readCrmDocument<UserProfile>('users', uid),
   create: (user: Partial<UserProfile>) =>
-    fetchJson<UserProfile>(`${BASE_URL}/users`, { method: 'POST', body: JSON.stringify(user) }),
+    saveCrmDocument<UserProfile>('users', user, user.uid),
   update: (uid: string, updates: Partial<UserProfile>) =>
-    fetchJson<UserProfile>(`${BASE_URL}/users/${encodeURIComponent(uid)}`, { method: 'PUT', body: JSON.stringify(updates) }),
+    saveCrmDocument<UserProfile>('users', updates, uid, true),
   delete: (uid: string) =>
-    fetchJson<{ success: boolean }>(`${BASE_URL}/users/${encodeURIComponent(uid)}`, { method: 'DELETE' })
+    deleteCrmDocument('users', uid)
 };
 
 // ---------------------------------------------------------------------------
