@@ -7,11 +7,12 @@
     "test:crm": "node --import tsx --test tests/crm-data-loading.test.ts",
     "test:gps": "node --import tsx --test tests/gps-tracking.test.ts",
     "test:firebase": "node --import tsx --test tests/firebase-tracking.test.ts",
+    "test:server": "node --import tsx --test tests/server-startup.test.ts",
     "telegram:webhook": "node --import tsx scripts/configure-telegram-webhook.ts",
     "dev": "tsx server/index.ts",
     "build": "vite build && esbuild server/index.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
-    "preview": "vite preview",
+    "preview": "node dist/server.cjs",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },

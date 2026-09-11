@@ -1,5 +1,6 @@
 import { Server as SocketIOServer, Socket } from "socket.io";
 import type { Server as HttpServer } from "http";
+import type { Http2Server, Http2SecureServer } from 'node:http2';
 import { isCrmAdmin, authenticateRequest } from './crm-auth.service.js';
 import { afterTrackingCommit } from './tracking-context.js';
 
@@ -33,7 +34,7 @@ let ioInstance: SocketIOServer | null = null;
 /**
  * Initialize Socket.io server and bind to HTTP server
  */
-export function initSocketServer(httpServer: HttpServer, authenticate = authenticateRequest): SocketIOServer {
+export function initSocketServer(httpServer: HttpServer | Http2Server | Http2SecureServer, authenticate = authenticateRequest): SocketIOServer {
   const io = new SocketIOServer(httpServer, {
     cors: {
       origin: "*",

@@ -97,6 +97,23 @@ after(async () => {
   fs.rmSync(fixture, { recursive: true, force: true });
 });
 
+test('regional order creation persists the submitted data without replacing existing orders', async () => {
+  const existing = order();
+  const original = structuredClone(store.getOrder(existing.id));
+  const response = await request('/api/orders/regional', {
+    id: 'regional-create-fixture', orderNumber: 'REG-CREATE-FIXTURE', destinationCity: 'Астана',
+    comments: 'Проверка создания региональной заявки',
+  });
+  assert.equal(response.status, 201);
+  assert.equal(response.body.id, 'regional-create-fixture');
+  assert.equal(response.body.destinationCity, 'Астана');
+  assert.equal(response.body.createdByEmail, store.getUser('admin_local')?.email);
+  const loaded = await request('/api/orders/regional/regional-create-fixture');
+  assert.equal(loaded.status, 200);
+  assert.equal(loaded.body.comments, 'Проверка создания региональной заявки');
+  assert.deepEqual(store.getOrder(existing.id), original);
+});
+
 test('deep link and plain-text selection require explicit consent before GPS', async () => {
   const o = order();
   await text(101, `/start ${o.orderNumber}`);
