@@ -1,28 +1,30 @@
 import 'dotenv/config';
-import express, { type ErrorRequestHandler } from 'express';
+import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import path from 'node:path';
 import { initSocketServer } from './services/socket.service.js';
-import warehouseRoutes from './routes/warehouse.routes.js';
-import mailingRoutes from './routes/mailing.routes.js';
-import invoiceRoutes from './routes/invoice.routes.js';
 import driverRoutes from './routes/driver.routes.js';
 import ordersRoutes from './routes/orders.routes.js';
-import shipmentsRoutes from './routes/shipments.routes.js';
-import contactsRoutes from './routes/contacts.routes.js';
-import usersRoutes from './routes/users.routes.js';
-import uploadRoutes from './routes/upload.routes.js';
 import realtimeRoutes from './routes/realtime.routes.js';
 import authRoutes from './routes/auth.routes.js';
-import firebaseDataRoutes from './routes/firebase-data.routes.js';
 import { authenticateCrm, requireSignedIn } from './services/crm-auth.service.js';
 import { usesFirebase } from './services/tracking-context.js';
-import { startBackgroundSheetsPolling, startMailingScheduler } from './services/scheduler.service.js';
 import { startTelegramBotPolling } from './services/telegram.service.js';
 
+// Heavy invoice/email/warehouse integrations load only when requested. GPS and
+// health requests do not need to initialize their SDKs during a cold start.
+function lazyRoute(load: () => Promise<{ default: RequestHandler }>): RequestHandler {
+  let module: ReturnType<typeof load> | undefined;
+  return (req, res, next) => {
+    module ??= load();
+    void module.then(({ default: route }) => route(req, res, next)).catch(next);
+  };
+}
+
 // The Node entry point and both Vite launch modes use the same protected API.
-export function createCrmApi(httpServer: Parameters<typeof initSocketServer>[0]) {
+export function createCrmApi(httpServer?: Parameters<typeof initSocketServer>[0], options: { firebaseFunction?: boolean } = {}) {
   const app = express();
-  initSocketServer(httpServer);
+  if (httpServer) initSocketServer(httpServer);
+  if (options.firebaseFunction) app.use((_req, res, next) => { res.locals.firebaseFunction = true; next(); });
   app.disable('x-powered-by');
   app.get('/api/health', (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -35,17 +37,20 @@ export function createCrmApi(httpServer: Parameters<typeof initSocketServer>[0])
 
   if (!usesFirebase()) app.use('/uploads', express.static(path.join(process.cwd(), 'server', 'uploads')));
   app.use('/api/orders', ordersRoutes);
-  app.use('/api/realtime', realtimeRoutes);
-  app.use('/api/warehouses', requireSignedIn, warehouseRoutes);
-  app.use('/api/mailing', requireSignedIn, mailingRoutes);
-  app.use('/api/parse-invoice', requireSignedIn, invoiceRoutes);
+  if (!options.firebaseFunction) app.use('/api/realtime', realtimeRoutes);
+  if (options.firebaseFunction) app.post(['/api/driver/location', '/api/driver/complete'], (_req, res) => {
+    res.status(403).json({ error: 'Передавайте геопозицию и завершайте рейс через Telegram-бота под своей учётной записью водителя.' });
+  });
+  app.use('/api/warehouses', requireSignedIn, lazyRoute(() => import('./routes/warehouse.routes.js')));
+  app.use('/api/mailing', requireSignedIn, lazyRoute(() => import('./routes/mailing.routes.js')));
+  app.use('/api/parse-invoice', requireSignedIn, lazyRoute(() => import('./routes/invoice.routes.js')));
   app.use('/api/driver', driverRoutes);
-  if (usesFirebase()) app.use('/api', firebaseDataRoutes);
+  if (usesFirebase()) app.use('/api', lazyRoute(() => import('./routes/firebase-data.routes.js')));
   else {
-    app.use('/api/shipments', requireSignedIn, shipmentsRoutes);
-    app.use('/api', contactsRoutes);
-    app.use('/api/users', usersRoutes);
-    app.use('/api/upload', requireSignedIn, uploadRoutes);
+    app.use('/api/shipments', requireSignedIn, lazyRoute(() => import('./routes/shipments.routes.js')));
+    app.use('/api', lazyRoute(() => import('./routes/contacts.routes.js')));
+    app.use('/api/users', lazyRoute(() => import('./routes/users.routes.js')));
+    app.use('/api/upload', requireSignedIn, lazyRoute(() => import('./routes/upload.routes.js')));
   }
 
   // API requests must never fall through to Vite's HTML application fallback.
@@ -70,7 +75,9 @@ export function startCrmBackgroundJobs() {
   backgroundStarted = true;
   startTelegramBotPolling();
   if (process.env.DISABLE_BACKGROUND_SCHEDULERS !== 'true') {
-    startBackgroundSheetsPolling();
-    startMailingScheduler();
+    void import('./services/scheduler.service.js').then(({ startBackgroundSheetsPolling, startMailingScheduler }) => {
+      startBackgroundSheetsPolling();
+      startMailingScheduler();
+    });
   }
 }

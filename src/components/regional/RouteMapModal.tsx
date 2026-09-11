@@ -24,12 +24,13 @@ import {
   MessageCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ordersApi, subscribeToRealtimeStream } from '../../services/api';
-import { onTruckPositionUpdate, onDeliveryEnded } from '../../services/socket';
+import { ordersApi } from '../../services/api';
+import { subscribeToGpsOrder } from '../../services/firestore-collections';
 import { LeafletRouteMap } from './LeafletRouteMap';
 import { RegionalTruckOrder } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import { firebaseFetch } from '../../services/firebase-fetch';
+import { ageGpsSignal } from '../../../shared/gps-projection';
 
 
 
@@ -63,6 +64,7 @@ interface RouteData {
   hasRealGps?: boolean;
   isTrackingActive?: boolean;
   driverConsent?: boolean;
+  liveLocationExpiresAt?: string;
   routeStatus?: 'waiting' | 'building' | 'road' | 'approximate';
 }
 
@@ -75,13 +77,18 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
   const { refreshSession } = useAuth();
   const [activeTab, setActiveTab] = useState<'map' | 'telegram'>('map');
   const [loading, setLoading] = useState<boolean>(false);
-  const [routeData, setRouteData] = useState<RouteData | null>(null);
+  const [storedRouteData, setRouteData] = useState<RouteData | null>(null);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
 
   const [botStatus, setBotStatus] = useState<{ username: string; configured: boolean; running: boolean; lastError?: string; lastPollAt?: string } | null>(null);
-  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [requestError, setGpsError] = useState<string | null>(null);
+  const [firestoreError, setFirestoreError] = useState<string | null>(null);
+  const gpsError = requestError || firestoreError;
   const requestRef = useRef<AbortController | null>(null);
+  const pendingRefresh = useRef(false);
+  const [now, setNow] = useState(Date.now);
+  const routeData = ageGpsSignal(storedRouteData, now);
   const botUsername = botStatus?.username || 'SilkRoadDriverBot';
 
   const handleOpenStandaloneWindow = () => {
@@ -90,7 +97,7 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
 
   const fetchLocationData = useCallback(async () => {
     if (!order?.id) return;
-    requestRef.current?.abort();
+    if (requestRef.current) { pendingRefresh.current = true; return; }
     const controller = new AbortController();
     requestRef.current = controller;
     setLoading(true);
@@ -107,13 +114,18 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
     } catch (error) {
       if (!controller.signal.aborted) setGpsError(error instanceof Error ? error.message : 'Нет связи с сервером GPS');
     } finally {
-      if (!controller.signal.aborted) setLoading(false);
+      if (requestRef.current === controller) requestRef.current = null;
+      if (!controller.signal.aborted) {
+        setLoading(false);
+        if (pendingRefresh.current) { pendingRefresh.current = false; void fetchLocationData(); }
+      }
     }
   }, [order?.id, refreshSession]);
 
   useEffect(() => {
     if (!isOpen || !order?.id) return;
     setRouteData(null);
+    setFirestoreError(null);
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const refresh = () => {
       clearTimeout(refreshTimer);
@@ -125,34 +137,30 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
       if (!disposed) setBotStatus(data);
     }).catch(() => {});
     void fetchBotStatus();
-    const matches = (data: any) => [data?.orderId, data?.id, data?.orderNumberOrId, data?.orderNumber]
-      .some(id => id === order.id || id === order.orderNumber);
-    const unsubSocket = onTruckPositionUpdate(data => { if (matches(data)) refresh(); });
-    const unsubEnd = onDeliveryEnded(data => { if (matches(data)) refresh(); });
-    const unsubSSE = subscribeToRealtimeStream((event, data) => {
-      if (['telemetry_update', 'order_updated', 'order_completed', 'order_deleted', 'route_updated'].includes(event) && matches(data)) refresh();
-    });
-    const interval = setInterval(() => void fetchLocationData(), 3000);
-    const botInterval = setInterval(fetchBotStatus, 15000);
+    const stopGps = subscribeToGpsOrder(order.id, refresh, error => setFirestoreError(error.message));
+    // Recompute signal age locally; no permanent HTTP stream or GPS polling server.
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    window.addEventListener('online', refresh);
     return () => {
       disposed = true;
       requestRef.current?.abort();
+      requestRef.current = null;
+      pendingRefresh.current = false;
       clearTimeout(refreshTimer);
       clearInterval(interval);
-      clearInterval(botInterval);
-      unsubSocket(); unsubEnd(); unsubSSE();
+      stopGps();
+      window.removeEventListener('online', refresh);
     };
   }, [isOpen, order?.id, order?.orderNumber, fetchLocationData]);
 
   if (!isOpen || !order) return null;
 
   const destCity = order.destinationCity || 'Астана';
-  const lastPingAge = routeData?.updatedAt ? Math.max(0, Math.round((Date.now() - Date.parse(routeData.updatedAt)) / 1000)) : undefined;
+  const lastPingAge = routeData?.updatedAt ? Math.max(0, Math.round((now - Date.parse(routeData.updatedAt)) / 1000)) : undefined;
   const isFreshGps = !gpsError && routeData?.isTrackingActive && lastPingAge !== undefined && lastPingAge <= 120;
   const driverName = order.assignedDriver || 'Не назначен';
   const truckPlate = order.assignedTruckPlate || 'Не указан';
   const botLink = `https://t.me/${botUsername}?start=${encodeURIComponent(order.id)}`;
-  const webTrackerLink = `${window.location.origin}/gps?order=${encodeURIComponent(order.id)}`;
   const driverPhoneClean = ((order as any).driverPhone || order.recipientPhone || order.assignedDriver || '').replace(/[^0-9]/g, '');
   const whatsappShareUrl = `https://wa.me/${driverPhoneClean}?text=${encodeURIComponent(
     `Здравствуйте! Откройте ${botLink}, выберите рейс ${order.orderNumber}, подтвердите согласие и включите трансляцию геопозиции через скрепку → Геопозиция. После доставки нажмите «Завершить рейс».`
@@ -461,7 +469,7 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
                 <a href={botLink} target="_blank" rel="noreferrer" className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">Открыть бота для этого рейса</a>
                 <button onClick={handleCopyLink} className="rounded-xl bg-slate-200 dark:bg-slate-700 px-4 py-3">{copiedLink ? 'Ссылка скопирована' : 'Копировать ссылку водителю'}</button>
               </div>
-              <p className="text-xs text-slate-500">Резервный <a href={webTrackerLink} target="_blank" rel="noreferrer" className="underline">веб-трекер</a> доступен после согласия в боте. Он передаёт GPS, пока страница открыта и активна; для фонового трекинга используйте Telegram.</p>
+              <p className="text-xs text-slate-500">Геопозиция поступает через Telegram в Firebase даже при закрытой CRM. Завершайте рейс в том же боте под аккаунтом водителя.</p>
             </div>
           )}
 

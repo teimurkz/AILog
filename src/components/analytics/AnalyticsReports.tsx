@@ -1,4 +1,4 @@
-import { firebaseFetch } from '../../services/firebase-fetch';
+import { firebaseFetch, downloadFirebaseFile } from '../../services/firebase-fetch';
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   BarChart3, 
@@ -189,15 +189,14 @@ export const AnalyticsReports: React.FC = () => {
               <span>{generatingPdf ? 'Создание PDF...' : 'Отчет по задержкам (PDF)'}</span>
             </button>
 
-            <a
-              href="/api/mailing/download-excel"
-              target="_blank"
-              rel="noreferrer"
+            <button
+              type="button"
+              onClick={() => void downloadFirebaseFile('/api/mailing/download-excel', 'warehouse_report.xlsx').catch(error => alert(error.message))}
               className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-emerald-950/40 border border-emerald-500/30"
             >
               <FileSpreadsheet className="w-4 h-4" />
               <span>Выгрузить Склады (Excel)</span>
-            </a>
+            </button>
 
             <button
               onClick={handleRefreshAll}

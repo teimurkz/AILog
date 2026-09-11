@@ -5,6 +5,7 @@ import { broadcastRealtimeEvent } from './realtime.routes';
 import { updateCachedOrderStatus, stopOrderTracking } from '../services/telegram.service';
 import { isCrmAdmin, requireSameOrigin, requireSignedIn, getCrmUser } from '../services/crm-auth.service.js';
 import { withoutGps } from '../services/gps-access.service.js';
+import { randomUUID } from 'node:crypto';
 
 const router = Router();
 router.use(requireSignedIn);
@@ -85,9 +86,12 @@ router.post('/regional', tracked((req, res) => {
     if (!data.orderNumber || !data.destinationCity) {
       return res.status(400).json({ error: 'Missing required fields: orderNumber, destinationCity' });
     }
+    const id = data.id || randomUUID();
+    if (typeof id !== 'string' || id.length > 128 || id.includes('/')) return res.status(400).json({ error: 'Некорректный идентификатор заявки.' });
+    if (storageService.getOrder(id)) return res.status(409).json({ error: 'Заявка с таким идентификатором уже существует.' });
 
     const newOrder: RegionalOrderRecord = {
-      id: data.id || `REG-${Math.floor(1000 + Math.random() * 9000)}`,
+      id,
       orderNumber: data.orderNumber,
       destinationCity: data.destinationCity,
       originCity: data.originCity || 'Алматы',

@@ -4,7 +4,6 @@ import { doc, onSnapshot, runTransaction } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { effectiveRole, isOwnerIdentity } from '../../shared/access-policy';
 import { UserProfile } from '../types';
-import { resetSocket } from '../services/socket';
 
 interface AuthContextType {
   user: User | null;
@@ -30,7 +29,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const unsubscribeAuth = onIdTokenChanged(auth, async current => {
       const version = ++generation;
       unsubscribeProfile?.();
-      resetSocket();
       setUser(current); setProfile(null); setAuthError(null); setLoading(Boolean(current));
       if (!current) return;
       const ref = doc(db, 'users', current.uid);
@@ -66,7 +64,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => { generation++; unsubscribeAuth(); unsubscribeProfile?.(); };
   }, []);
   const refreshSession = useCallback(async () => { await auth.currentUser?.getIdToken(true); }, []);
-  const logout = async () => { await signOut(auth); resetSocket(); };
+  const logout = async () => { await signOut(auth); };
   return <AuthContext.Provider value={{ user, profile, loading, authError,
     isAdmin: Boolean(user && isOwnerIdentity(user)),
     isLogistics: profile?.role === 'logistics' || profile?.role === 'admin',

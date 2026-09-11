@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { subscribeToOwnerOrders } from '../services/firestore-collections';
-import { ordersApi, subscribeToRealtimeStream } from '../services/api';
-import { onTruckPositionUpdate, onDeliveryEnded } from '../services/socket';
+import { subscribeToOwnerOrders, subscribeToOwnerGps } from '../services/firestore-collections';
+import { ordersApi } from '../services/api';
+import { mergeOrderGps, type GpsDocument } from '../../shared/gps-projection';
 import { RegionalTruckOrder, RegionalOrderStatus } from '../types';
 
 export const playNotificationSound = () => {
@@ -58,218 +58,106 @@ export const triggerBrowserPush = (title: string, body: string) => {
 };
 
 export const useRegionalOrders = () => {
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
   const [orders, setOrders] = useState<RegionalTruckOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const retry = useCallback(() => setRevision(value => value + 1), []);
   const [lastNewOrderAlert, setLastNewOrderAlert] = useState<RegionalTruckOrder | null>(null);
   const knownOrderIdsRef = useRef<Set<string>>(new Set());
   const initialLoadDoneRef = useRef(false);
 
-  // The owner reads existing orders directly; staff use the API that removes GPS fields.
   useEffect(() => {
-    let isCancelled = false;
-
-    const loadOrders = async () => {
-      if (isAdmin) return;
-      try {
-        const list = await ordersApi.getAll();
-        if (!isCancelled) {
-          list.forEach(o => knownOrderIdsRef.current.add(o.id));
-          setOrders(list);
-          setError(null);
-          initialLoadDoneRef.current = true;
-          setLoading(false);
-        }
-      } catch (err) {
-        if (!isCancelled) {
-          setLoading(false);
-          setError(err instanceof Error ? err.message : 'Не удалось загрузить региональные заявки.');
-        }
-      }
-    };
-
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let fetching = false;
+    let ownerOrders: RegionalTruckOrder[] = [];
+    let positions: GpsDocument[] = [];
+    knownOrderIdsRef.current = new Set();
+    initialLoadDoneRef.current = false;
+    setOrders([]);
     setLoading(true);
     setError(null);
-    const stopOwner = isAdmin ? subscribeToOwnerOrders<RegionalTruckOrder>(state => {
-      if (isCancelled) return;
-      if (state.confirmed || state.data.length) {
-        setOrders([...state.data].sort((a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0)));
-        state.data.forEach(order => knownOrderIdsRef.current.add(order.id));
-        initialLoadDoneRef.current = true;
+    setGpsError(null);
+    const publish = (list: RegionalTruckOrder[]) => {
+      if (cancelled) return;
+      if (initialLoadDoneRef.current) for (const order of list) {
+        if (!knownOrderIdsRef.current.has(order.id)) {
+          playNotificationSound();
+          triggerBrowserPush(`Новая заявка ${order.orderNumber}`, `Город: ${order.destinationCity}`);
+          setLastNewOrderAlert(order);
+        }
       }
+      list.forEach(order => knownOrderIdsRef.current.add(order.id));
+      initialLoadDoneRef.current = true;
+      setOrders([...list].sort((a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0)));
+    };
+    const load = async () => {
+      if (cancelled || isAdmin || fetching) return;
+      clearTimeout(timer);
+      fetching = true;
+      try {
+        // Staff receive existing documents with GPS removed by Firebase Functions.
+        // No local API server or new copy of the business database is required.
+        if (!document.hidden || !initialLoadDoneRef.current) {
+          const list = await ordersApi.getAll();
+          if (!cancelled) { publish(list); setError(null); setLoading(false); }
+        }
+      } catch (error) {
+        if (!cancelled) { setError(error instanceof Error ? error.message : 'Не удалось загрузить заявки из Firebase.'); setLoading(false); }
+      } finally {
+        fetching = false;
+        if (!cancelled) timer = setTimeout(() => void load(), 20000);
+      }
+    };
+    const stopOrders = isAdmin ? subscribeToOwnerOrders<RegionalTruckOrder>(state => {
+      if (cancelled) return;
+      if (state.confirmed || state.data.length) { ownerOrders = state.data; publish(mergeOrderGps(ownerOrders, positions)); }
       setLoading(state.loading);
       setError(state.error);
-    }) : undefined;
-    if (!isAdmin) void loadOrders();
+    }) : () => {};
+    const stopGps = isAdmin ? subscribeToOwnerGps<GpsDocument>(state => {
+      if (cancelled) return;
+      if (state.confirmed || state.data.length) {
+        positions = state.data;
+        if (initialLoadDoneRef.current) publish(mergeOrderGps(ownerOrders, positions));
+      }
+      setGpsError(state.error);
+    }) : () => {};
+    const visible = () => { if (!document.hidden) void load(); };
+    if (!isAdmin) void load();
     window.addEventListener('online', retry);
-
-    // 2. Real-time Server-Sent Events (SSE) listener
-    const unsubscribe = subscribeToRealtimeStream((eventType, data) => {
-      if (isCancelled) return;
-
-      if (eventType === 'connected') {
-        void loadOrders();
-        return;
-      }
-
-      if (eventType === 'order_created' && data?.id) {
-        setOrders(prev => {
-          if (prev.some(o => o.id === data.id)) return prev;
-          const updated = [data, ...prev];
-
-          if (initialLoadDoneRef.current && !knownOrderIdsRef.current.has(data.id)) {
-            knownOrderIdsRef.current.add(data.id);
-            playNotificationSound();
-            triggerBrowserPush(
-              `🚚 Новая заявка на фуру (${data.destinationCity})!`,
-              `Накладная: ${data.invoiceNumber || 'б/н'} | Дата: ${data.shipmentDate || ''} | Менеджер: ${data.managerName || ''}`
-            );
-            setLastNewOrderAlert(data);
-          }
-
-          return updated;
-        });
-      } else if (eventType === 'order_updated' && data) {
-        const targetId = data.id || data.orderNumberOrId;
-        setOrders(prev =>
-          prev.map(o => {
-            if (o.id === targetId || o.orderNumber === targetId || o.id.toLowerCase() === String(targetId).toLowerCase()) {
-              return { ...o, ...data };
-            }
-            return o;
-          })
-        );
-      } else if (eventType === 'order_deleted' && data?.id) {
-        setOrders(prev => prev.filter(o => o.id !== data.id && o.orderNumber !== data.id));
-      } else if (eventType === 'telemetry_update' && data?.orderId) {
-        setOrders(prev =>
-          prev.map(o => {
-            if (o.id === data.orderId || o.orderNumber === data.orderId || o.orderNumber === data.orderNumber) {
-              return {
-                ...o,
-                currentLat: data.lat,
-                currentLng: data.lng,
-                speed: data.speed,
-                heading: data.heading,
-                lastGpsUpdate: data.updatedAt || new Date().toISOString()
-              };
-            }
-            return o;
-          })
-        );
-      } else if (eventType === 'order_completed' && data?.orderId) {
-        setOrders(prev =>
-          prev.map(o => {
-            if (o.id === data.orderId || o.orderNumber === data.orderId) {
-              return { ...o, status: 'delivered', speed: 0, isTrackingActive: false };
-            }
-            return o;
-          })
-        );
-      }
-    });
-
-    // 3. Socket.io Real-time WebSocket Listeners
-    const unsubSocketUpdate = onTruckPositionUpdate((data) => {
-      if (isCancelled || !data?.orderId) return;
-      setOrders(prev =>
-        prev.map(o => {
-          if (o.id === data.orderId || o.orderNumber === data.orderId || o.orderNumber === data.truckNumber) {
-            return {
-              ...o,
-              currentLat: data.lat,
-              currentLng: data.lng,
-              speed: data.speed,
-              heading: data.heading,
-              lastGpsUpdate: data.updatedAt || new Date().toISOString()
-            };
-          }
-          return o;
-        })
-      );
-    });
-
-    const unsubSocketDelivered = onDeliveryEnded((data) => {
-      if (isCancelled || !data?.orderId) return;
-      setOrders(prev =>
-        prev.map(o => {
-          if (o.id === data.orderId || o.orderNumber === data.orderId || o.orderNumber === data.orderNumber) {
-            return { ...o, status: 'delivered', speed: 0, isTrackingActive: false };
-          }
-          return o;
-        })
-      );
-    });
-
+    document.addEventListener('visibilitychange', visible);
     return () => {
-      isCancelled = true;
-      unsubscribe();
-      stopOwner?.();
+      cancelled = true;
+      clearTimeout(timer);
+      stopOrders(); stopGps();
       window.removeEventListener('online', retry);
-      unsubSocketUpdate();
-      unsubSocketDelivered();
+      document.removeEventListener('visibilitychange', visible);
     };
-  }, [isAdmin, revision, retry]);
+  }, [isAdmin, user?.uid, revision, retry]);
 
-  // Actions
   const addOrder = async (orderData: Omit<RegionalTruckOrder, 'id' | 'orderNumber' | 'createdAt' | 'status'>) => {
-    const orderNum = `REG-${Math.floor(1000 + Math.random() * 9000)}`;
-    const payload: Partial<RegionalTruckOrder> = {
-      ...orderData,
-      orderNumber: orderNum,
-      status: 'new',
-      createdAt: new Date().toISOString()
-    };
-
-    const created = await ordersApi.create(payload);
-
-    playNotificationSound();
-    triggerBrowserPush(
-      `🚚 Заявка на фуру (${created.destinationCity}) создана!`,
-      `Накладная: ${created.invoiceNumber || 'б/н'} | Дата: ${created.shipmentDate || ''}`
-    );
-
+    const created = await ordersApi.create({ ...orderData,
+      orderNumber: `REG-${Math.floor(1000 + Math.random() * 9000)}`, status: 'new', createdAt: new Date().toISOString() });
+    knownOrderIdsRef.current.add(created.id);
+    setOrders(prev => [created, ...prev.filter(order => order.id !== created.id)]);
     return created.id;
   };
-
-  const updateOrderStatus = async (
-    orderId: string,
-    status: RegionalOrderStatus,
-    assignedData?: { assignedTruckPlate?: string; assignedDriver?: string; comments?: string }
-  ) => {
-    const isDispatched = status === 'dispatched';
+  const updateOrderStatus = async (orderId: string, status: RegionalOrderStatus,
+    assignedData?: { assignedTruckPlate?: string; assignedDriver?: string; comments?: string }) => {
     const now = new Date().toISOString();
-
-    const updates: Partial<RegionalTruckOrder> = {
-      status,
-      ...(assignedData || {}),
-      ...(isDispatched ? { dispatchedAt: now } : {}),
-      updatedAt: now
-    };
-
-    const updated = await ordersApi.update(orderId, updates);
-
+    const updated = await ordersApi.update(orderId, { status, ...assignedData,
+      ...(status === 'dispatched' ? { dispatchedAt: now } : {}), updatedAt: now });
+    setOrders(prev => prev.map(order => order.id === updated.id ? { ...order, ...updated } : order));
     return updated;
   };
-
-  const deleteOrder = async (orderId: string) => {
-    await ordersApi.delete(orderId);
+  const deleteOrder = async (id: string) => {
+    await ordersApi.delete(id);
+    setOrders(prev => prev.filter(order => order.id !== id));
   };
-
-  const dismissAlert = () => setLastNewOrderAlert(null);
-
-  return {
-    orders,
-    loading,
-    error,
-    retry,
-    addOrder,
-    updateOrderStatus,
-    deleteOrder,
-    lastNewOrderAlert,
-    dismissAlert,
-  };
+  return { orders, loading, error: error || gpsError, retry, addOrder, updateOrderStatus, deleteOrder,
+    lastNewOrderAlert, dismissAlert: () => setLastNewOrderAlert(null) };
 };

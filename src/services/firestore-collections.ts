@@ -22,6 +22,26 @@ export function subscribeToCrmCollection<T>(path: CrmCollection, publish: (state
     next(snapshot.docs.map(doc => normalizeDocument(doc.id, doc.data(), path === 'users' ? 'uid' : 'id')), snapshot.metadata.fromCache);
   }, fail), publish);
 }
+export function subscribeToOwnerGps<T>(publish: (state: CollectionState<T>) => void) {
+  return watchCollection<T>((next, fail) => {
+    if (!auth.currentUser || !isOwnerIdentity(auth.currentUser)) { fail({ code: 'permission-denied' }); return () => {}; }
+    return onSnapshot(collection(db, 'gps_tracking'), { includeMetadataChanges: true }, snapshot => {
+      next(snapshot.docs.map(doc => normalizeDocument(doc.id, doc.data())), snapshot.metadata.fromCache);
+    }, fail);
+  }, publish);
+}
+export function subscribeToGpsOrder(id: string, changed: () => void, fail: (error: Error) => void) {
+  if (!auth.currentUser || !isOwnerIdentity(auth.currentUser)) { fail(new Error('GPS доступен только администратору.')); return () => {}; }
+  const onError = () => fail(new Error('Не удалось получить обновления GPS из Firestore. Проверьте подключение и правила доступа.'));
+  const stops = ['regional_orders', 'gps_tracking'].map(path => onSnapshot(doc(db, path, id), changed, onError));
+  return () => stops.forEach(stop => stop());
+}
+export function subscribeToShipmentLogs<T>(id: string, publish: (state: CollectionState<T>) => void) {
+  return watchCollection<T>((next, fail) => onSnapshot(collection(db, 'shipments', id, 'logs'), { includeMetadataChanges: true }, snapshot => {
+    next(snapshot.docs.map(doc => ({ ...normalizeDocument(doc.id, doc.data()), shipmentId: id }))
+      .sort((a, b) => (Date.parse(b.timestamp || '') || 0) - (Date.parse(a.timestamp || '') || 0)), snapshot.metadata.fromCache);
+  }, fail), publish);
+}
 export async function readCrmCollection<T>(path: CrmCollection): Promise<T[]> {
   const snapshot = await getDocsFromServer(collection(db, path));
   return snapshot.docs.map(doc => normalizeDocument(doc.id, doc.data(), path === 'users' ? 'uid' : 'id'));

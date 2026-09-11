@@ -2,20 +2,8 @@ import admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
 import path from "path";
 import fs from "fs";
+import firebaseConfig from '../../firebase-applet-config.json';
 
-const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-let firebaseConfig: any = { 
-  projectId: "logisticsapp-216d5", 
-  firestoreDatabaseId: "ai-studio-12b741bf-685d-4d79-a3b0-c771090926cd" 
-};
-
-try {
-  if (fs.existsSync(configPath)) {
-    firebaseConfig = { ...firebaseConfig, ...JSON.parse(fs.readFileSync(configPath, "utf8")) };
-  }
-} catch (e) {
-  console.warn("Could not load firebase-applet-config.json:", e);
-}
 
 if (!admin.apps.length) {
   let credential: admin.credential.Credential | undefined = undefined;

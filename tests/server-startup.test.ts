@@ -26,7 +26,8 @@ async function unusedPort() {
 }
 
 for (const mode of ['node-production', 'node-development', 'vite-development', 'vite-preview'] as const) {
-  test(`${mode}: regional API, auth, sockets and SPA share one server`, { timeout: 150_000 }, async () => {
+  test(`${mode}: expected API boundary and frontend startup`, { timeout: 150_000 }, async () => {
+    const standalone = mode.startsWith('node-');
     const fixture = fs.mkdtempSync(path.join(tempRoot, 'ailog-startup-test-'));
     const port = await unusedPort();
     const base = `http://127.0.0.1:${port}`;
@@ -34,11 +35,10 @@ for (const mode of ['node-production', 'node-development', 'vite-development', '
     fs.writeFileSync(path.join(fixture, 'package.json'), '{"type":"module"}');
     fs.writeFileSync(path.join(fixture, 'index.html'), html);
     fs.writeFileSync(path.join(fixture, 'dist/index.html'), html);
-    fs.writeFileSync(path.join(fixture, 'dist/server.cjs'), 'PRIVATE_SERVER_FIXTURE');
     // Vite's temporary config resolves dependencies here, while all storage stays in the fixture.
     fs.symlinkSync(path.join(workspace, 'node_modules'), path.join(fixture, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
     fs.writeFileSync(path.join(fixture, 'vite.config.ts'), `export { default } from ${JSON.stringify(config.replaceAll('\\', '/'))};`);
-    const args = mode === 'node-production' ? [path.join(workspace, 'dist/server.cjs'), '--port', String(port)] :
+    const args = mode === 'node-production' ? [path.join(workspace, 'build/server.cjs'), '--port', String(port)] :
       mode === 'node-development' ? ['--import', tsx, path.join(workspace, 'server/index.ts'), '--port', String(port)] :
         [vite, ...(mode === 'vite-preview' ? ['preview'] : []), '--config', config, '--host', '127.0.0.1', '--port', String(port), '--strictPort'];
     const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: mode === 'node-production' ? 'production' : 'development',
@@ -58,9 +58,10 @@ for (const mode of ['node-production', 'node-development', 'vite-development', '
       while (Date.now() < deadline) {
         if (launchError || child.exitCode !== null) assert.fail(`Server failed: ${launchError || child.exitCode}\n${logs}`);
         try {
-          const response = await fetch(base + '/api/health', { signal: AbortSignal.timeout(1500) });
-          if (response.status === 200 && response.headers.get('content-type')?.includes('application/json')) {
-            assert.deepEqual(await response.json(), { service: 'silk-road-crm', status: 'ok' });
+          const response = await fetch(base + (standalone ? '/api/health' : '/'), { signal: AbortSignal.timeout(1500) });
+          if (response.status === 200 && response.headers.get('content-type')?.includes(standalone ? 'application/json' : 'text/html')) {
+            if (standalone) assert.deepEqual(await response.json(), { service: 'silk-road-crm', status: 'ok' });
+            else assert.match(await response.text(), /CRM startup fixture/);
             ready = true;
             break;
           }
@@ -68,6 +69,7 @@ for (const mode of ['node-production', 'node-development', 'vite-development', '
         await delay(200);
       }
       assert.ok(ready, `Server did not start with the CRM API\n${logs}`);
+      if (standalone) {
       for (const [url, options] of [
         ['/api/auth/session', {}],
         ['/api/orders/regional', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderNumber: 'STARTUP-FIXTURE', destinationCity: 'Астана' }) }],
@@ -83,16 +85,22 @@ for (const mode of ['node-production', 'node-development', 'vite-development', '
       const malformed = await fetch(base + '/api/orders/regional', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{invalid' });
       assert.equal(malformed.status, 400);
       assert.equal((await malformed.json()).error, 'Некорректный формат запроса.');
+      } else {
+        const response = await fetch(base + '/api/orders/regional', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        assert.equal(response.status, 404, 'AI Studio serves only the frontend; writes must go to Firebase Functions');
+      }
       for (const url of ['/', '/gps-map']) {
         const response = await fetch(base + url, { headers: { Accept: 'text/html' } });
         assert.equal(response.status, 200);
         assert.match(await response.text(), /CRM startup fixture/);
       }
+      if (standalone) {
       const handshake = await fetch(base + '/socket.io/?EIO=4&transport=polling');
       assert.equal(handshake.status, 200);
       assert.match(await handshake.text(), /^0\{"sid":/);
       const privateServer = await fetch(base + '/server.cjs');
       assert.equal(privateServer.status, 404);
+      }
       if (mode.endsWith('development')) {
         fs.writeFileSync(path.join(fixture, 'serviceAccountKey.json'), '{"private_key":"PRIVATE_KEY_FIXTURE"}');
         const privateKey = await fetch(base + '/serviceAccountKey.json');

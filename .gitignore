@@ -1,4 +1,6 @@
 node_modules/
+functions/lib/
+.secret.local
 build/
 dist/
 coverage/

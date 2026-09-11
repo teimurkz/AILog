@@ -1,7 +1,8 @@
 import 'dotenv/config';
+import { resolveFirebaseApiUrl } from '../shared/firebase-endpoints.js';
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-const url = process.env.TELEGRAM_WEBHOOK_URL;
+const url = process.env.TELEGRAM_WEBHOOK_URL || resolveFirebaseApiUrl('/api/driver/telegram/webhook');
 if (!token || !secret || !url || !/^https:\/\//.test(url) || !/^[A-Za-z0-9_-]{1,256}$/.test(secret)) {
   throw new Error('Задайте TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET и HTTPS TELEGRAM_WEBHOOK_URL.');
 }

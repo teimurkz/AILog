@@ -48,6 +48,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/realtime', realtimeRoutes);
 app.use('/api/driver', driverRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/firebase/orders', (_req, res, next) => { res.locals.firebaseFunction = true; next(); }, orderRoutes);
 const server = http.createServer(app);
 const io = initSocketServer(server, authenticateTest);
 await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -112,6 +113,21 @@ test('regional order creation persists the submitted data without replacing exis
   assert.equal(loaded.status, 200);
   assert.equal(loaded.body.comments, 'Проверка создания региональной заявки');
   assert.deepEqual(store.getOrder(existing.id), original);
+  const duplicate = await request('/api/orders/regional', { id: existing.id, orderNumber: 'REPLACE', destinationCity: 'Другой город' });
+  assert.equal(duplicate.status, 409);
+  assert.deepEqual(store.getOrder(existing.id), original);
+});
+
+test('Firebase cross-origin regional writes require a verified Bearer identity', async () => {
+  const headers = { 'Content-Type': 'application/json', Origin: 'https://ai-studio-preview.example.test', 'Sec-Fetch-Site': 'cross-site' };
+  const body = JSON.stringify({ orderNumber: 'REG-CROSS-ORIGIN', destinationCity: 'Астана' });
+  const denied = await fetch(base + '/firebase/orders/regional', { method: 'POST', headers, body });
+  assert.equal(denied.status, 401);
+  const forged = await fetch(base + '/firebase/orders/regional', { method: 'POST', headers: { ...headers, Authorization: 'Bearer not-verified' }, body });
+  assert.equal(forged.status, 401);
+  const accepted = await fetch(base + '/firebase/orders/regional', { method: 'POST', headers: { ...headers, Authorization: 'Bearer ' + adminToken }, body });
+  assert.equal(accepted.status, 201);
+  assert.equal((await accepted.json()).destinationCity, 'Астана');
 });
 
 test('deep link and plain-text selection require explicit consent before GPS', async () => {

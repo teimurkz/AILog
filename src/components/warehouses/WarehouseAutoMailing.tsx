@@ -1,4 +1,4 @@
-import { firebaseFetch } from '../../services/firebase-fetch';
+import { firebaseFetch, downloadFirebaseFile } from '../../services/firebase-fetch';
 import React, { useState, useEffect } from 'react';
 import { 
   Mail, 
@@ -451,15 +451,14 @@ export const WarehouseAutoMailing: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <a
-              href="/api/mailing/download-excel"
-              target="_blank"
-              rel="noreferrer"
+            <button
+              type="button"
+              onClick={() => void downloadFirebaseFile('/api/mailing/download-excel', 'warehouse_report.xlsx').catch(error => alert(error.message))}
               className="px-4 py-2.5 bg-white/15 hover:bg-white/25 text-white font-bold text-xs sm:text-sm rounded-xl transition-all flex items-center gap-2 backdrop-blur-md border border-white/20 shadow-sm"
             >
               <Download className="w-4 h-4 text-emerald-300" />
               <span>Скачать свежий Excel</span>
-            </a>
+            </button>
 
             <button
               onClick={() => handleSendNow()}

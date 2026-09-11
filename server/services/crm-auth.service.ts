@@ -60,6 +60,9 @@ export const requireAdmin: RequestHandler = (req, res, next) => {
   next();
 };
 export const requireSameOrigin: RequestHandler = (req, res, next) => {
+  // Firebase Functions has a different origin from AI Studio. A verified Bearer
+  // token is explicit authorization; no cookies or ambient sessions are accepted.
+  if (res.locals.firebaseFunction && getCrmUser(req) && /^Bearer /i.test(req.headers.authorization || '')) return next();
   // Cloud Run terminates HTTPS before Express. Compare host, not the internal protocol.
   let foreign = req.headers['sec-fetch-site'] === 'cross-site';
   if (req.headers.origin) {

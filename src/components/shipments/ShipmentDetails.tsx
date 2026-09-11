@@ -17,7 +17,8 @@ import {
   Loader2
 } from 'lucide-react';
 import { format, parseISO, differenceInDays, addDays } from 'date-fns';
-import { shipmentsApi, uploadApi, subscribeToRealtimeStream } from '../../services/api';
+import { shipmentsApi, uploadApi } from '../../services/api';
+import { subscribeToShipmentLogs } from '../../services/firestore-collections';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { Shipment, ShipmentLog, ShipmentStatus } from '../../types';
 import { cn } from '../../lib/utils';
@@ -46,15 +47,8 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
 
   useEffect(() => {
     let isCancelled = false;
-    shipmentsApi.getLogs(shipment.id).then(list => {
-      if (!isCancelled) setLogs(list);
-    }).catch(() => {});
-
-    const unsub = subscribeToRealtimeStream((event, data) => {
-      if (isCancelled) return;
-      if (event === 'shipment_log_added' && data?.shipmentId === shipment.id) {
-        setLogs(prev => [data, ...prev.filter(l => l.id !== data.id)]);
-      }
+    const unsub = subscribeToShipmentLogs<ShipmentLog>(shipment.id, state => {
+      if (!isCancelled && (state.confirmed || state.data.length)) setLogs(state.data);
     });
 
     return () => {

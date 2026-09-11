@@ -24,6 +24,10 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     ...options
   });
 
+  if (!res.headers.get('content-type')?.includes('application/json')) {
+    throw new Error('Не получен ответ Firebase Cloud Functions. Опубликуйте функцию crmApi в существующем Firebase-проекте.');
+  }
+
   if (!res.ok) {
     let msg = `HTTP error ${res.status}`;
     try {
@@ -31,10 +35,6 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
       if (err.error) msg = err.error;
     } catch {}
     throw new Error(msg);
-  }
-
-  if (!res.headers.get('content-type')?.includes('application/json')) {
-    throw new Error('Сервер CRM не отвечает на запросы данных. Проверьте, что опубликована серверная часть приложения.');
   }
 
   return res.json();
@@ -159,51 +159,3 @@ export const uploadApi = {
     });
   }
 };
-
-// ---------------------------------------------------------------------------
-// 6. Server-Sent Events (SSE) Realtime Event Stream
-// ---------------------------------------------------------------------------
-
-export type RealtimeEventHandler = (eventType: string, data: any) => void;
-const listeners = new Set<RealtimeEventHandler>();
-let streamController: AbortController | null = null;
-export function subscribeToRealtimeStream(handler: RealtimeEventHandler): () => void {
-  listeners.add(handler);
-  if (!streamController) {
-    const controller = new AbortController();
-    streamController = controller;
-    void (async () => {
-      while (!controller.signal.aborted) {
-        try {
-          const response = await firebaseFetch('/api/realtime/stream', { signal: controller.signal });
-          if (!response.ok || !response.body) throw new Error('Realtime unavailable');
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-          for (;;) {
-            const chunk = await reader.read();
-            if (chunk.done) break;
-            buffer += decoder.decode(chunk.value, { stream: true });
-            let end: number;
-            while ((end = buffer.indexOf('\n\n')) >= 0) {
-              const message = buffer.slice(0, end); buffer = buffer.slice(end + 2);
-              const type = message.match(/^event: (.+)$/m)?.[1];
-              const json = message.match(/^data: (.+)$/m)?.[1];
-              if (type && json) {
-                try { const data = JSON.parse(json); listeners.forEach(cb => cb(type, data)); } catch {}
-              }
-            }
-          }
-        } catch { /* Retry with a refreshed Firebase token. */ }
-        if (!controller.signal.aborted) await new Promise<void>(resolve => {
-          const timer = setTimeout(resolve, 1500);
-          controller.signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
-        });
-      }
-    })();
-  }
-  return () => {
-    listeners.delete(handler);
-    if (!listeners.size) { streamController?.abort(); streamController = null; }
-  };
-}

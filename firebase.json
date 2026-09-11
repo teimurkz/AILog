@@ -1,4 +1,10 @@
 {
+  "functions": [{
+    "source": "functions",
+    "codebase": "crm",
+    "ignore": ["node_modules", ".git", "src", "*.log", ".env*", "serviceAccountKey.json", "service-account.json"],
+    "predeploy": ["npm run build:functions"]
+  }],
   "firestore": [
     {
       "database": "ai-studio-12b741bf-685d-4d79-a3b0-c771090926cd",

@@ -9,6 +9,8 @@ import crypto from 'node:crypto';
 import { processTelegramUpdate } from '../services/telegram-bot.service.js';
 import { requireSignedIn } from '../services/crm-auth.service.js';
 import { usesFirebase } from '../services/tracking-context.js';
+import { prepareTripRoadRoute } from '../services/trip-route.service.js';
+import { inspectTelegramWebhook } from '../services/telegram-bot.service.js';
 
 const router = Router();
 router.post('/telegram/webhook', async (req, res) => {
@@ -23,7 +25,7 @@ router.post('/telegram/webhook', async (req, res) => {
 const fail = (res: any, error: unknown) => res.status(error instanceof TrackingError ? error.statusCode : 500)
   .json({ error: error instanceof Error ? error.message : 'Ошибка GPS' });
 
-router.get('/bot-status', requireAdmin, tracked((_req, res) => res.json(getTelegramBotStatus())));
+router.get('/bot-status', requireAdmin, async (_req, res) => res.json(await inspectTelegramWebhook()));
 router.get('/orders', requireSignedIn, tracked((req, res) => res.json(isCrmAdmin(req) ? getActiveOrdersList() : withoutGps(getActiveOrdersList()))));
 // Driver screen needs trip metadata, never another driver's coordinates/history.
 router.get('/trip/:orderId', tracked((req, res) => {
@@ -64,11 +66,13 @@ router.post('/complete', tracked((req, res) => {
   } catch (error) { return fail(res, error); }
 }));
 
-router.get('/location/:orderId', requireAdmin, tracked((req, res) => {
+router.get('/location/:orderId', requireAdmin, tracked(async (req, res) => {
   try {
     const order = storageService.getOrder(req.params.orderId);
     if (!order) throw new TrackingError('Заявка не найдена.', 404);
     res.setHeader('Cache-Control', 'no-store');
+    const route = getDriverLocation(order.id, order.destinationCity, order.orderNumber);
+    if (route.routeWaypoints.length === 2) await prepareTripRoadRoute(order.id, route.routeWaypoints[0], route.routeWaypoints[1]);
     return res.json(getDriverLocation(order.id, order.destinationCity, order.orderNumber));
   } catch (error) { return fail(res, error); }
 }));

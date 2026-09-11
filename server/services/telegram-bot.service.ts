@@ -4,6 +4,7 @@ import path from 'node:path';
 import { usesFirebase } from './tracking-context.js';
 import { withFirebaseTracking } from './firebase-tracking.service.js';
 import { storageService, type RegionalOrderRecord } from './storage.service.js';
+import { resolveFirebaseApiUrl } from '../../shared/firebase-endpoints.js';
 import { acceptTelegramLocation, completeDriverTrip, consentToTrip, getAvailableOrdersForDriver,
   getDriverSession, TrackingError } from './driver-tracking.service.js';
 
@@ -22,6 +23,16 @@ const telegramApi: TelegramApi = async (method, payload) => {
   if (!response.data?.ok) throw new Error(response.data?.description || 'Telegram API error');
   return response.data.result;
 };
+export async function inspectTelegramWebhook(api: TelegramApi = telegramApi) {
+  if (!usesFirebase() || !token) return getTelegramBotStatus();
+  const expected = process.env.TELEGRAM_WEBHOOK_URL || resolveFirebaseApiUrl('/api/driver/telegram/webhook');
+  try {
+    const info = await api('getWebhookInfo', {});
+    const correctUrl = info.url === expected;
+    return { ...pollingStatus, mode: 'webhook', running: correctUrl && !info.last_error_message,
+      lastError: !correctUrl ? 'Webhook Telegram ещё не подключён к Firebase. Выполните настройку из GPS-TRACKING.md.' : info.last_error_message || null };
+  } catch { return { ...pollingStatus, mode: 'webhook', running: false, lastError: 'Не удалось проверить webhook Telegram.' }; }
+}
 const escapeHtml = (value: string) => value.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
 const liveInstructions = '📍 <b>Включите трансляцию геопозиции:</b>\n' +
   'Нажмите 📎 → «Геопозиция» → «Транслировать геопозицию». Выберите «Пока не отключу» / без ограничения времени, если этот вариант доступен. ' +

@@ -171,7 +171,7 @@ const FILES = {
 };
 
 // Ensure directories exist
-[DATA_DIR, BACKUPS_DIR].forEach(dir => {
+if (!usesFirebase()) [DATA_DIR, BACKUPS_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 

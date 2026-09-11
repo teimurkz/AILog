@@ -10,6 +10,7 @@ export interface TrackingCloudStore {
     read: (collection: string, ids?: string[]) => Promise<Document[]>;
     findOrder: (idOrNumber: string) => Promise<Document[]>;
     merge: (collection: string, id: string, data: any) => void;
+    create: (collection: string, id: string, data: any) => void;
     remove: (collection: string, id: string) => void;
   }) => Promise<T>): Promise<T>;
 }
@@ -28,6 +29,7 @@ const cloudStore: TrackingCloudStore = {
         return (await transaction.get(db.collection('regional_orders').where('orderNumber', '==', id.trim().toUpperCase()).limit(1))).docs.map(d => ({ id: d.id, data: d.data() }));
       },
       merge: (collection, id, data) => transaction.set(db.collection(collection).doc(id), data, { merge: true }),
+      create: (collection, id, data) => transaction.create(db.collection(collection).doc(id), data),
       remove: (collection, id) => transaction.delete(db.collection(collection).doc(id))
     }));
   }
@@ -89,7 +91,8 @@ export async function withFirebaseTracking<T>(work: () => Promise<T> | T, option
         const changed = diff(previous.business, current.business);
         // A GPS refresh does not edit business metadata such as the order's update time.
         if (old && Object.keys(changed).every(key => key === 'updatedAt')) delete changed.updatedAt;
-        if (Object.keys(changed).length) tx.merge('regional_orders', order.id, changed);
+        if (!old) tx.create('regional_orders', order.id, changed);
+        else if (Object.keys(changed).length) tx.merge('regional_orders', order.id, changed);
         const position = diff(previous.gps, current.gps);
         const history = after.telemetry[order.id.toUpperCase()] || [];
         const historyChanged = JSON.stringify(history) !== JSON.stringify(before.telemetry[order.id.toUpperCase()] || []);
@@ -130,6 +133,7 @@ export function tracked(handler: (req: any, res: Response) => unknown): RequestH
       orderLookup: req.method === 'GET' ? (req.params.orderId || req.params.id) : undefined
     }).then(() => res.status(status).json(body)).catch(error => {
       if (error === aborted) return res.status(status).json(body);
+      if (error?.code === 6 || error?.code === 'already-exists') return res.status(409).json({ error: 'Заявка с таким идентификатором уже существует. Обновите список заявок.' });
       console.warn('[Firebase tracking] Transaction failed:', error?.code || 'unavailable');
       return res.status(503).json({ error: 'Firebase временно недоступна. Данные не заменены локальными записями.' });
     });

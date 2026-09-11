@@ -26,6 +26,7 @@ class CloudFixture {
   writes = 0;
   retryOnce = false;
   failCommit = false;
+  beforeCommit?: () => void;
   constructor(public data: Data) {}
   async runTransaction<T>(work: (tx: any) => Promise<T>): Promise<T> {
     const attempt = async () => {
@@ -37,6 +38,11 @@ class CloudFixture {
           this.data[collection] ||= {};
           this.data[collection][id] = merge(this.data[collection][id], data); this.writes++;
         }),
+        create: (collection: string, id: string, data: any) => changes.push(() => {
+          if (this.data[collection]?.[id]) throw Object.assign(new Error('Document already exists'), { code: 6 });
+          this.data[collection] ||= {};
+          this.data[collection][id] = structuredClone(data); this.writes++;
+        }),
         remove: (collection: string, id: string) => changes.push(() => { delete this.data[collection][id]; this.writes++; })
       });
       return { result, changes };
@@ -44,6 +50,7 @@ class CloudFixture {
     if (this.retryOnce) { this.retryOnce = false; await attempt(); }
     const result = await attempt();
     if (this.failCommit) throw new Error('Firestore unavailable');
+    this.beforeCommit?.();
     result.changes.forEach(change => change());
     return result.result;
   }
@@ -136,4 +143,30 @@ test('legacy Firebase GPS history remains readable without erasing any original 
   assert.equal(map.locationHistory.length, 2);
   assert.equal(map.trackingStartLocation?.lat, 43.30);
   assert.deepEqual(cloud.data.regional_orders, original);
+});
+
+test('a Firebase request awaits road geometry without writing local files', async () => {
+  const { prepareTripRoadRoute, getTripRoadRoute } = await import('../server/services/trip-route.service.js');
+  process.env.GPS_ROUTE_PROVIDER_DISABLED = 'false';
+  try {
+    const origin = { lat: 43.39, lng: 76.9 }, destination = { lat: 42.9, lng: 71.3667 };
+    const fetcher = async () => new Response(JSON.stringify({ code: 'Ok', routes: [{ distance: 500000,
+      geometry: { coordinates: [[76.901, 43.391], [74, 43], [71.367, 42.901]] } }] }));
+    await prepareTripRoadRoute('function-road-fixture', origin, destination, fetcher as typeof fetch);
+    const route = getTripRoadRoute('function-road-fixture', origin, destination, []);
+    assert.equal(route.status, 'road');
+    assert.deepEqual(route.points[0], origin);
+    assert.deepEqual(route.points.at(-1), destination);
+    assert.equal(fs.existsSync(path.join(fixture, 'server/data/gps_routes.json')), false);
+  } finally { process.env.GPS_ROUTE_PROVIDER_DISABLED = 'true'; }
+});
+
+test('a concurrent order with the same ID cannot be overwritten during creation', async () => {
+  const cloud = database();
+  const concurrent = { orderNumber: 'EXISTING', destinationCity: 'Тараз', custom: 'keep' };
+  cloud.beforeCommit = () => { cloud.data.regional_orders['new-id'] = structuredClone(concurrent); };
+  await assert.rejects(withFirebaseTracking(() => storageService.saveOrder({ id: 'new-id', orderNumber: 'NEW',
+    destinationCity: 'Астана', status: 'new' }), { store: cloud }), { code: 6 });
+  assert.deepEqual(cloud.data.regional_orders['new-id'], concurrent);
+  assert.equal(cloud.writes, 0);
 });

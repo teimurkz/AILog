@@ -3,14 +3,15 @@ import path from 'node:path';
 import * as turf from '@turf/turf';
 import type { LocationPoint } from './storage.service.js';
 import { broadcastRealtimeEvent } from '../routes/realtime.routes.js';
+import { usesFirebase } from './tracking-context.js';
 
 type Point = Pick<LocationPoint, 'lat' | 'lng'>;
 export interface TripRoadRoute { key: string; points: Point[]; distanceKm: number; }
 const cachePath = path.join(process.cwd(), 'server/data/gps_routes.json');
 const cache = new Map<string, TripRoadRoute>();
-const pending = new Set<string>();
+const pending = new Map<string, Promise<void>>();
 const retryAfter = new Map<string, number>();
-try {
+if (!usesFirebase()) try {
   const saved = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
   for (const [id, route] of Object.entries(saved)) cache.set(id, route as TripRoadRoute);
 } catch { /* Routes are generated on demand. */ }
@@ -57,18 +58,27 @@ export function getTripRoadRoute(orderId: string, origin: Point, destination: Po
   const saved = cache.get(orderId);
   if (saved?.key === key && saved.points.length >= 2) return { ...saved, status: 'road' as const };
   const requestKey = `${orderId}:${key}`;
-  if (process.env.GPS_ROUTE_PROVIDER_DISABLED !== 'true' && !pending.has(requestKey) && Date.now() >= (retryAfter.get(requestKey) || 0)) {
-    pending.add(requestKey);
-    void fetchTripRoadRoute(origin, destination).then(route => {
-      cache.set(orderId, route);
+  if (!usesFirebase()) void prepareTripRoadRoute(orderId, origin, destination);
+  const points = buildApproximateRoute(origin, destination, highway);
+  return { key, points, distanceKm: 0, status: pending.has(requestKey) ? 'building' as const : 'approximate' as const };
+}
+
+// Cloud Functions may freeze immediately after the response. Await route work
+// inside the request; only an optional local server writes a local route cache.
+export async function prepareTripRoadRoute(orderId: string, origin: Point, destination: Point, fetcher: typeof fetch = fetch) {
+  const key = routeKey(origin, destination);
+  if (cache.get(orderId)?.key === key || process.env.GPS_ROUTE_PROVIDER_DISABLED === 'true') return;
+  const requestKey = `${orderId}:${key}`;
+  if (Date.now() < (retryAfter.get(requestKey) || 0)) return;
+  if (!pending.has(requestKey)) pending.set(requestKey, fetchTripRoadRoute(origin, destination, fetcher).then(route => {
+    cache.set(orderId, route);
+    if (!usesFirebase()) {
+      fs.mkdirSync(path.dirname(cachePath), { recursive: true });
       const tmp = `${cachePath}.${process.pid}.tmp`;
       fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(cache)));
       fs.renameSync(tmp, cachePath);
       broadcastRealtimeEvent('route_updated', { orderId });
-    }).catch(() => {
-      retryAfter.set(requestKey, Date.now() + 60000);
-    }).finally(() => pending.delete(requestKey));
-  }
-  const points = buildApproximateRoute(origin, destination, highway);
-  return { key, points, distanceKm: 0, status: pending.has(requestKey) ? 'building' as const : 'approximate' as const };
+    }
+  }).catch(() => { retryAfter.set(requestKey, Date.now() + 60000); }).finally(() => pending.delete(requestKey)));
+  await pending.get(requestKey);
 }
