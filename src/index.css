@@ -68,3 +68,20 @@
   overflow-x: auto;
 }
 
+/* Mailing cards must fit their column, including long email addresses and logs. */
+.mailing-page {
+  overflow-wrap: anywhere;
+}
+
+.mailing-page :where(.flex > div, .grid > div, input, select, textarea) {
+  min-width: 0;
+}
+
+.mailing-page :where(input, select, textarea) {
+  max-width: 100%;
+}
+
+.mailing-page svg {
+  flex-shrink: 0;
+}
+
