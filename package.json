@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "test:mailing": "node --import tsx --test tests/mailing-scheduler.test.ts tests/mailing-storage.test.ts",
+    "test:mailing": "node --import tsx --test tests/mailing-scheduler.test.ts tests/mailing-storage.test.ts tests/mailing-diagnostics.test.tsx",
     "test:crm": "node --import tsx --test tests/crm-data-loading.test.ts",
     "test:gps": "node --import tsx --test tests/gps-tracking.test.ts tests/gps-trail.test.ts",
     "test:firebase": "node --import tsx --test tests/firebase-tracking.test.ts",

@@ -30,6 +30,8 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { MailingSubscriber, MailingSettings, MailingLog } from '../../types';
+import { normalizeMailingDiagnostics, type MailingDiagnostics } from '../../../shared/mailing-diagnostics';
+import { MailingDiagnosticsPanel } from './MailingDiagnosticsPanel';
 
 export const WarehouseAutoMailing: React.FC = () => {
   const [subscribers, setSubscribers] = useState<MailingSubscriber[]>([]);
@@ -79,7 +81,7 @@ export const WarehouseAutoMailing: React.FC = () => {
 
   // Live Scheduler Status
   const [statusInfo, setStatusInfo] = useState<any>(null);
-  const [diagInfo, setDiagInfo] = useState<any>(null);
+  const [diagInfo, setDiagInfo] = useState<MailingDiagnostics | null>(null);
   const [checkingDiag, setCheckingDiag] = useState<boolean>(false);
 
   const schedulerHealthy = statusInfo?.diagnostics?.schedulerHealthy === true;
@@ -88,14 +90,14 @@ export const WarehouseAutoMailing: React.FC = () => {
 
   const handleCheckDiagnostics = async () => {
     setCheckingDiag(true);
+    setDiagInfo(null);
     try {
       const res = await firebaseFetch('/api/mailing/check-scheduler');
-      if (res.ok) {
-        const d = await res.json();
-        setDiagInfo(d);
-      }
-    } catch (e) {
-      console.error(e);
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Не удалось получить диагностику службы.');
+      setDiagInfo(normalizeMailingDiagnostics(d));
+    } catch (e: any) {
+      setSendErrorMsg(e.message || 'Не удалось получить диагностику службы.');
     } finally {
       setCheckingDiag(false);
     }
@@ -608,30 +610,7 @@ export const WarehouseAutoMailing: React.FC = () => {
           </div>
         </div>
 
-        {/* Diagnostic Detailed Info Panel */}
-        {diagInfo && (
-          <div className="mt-4 p-4 bg-slate-900/90 border border-blue-500/30 rounded-xl text-xs space-y-2 animate-fadeIn text-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
-              <span className="font-bold text-blue-300 flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>Результаты диагностики службы рассылки</span>
-              </span>
-              <button onClick={() => setDiagInfo(null)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1 text-[11px]">
-              <div><b>Статус службы:</b> {diagInfo.enabled ? '🟢 Включена' : '🔴 Выключена'}</div>
-              <div><b>Серверное время ({diagInfo.timezone}):</b> {diagInfo.currentHHmm} ({diagInfo.currentZonedTime})</div>
-              <div><b>Целевое время рассылки:</b> {diagInfo.targetSendTime}</div>
-              <div><b>Совпадение по времени:</b> {diagInfo.timeMatched ? '✅ Да' : '⏳ Нет (ожидание)'}</div>
-              <div><b>Совпадение по дню недели:</b> {diagInfo.dayMatched ? '✅ Да' : '❌ Нет'}</div>
-              <div><b>SMTP Сервер:</b> {diagInfo.smtpConfigured ? '🟢 Готов (Настроен)' : '🔴 Ошибка: ' + (diagInfo.smtpError || 'Не настроен')}</div>
-              <div><b>Активных получателей:</b> {diagInfo.activeSubscribersCount} чел.</div>
-              <div><b>Готов к автоматическому запуску:</b> {diagInfo.shouldRunNow ? '⚡ ДА (сейчас время рассылки)' : '💤 Ожидает наступления времени'}</div>
-            </div>
-          </div>
-        )}
+        {diagInfo && <MailingDiagnosticsPanel diagnostics={diagInfo} onClose={() => setDiagInfo(null)} />}
 
         {/* Diagnostic alert if SMTP password missing */}
         {(!settings.smtpPass && !statusInfo?.hasSmtpPass) && (

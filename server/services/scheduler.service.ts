@@ -11,6 +11,9 @@ import { sendMailWithResilience } from "./email.service.js";
 import { getZonedTime } from "../utils/helpers.js";
 import { usesFirebase } from './tracking-context.js';
 import { db } from '../config/firebase.js';
+import { createHash } from 'node:crypto';
+import { dueMailingRun } from './mailing-job-runner.js';
+import { mailingDiagnosticMessage, type MailingDiagnostics } from '../../shared/mailing-diagnostics.js';
 
 let lastAutoSentKey = '';
 let lastIntervalSentTime = 0;
@@ -341,40 +344,71 @@ export function startMailingScheduler() {
   }, 15000);
 }
 
-export async function getSchedulerDiagnostics() {
+export async function getSchedulerDiagnostics(now = new Date()) {
   const settings = await getMailingSettings();
   const subscribers = await getMailingSubscribers();
   const activeSubs = subscribers.filter(s => s.isActive);
-  const tz = settings?.timezone || 'Asia/Almaty';
-  const zoned = getZonedTime(tz);
-
-  const [tH, tM] = (settings?.sendTime || '09:00').trim().slice(0, 5).split(':').map(Number);
-  const [cH, cM] = zoned.HHmm.split(':').map(Number);
-
-  const targetMinutes = (tH || 0) * 60 + (tM || 0);
-  const currentMinutes = (cH || 0) * 60 + (cM || 0);
-  const diffMinutes = targetMinutes - currentMinutes;
-  const state = usesFirebase() ? (await db.doc('mailing_scheduler/warehouse').get()).data() : undefined;
-  const heartbeatAge = state?.lastCheckedAt ? Date.now() - Date.parse(state.lastCheckedAt) : Infinity;
-
-  return {
-    executionMode: usesFirebase() ? 'firebase-scheduled' : 'local',
-    schedulerHealthy: usesFirebase() ? heartbeatAge >= 0 && heartbeatAge < 5 * 60000 : schedulerStarted,
+  const timezone = settings.timezone || 'Asia/Almaty';
+  // Reject invalid zones instead of reporting host-local time under another name.
+  new Intl.DateTimeFormat('en-GB', { timeZone: timezone }).format(now);
+  const zoned = getZonedTime(timezone, now);
+  const scheduleType = settings.scheduleType || 'daily';
+  const fixedTime = ['daily', 'workdays', 'weekly', 'custom'].includes(scheduleType);
+  const time = /^(\d{1,2}):(\d{2})$/.exec(String(settings.sendTime || '09:00').trim());
+  const targetSendTime = fixedTime && time && +time[1] < 24 && +time[2] < 60 ? `${time[1].padStart(2, '0')}:${time[2]}` : null;
+  const dayMatched = !fixedTime ? null : scheduleType === 'daily' ||
+    (scheduleType === 'workdays' && zoned.dayOfWeek >= 1 && zoned.dayOfWeek <= 5) ||
+    (scheduleType === 'weekly' && zoned.dayOfWeek === 1) ||
+    (scheduleType === 'custom' && Array.isArray(settings.scheduleDays) && settings.scheduleDays.map(Number).includes(zoned.dayOfWeek));
+  const timeMatched = targetSendTime ? zoned.HHmm === targetSendTime : null;
+  const targetMinutes = targetSendTime ? Number(time![1]) * 60 + Number(time![2]) : null;
+  const [hours, minutes] = zoned.HHmm.split(':').map(Number);
+  const diffMinutes = targetMinutes === null ? null : targetMinutes - hours * 60 - minutes;
+  const firebase = usesFirebase();
+  const state = firebase ? (await db.doc('mailing_scheduler/warehouse').get()).data() : undefined;
+  const heartbeatAge = state?.lastCheckedAt ? now.getTime() - Date.parse(state.lastCheckedAt) : Infinity;
+  const schedulerHealthy = firebase ? heartbeatAge >= 0 && heartbeatAge < 5 * 60000 : schedulerStarted;
+  const runKey = firebase && state?.activatedAt ? dueMailingRun(settings, now, state.activatedAt) : null;
+  const job = runKey && runKey !== 'on_change'
+    ? (await db.doc(`mailing_runs/${createHash('sha256').update(runKey).digest('hex')}`).get()).data() : undefined;
+  const busy = firebase ? (state?.leaseUntil || 0) > now.getTime() : isDispatching;
+  const jobEligible = !job || job.attempts < 3 && (job.status === 'preparing' || job.status === 'failed' && job.retryable && job.nextRetryAt <= now.getTime());
+  const localKey = `${zoned.todayDateStr}_${targetSendTime}_${scheduleType}`;
+  const scheduleEligible = firebase ? !!runKey && runKey !== 'on_change' && jobEligible :
+    fixedTime && dayMatched && diffMinutes !== null && diffMinutes <= 0 && diffMinutes >= -90 &&
+    settings.lastAutoSentKey !== localKey && lastAutoSentKey !== localKey &&
+    (localAttempt.key !== localKey || !localAttempt.blocked && localAttempt.count < 3 && localAttempt.notBefore <= now.getTime());
+  const enabled = settings.enabled === true || settings.enabled === 'true';
+  const smtpConfigured = settings.smtpConfigured === true;
+  const diagnostics: MailingDiagnostics = {
+    diagnosticsVersion: 2, apiUpdateRequired: false,
+    enabled, schedulerHealthy,
     lastCheckedAt: state?.lastCheckedAt || null,
-    lastRunStatus: state?.lastRunStatus || null,
-    lastError: state?.lastError || null,
-    enabled: settings?.enabled ?? true,
-    scheduleType: settings?.scheduleType || 'daily',
-    sendTime: settings?.sendTime || '09:00',
-    intervalMinutes: settings?.intervalMinutes || 1,
-    timezone: tz,
+    lastError: fixedTime && !targetSendTime ? 'Некорректное время рассылки. Сохраните время в формате ЧЧ:ММ.' : state?.lastError || null,
+    scheduleType, timezone,
+    currentHHmm: zoned.HHmm, currentZonedTime: zoned.fullZonedString,
+    targetSendTime, timeMatched, dayMatched,
+    smtpConfigured, smtpError: smtpConfigured ? null : 'Не заполнены настройки SMTP: проверьте хост, логин и пароль.',
+    activeSubscribersCount: activeSubs.length,
+    shouldRunNow: enabled && schedulerHealthy && smtpConfigured && activeSubs.length > 0 && !busy && Boolean(scheduleEligible),
+    statusMessage: '',
+  };
+  diagnostics.statusMessage = mailingDiagnosticMessage(diagnostics);
+  if (enabled && schedulerHealthy && smtpConfigured && activeSubs.length > 0) {
+    if (busy) diagnostics.statusMessage = 'Задание рассылки выполняется.';
+    else if (job?.status === 'sent') diagnostics.statusMessage = 'Письмо для этого запуска уже принято SMTP. Повтор не требуется.';
+    else if (job?.status === 'failed' && job.retryable && job.attempts < 3 && job.nextRetryAt > now.getTime()) diagnostics.statusMessage = 'После временной ошибки ожидается повторная попытка.';
+  }
+  // Keep former field names for clients that have not yet updated their UI.
+  return {
+    ...diagnostics,
+    executionMode: firebase ? 'firebase-scheduled' : 'local',
+    sendTime: targetSendTime, targetHHmm: targetSendTime,
     currentServerZonedTime: zoned.fullZonedString,
-    currentHHmm: zoned.HHmm,
-    targetHHmm: (settings?.sendTime || '09:00').trim().slice(0, 5),
-    diffMinutes,
-    lastAutoSentKey,
-    lastIntervalSentTime: lastIntervalSentTime ? new Date(lastIntervalSentTime).toLocaleString('ru-RU') : null,
+    todayDateStr: zoned.todayDateStr, dayOfWeek: zoned.dayOfWeek,
+    diffMinutes, intervalMinutes: settings.intervalMinutes || 1,
+    lastRunStatus: state?.lastRunStatus || null,
+    lastAutoSentKey, lastIntervalSentTime: lastIntervalSentTime ? new Date(lastIntervalSentTime).toISOString() : null,
     totalSubscribersCount: subscribers.length,
-    activeSubscribersCount: activeSubs.length
   };
 }

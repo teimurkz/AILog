@@ -90,9 +90,8 @@ export function fetchBufferWithRedirects(url: string, maxRedirects = 5): Promise
   });
 }
 
-export function getZonedTime(timeZone: string = 'Asia/Almaty') {
+export function getZonedTime(timeZone: string = 'Asia/Almaty', now = new Date()) {
   try {
-    const now = new Date();
     const formatter = new Intl.DateTimeFormat('en-GB', {
       timeZone,
       hour12: false,
@@ -124,7 +123,6 @@ export function getZonedTime(timeZone: string = 'Asia/Almaty') {
       fullZonedString: `${map.day}.${map.month}.${map.year} ${HHmm}`
     };
   } catch (e) {
-    const now = new Date();
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
     return {
