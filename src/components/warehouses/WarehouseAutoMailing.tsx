@@ -82,6 +82,10 @@ export const WarehouseAutoMailing: React.FC = () => {
   const [diagInfo, setDiagInfo] = useState<any>(null);
   const [checkingDiag, setCheckingDiag] = useState<boolean>(false);
 
+  const schedulerHealthy = statusInfo?.diagnostics?.schedulerHealthy === true;
+  const schedulerError = statusInfo?.diagnostics?.lastError;
+  const automaticReady = settings.enabled && settings.scheduleType !== 'manual' && schedulerHealthy && !schedulerError;
+
   const handleCheckDiagnostics = async () => {
     setCheckingDiag(true);
     try {
@@ -102,13 +106,13 @@ export const WarehouseAutoMailing: React.FC = () => {
     setSendSuccessMsg(null);
     setSendErrorMsg(null);
     try {
-      const res = await firebaseFetch('/api/mailing/force-cron-trigger', { method: 'POST' });
+      const res = await firebaseFetch('/api/mailing/force-cron-trigger', { method: 'POST', signal: AbortSignal.timeout(240000) });
       const data = await res.json();
       if (res.ok && data.success) {
-        setSendSuccessMsg('Симуляция автоматической рассылки выполнена успешно!');
+        setSendSuccessMsg(data.warning || data.message || 'Отправка выполнена.');
         fetchData();
       } else {
-        setSendErrorMsg(data.error || data.message || 'Ошибка симуляции авто-рассылки');
+        setSendErrorMsg(data.error || data.message || 'Ошибка отправки отчета');
       }
     } catch (e: any) {
       setSendErrorMsg(e.message || 'Ошибка сервера');
@@ -156,6 +160,7 @@ export const WarehouseAutoMailing: React.FC = () => {
         const d = await subsRes.json();
         setSubscribers(d.subscribers || []);
       }
+      if (!subsRes.ok || !setRes.ok || !logsRes.ok || !statusRes.ok) { setSendErrorMsg('Не удалось загрузить состояние рассылки из Firebase. Проверьте службу и подключение.'); }
       if (setRes.ok) {
         const d = await setRes.json();
         if (d.settings) setSettings(d.settings);
@@ -186,7 +191,8 @@ export const WarehouseAutoMailing: React.FC = () => {
           const d = await res.json();
           setStatusInfo(d);
         }
-      } catch (e) {}
+        else { setStatusInfo(null); }
+      } catch (e) { setStatusInfo(null); }
     }, 10000);
 
     return () => clearInterval(statusInterval);
@@ -205,6 +211,9 @@ export const WarehouseAutoMailing: React.FC = () => {
         if (data.settings) setSettings(data.settings);
         setSendSuccessMsg('Настройки рассылки и SMTP успешно сохранены!');
         setTimeout(() => setSendSuccessMsg(null), 4000);
+      } else {
+        const data = await res.json();
+        setSendErrorMsg(data.error || 'Не удалось сохранить настройки в Firebase');
       }
     } catch (err) {
       console.error('Failed to save settings:', err);
@@ -362,6 +371,7 @@ export const WarehouseAutoMailing: React.FC = () => {
     try {
       const res = await firebaseFetch('/api/mailing/send', {
         method: 'POST',
+        signal: AbortSignal.timeout(240000),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           targetSubscriberIds,
@@ -371,13 +381,13 @@ export const WarehouseAutoMailing: React.FC = () => {
 
       const result = await res.json();
       if (res.ok && result.success) {
-        setSendSuccessMsg(result.message || 'Рассылка Excel файла успешно отправлена!');
+        setSendSuccessMsg(result.warning || result.message || 'Отправка выполнена.');
         fetchData();
       } else {
         setSendErrorMsg(result.error || result.message || 'Ошибка отправки рассылки');
       }
     } catch (err: any) {
-      setSendErrorMsg(err.message || 'Не удалось выполнить рассылку');
+      setSendErrorMsg('Не получено подтверждение результата отправки. Проверьте журнал и почту перед повтором.');
     } finally {
       setSending(false);
     }
@@ -397,6 +407,7 @@ export const WarehouseAutoMailing: React.FC = () => {
     try {
       const res = await firebaseFetch('/api/mailing/send', {
         method: 'POST',
+        signal: AbortSignal.timeout(240000),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customEmail: testEmail,
@@ -406,14 +417,14 @@ export const WarehouseAutoMailing: React.FC = () => {
 
       const result = await res.json();
       if (res.ok && result.success) {
-        setSendSuccessMsg(`Тестовое письмо с Excel файлом отправлено на ${testEmail}!`);
+        setSendSuccessMsg(result.warning || result.message || 'Отправка выполнена.');
         setTestEmail('');
         fetchData();
       } else {
         setSendErrorMsg(result.error || result.message || 'Ошибка тестовой отправки');
       }
     } catch (err: any) {
-      setSendErrorMsg(err.message || 'Не удалось отправить тестовое письмо');
+      setSendErrorMsg('Не получено подтверждение результата отправки. Проверьте журнал и почту перед повтором.');
     } finally {
       setSendingTest(false);
     }
@@ -503,24 +514,26 @@ export const WarehouseAutoMailing: React.FC = () => {
 
       {/* Master Scheduler Live Status & Toggle Banner */}
       <div className={`p-5 rounded-2xl border shadow-sm transition-all ${
-        settings.enabled 
+        automaticReady
           ? 'bg-gradient-to-r from-emerald-950 via-slate-900 to-indigo-950 text-white border-emerald-500/40' 
           : 'bg-gradient-to-r from-amber-950 via-slate-900 to-slate-900 text-white border-amber-500/40'
       }`}>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner shrink-0 ${
-              settings.enabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+              automaticReady ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
             }`}>
-              <Clock className={`w-6 h-6 ${settings.enabled ? 'animate-pulse' : ''}`} />
+              <Clock className={`w-6 h-6 ${automaticReady ? 'animate-pulse' : ''}`} />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className={`inline-block w-2.5 h-2.5 rounded-full ${settings.enabled ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
+                <span className={`inline-block w-2.5 h-2.5 rounded-full ${automaticReady ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
                 <h2 className="text-base sm:text-lg font-bold">
-                  {settings.enabled ? '🤖 Автоматическая отправка по расписанию ВКЛЮЧЕНА' : '⏸️ Автоматическая отправка ПРИОСТАНОВЛЕНА'}
+                  {!settings.enabled || settings.scheduleType === 'manual' ? 'Автоматическая отправка выключена' : !schedulerHealthy ? 'Запуск по расписанию не подтверждён' : schedulerError ? 'Служба работает, последняя проверка с ошибкой' : 'Служба рассылки работает'}
                 </h2>
               </div>
+              {settings.enabled && !schedulerHealthy && <p className="text-xs text-amber-200 mt-1">Нет свежего сигнала от службы. Проверьте, опубликовано ли задание рассылки Firebase.</p>}
+              {schedulerError && <p className="text-xs text-amber-200 mt-1">{schedulerError}</p>}
               <div className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span>
                   <b>График:</b> {settings.scheduleType === 'daily' && `Ежедневно в ${settings.sendTime}`}
@@ -560,7 +573,7 @@ export const WarehouseAutoMailing: React.FC = () => {
               className="px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 text-xs font-bold rounded-xl border border-purple-400/30 transition-all flex items-center gap-1.5"
             >
               <Zap className="w-3.5 h-3.5 text-purple-300" />
-              <span>Тест авто-запуска</span>
+              <span>Отправить по настройкам</span>
             </button>
 
             <div className="flex items-center gap-3 bg-slate-900/90 p-2 px-3 rounded-xl border border-slate-700/80 ml-auto">
@@ -569,15 +582,17 @@ export const WarehouseAutoMailing: React.FC = () => {
               </span>
               <button
                 type="button"
-                onClick={() => {
-                  const newEnabled = !settings.enabled;
-                  const updated = { ...settings, enabled: newEnabled };
-                  setSettings(updated);
-                  firebaseFetch('/api/mailing/settings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(updated)
-                  });
+                onClick={async () => {
+                  try {
+                    const response = await firebaseFetch('/api/mailing/settings', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ enabled: !settings.enabled })
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Не удалось сохранить настройку');
+                    setSettings(data.settings);
+                  } catch (error: any) { setSendErrorMsg(error.message); }
                 }}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
                   settings.enabled ? 'bg-emerald-500' : 'bg-slate-600'
@@ -619,7 +634,7 @@ export const WarehouseAutoMailing: React.FC = () => {
         )}
 
         {/* Diagnostic alert if SMTP password missing */}
-        {(!settings.smtpPass && !process.env.SMTP_PASS) && (
+        {(!settings.smtpPass && !statusInfo?.hasSmtpPass) && (
           <div className="mt-4 p-3 bg-rose-950/80 border border-rose-500/40 rounded-xl text-xs text-rose-200 flex items-center gap-2.5">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
             <span>
@@ -686,7 +701,7 @@ export const WarehouseAutoMailing: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Всего отправок
+              Записей в журнале
             </p>
             <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-0.5">
               {logs.length}
@@ -998,7 +1013,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                 <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
                   <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                   <span>
-                    <b>Отказоустойчивый режим (IPv4 + STARTTLS/SSL):</b> Сервер автоматически предотвращает обрывы сокетов («Unexpected socket close») и мгновенно переключается между портами 587 и 465 при сбоях сети.
+                    <b>Защищённое подключение:</b> порт 465 использует TLS, порт 587 — STARTTLS. Временный сбой до передачи письма допускает повтор. Если результат отправки неизвестен, сначала проверьте почту получателей.
                   </span>
                 </div>
 

@@ -1,119 +1,69 @@
-import fs from "fs";
-import { db } from "../config/firebase.js";
-import {
-  SUBSCRIBERS_FILE_PATH,
-  SETTINGS_FILE_PATH,
-  MAILING_LOGS_FILE_PATH,
-  DEFAULT_SUBSCRIBERS,
-  DEFAULT_MAILING_SETTINGS
-} from "../config/constants.js";
+import fs from 'node:fs';
+import { db } from '../config/firebase.js';
+import { usesFirebase } from './tracking-context.js';
+import { SUBSCRIBERS_FILE_PATH, SETTINGS_FILE_PATH, MAILING_LOGS_FILE_PATH, DEFAULT_SUBSCRIBERS, DEFAULT_MAILING_SETTINGS } from '../config/constants.js';
 
+const clean = (value: any) => JSON.parse(JSON.stringify(value));
+function readLocal(file: string, fallback: any) {
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : fallback;
+}
+
+// Firebase is authoritative, including empty collections. Never substitute
+// development recipients/settings/logs after a production database error.
 export async function getMailingSubscribers(): Promise<any[]> {
-  try {
-    const snap = await db.collection('mailing_subscribers').get();
-    if (!snap.empty) {
-      return snap.docs.map(d => d.data());
-    }
-  } catch (e) {
-    // Fallback to local
-  }
-  if (fs.existsSync(SUBSCRIBERS_FILE_PATH)) {
-    try {
-      return JSON.parse(fs.readFileSync(SUBSCRIBERS_FILE_PATH, 'utf8'));
-    } catch (e) {}
-  }
-  return DEFAULT_SUBSCRIBERS;
+  if (!usesFirebase()) return readLocal(SUBSCRIBERS_FILE_PATH, DEFAULT_SUBSCRIBERS);
+  const snap = await db.collection('mailing_subscribers').get();
+  return snap.docs.map(d => ({ ...d.data(), id: d.id }));
 }
 
 export async function saveMailingSubscribers(subscribers: any[]) {
-  try {
-    fs.writeFileSync(SUBSCRIBERS_FILE_PATH, JSON.stringify(subscribers, null, 2), 'utf8');
-  } catch (e) {}
+  if (!usesFirebase()) return fs.writeFileSync(SUBSCRIBERS_FILE_PATH, JSON.stringify(subscribers, null, 2));
+  const batch = db.batch();
+  subscribers.forEach(sub => batch.set(db.collection('mailing_subscribers').doc(sub.id), clean(sub), { merge: true }));
+  await batch.commit();
+}
 
-  try {
-    const batch = db.batch();
-    subscribers.forEach(sub => {
-      const ref = db.collection('mailing_subscribers').doc(sub.id);
-      batch.set(ref, sub);
+export async function markMailingSubscribersSent(subscribers: any[], timestamp: string) {
+  if (!usesFirebase()) {
+    const current = await getMailingSubscribers();
+    await saveMailingSubscribers(current.map(s => subscribers.some(sent => sent.id === s.id && sent.email === s.email) ? { ...s, lastSentAt: timestamp } : s));
+    return;
+  }
+  // Patch existing recipients only, preserving concurrent edits/deletions.
+  await db.runTransaction(async tx => {
+    const docs = await Promise.all(subscribers.map(s => tx.get(db.collection('mailing_subscribers').doc(s.id))));
+    docs.forEach((doc, i) => {
+      if (doc.exists && doc.data()?.email === subscribers[i].email) tx.update(doc.ref, { lastSentAt: timestamp });
     });
-    await batch.commit();
-  } catch (e) {}
+  });
 }
 
 export async function getMailingSettings(): Promise<any> {
-  let settings: any = { ...DEFAULT_MAILING_SETTINGS };
-
-  // 1. Read local JSON fallback first
-  if (fs.existsSync(SETTINGS_FILE_PATH)) {
-    try {
-      const fileData = JSON.parse(fs.readFileSync(SETTINGS_FILE_PATH, 'utf8'));
-      if (fileData) {
-        settings = { ...settings, ...fileData };
-      }
-    } catch (e) {}
-  }
-
-  // 2. Read Firestore and merge
-  try {
+  let saved: any;
+  if (usesFirebase()) {
     const doc = await db.collection('mailing_settings').doc('config').get();
-    if (doc.exists) {
-      const dbData = doc.data() || {};
-      settings = {
-        ...settings,
-        ...dbData,
-        smtpPass: dbData.smtpPass || settings.smtpPass || process.env.SMTP_PASS || ''
-      };
-    }
-  } catch (e) {}
-
-  const hasHost = !!(settings.smtpHost || process.env.SMTP_HOST);
-  const hasUser = !!(settings.smtpUser || process.env.SMTP_USER);
-  const hasPass = !!(settings.smtpPass || process.env.SMTP_PASS);
-  
-  settings.smtpConfigured = hasHost && hasUser && hasPass;
+    saved = doc.exists ? doc.data() : { enabled: false };
+  } else saved = readLocal(SETTINGS_FILE_PATH, {});
+  const settings = { ...DEFAULT_MAILING_SETTINGS, ...saved };
+  settings.smtpConfigured = !!((settings.smtpHost || process.env.SMTP_HOST) && (settings.smtpUser || process.env.SMTP_USER) && (settings.smtpPass || process.env.SMTP_PASS));
   return settings;
 }
 
 export async function saveMailingSettings(settings: any) {
-  try {
-    fs.writeFileSync(SETTINGS_FILE_PATH, JSON.stringify(settings, null, 2), 'utf8');
-  } catch (e) {}
-
-  try {
-    await db.collection('mailing_settings').doc('config').set(settings);
-  } catch (e) {}
+  if (!usesFirebase()) return fs.writeFileSync(SETTINGS_FILE_PATH, JSON.stringify(settings, null, 2));
+  await db.collection('mailing_settings').doc('config').set(clean(settings), { merge: true });
 }
 
 export async function getMailingLogs(): Promise<any[]> {
-  try {
-    const snap = await db.collection('mailing_logs').orderBy('timestamp', 'desc').limit(100).get();
-    if (!snap.empty) {
-      return snap.docs.map(d => d.data());
-    }
-  } catch (e) {}
-
-  if (fs.existsSync(MAILING_LOGS_FILE_PATH)) {
-    try {
-      return JSON.parse(fs.readFileSync(MAILING_LOGS_FILE_PATH, 'utf8'));
-    } catch (e) {}
-  }
-  return [];
+  if (!usesFirebase()) return readLocal(MAILING_LOGS_FILE_PATH, []);
+  const snap = await db.collection('mailing_logs').orderBy('timestamp', 'desc').limit(100).get();
+  return snap.docs.map(d => ({ ...d.data(), id: d.id }));
 }
 
 export async function addMailingLog(log: any) {
-  let existing: any[] = [];
-  if (fs.existsSync(MAILING_LOGS_FILE_PATH)) {
-    try {
-      existing = JSON.parse(fs.readFileSync(MAILING_LOGS_FILE_PATH, 'utf8')) || [];
-    } catch (e) {}
+  if (!usesFirebase()) {
+    const logs = [log, ...readLocal(MAILING_LOGS_FILE_PATH, [])].slice(0, 100);
+    return fs.writeFileSync(MAILING_LOGS_FILE_PATH, JSON.stringify(logs, null, 2));
   }
-  existing.unshift(log);
-  existing = existing.slice(0, 100);
-  try {
-    fs.writeFileSync(MAILING_LOGS_FILE_PATH, JSON.stringify(existing, null, 2), 'utf8');
-  } catch (e) {}
-
-  try {
-    await db.collection('mailing_logs').doc(log.id).set(log);
-  } catch (e) {}
+  await db.collection('mailing_logs').doc(log.id).set(clean(log));
 }

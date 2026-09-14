@@ -7,7 +7,6 @@ import {
   getMailingLogs
 } from "../services/mailing.service.js";
 import {
-  createNodemailerTransport,
   getSmtpTransporter
 } from "../services/email.service.js";
 import {
@@ -18,7 +17,6 @@ import {
 } from "../services/warehouse.service.js";
 import {
   executeMailingDispatch,
-  getLastAutoSentKey,
   resetAutoSentKey,
   getSchedulerDiagnostics
 } from "../services/scheduler.service.js";
@@ -229,65 +227,17 @@ router.get("/download-excel", async (req, res) => {
   }
 });
 
-// POST Test SMTP Connection
-router.post("/test-smtp", async (req, res) => {
+// Verify authentication/TLS without sending a message.
+router.post('/test-smtp', async (req, res) => {
+  let smtp: Awaited<ReturnType<typeof getSmtpTransporter>> | undefined;
   try {
-    const customSettings = req.body;
-    const settings = customSettings || await getMailingSettings();
-    const cleanPass = (customSettings?.smtpPass || settings?.smtpPass || process.env.SMTP_PASS || '').trim().replace(/\s+/g, '');
-    const cleanUser = (customSettings?.smtpUser || settings?.smtpUser || process.env.SMTP_USER || '').trim();
-    const host = (customSettings?.smtpHost || settings?.smtpHost || process.env.SMTP_HOST || 'smtp.gmail.com').trim();
-    const port = Number(customSettings?.smtpPort || settings?.smtpPort || 587);
-    const secure = customSettings?.smtpSecure !== undefined ? Boolean(customSettings.smtpSecure) : (port === 465);
-
-    if (!cleanUser || !cleanPass) {
-      return res.status(400).json({
-        success: false,
-        error: "Не введен логин или 16-значный Пароль Приложения Google."
-      });
-    }
-
-    const isGmail = host.toLowerCase().includes('gmail') || cleanUser.toLowerCase().endsWith('@gmail.com');
-    const strategies: Array<{ desc: string; config: any }> = [
-      { desc: `${host}:${port} (${secure ? 'SSL' : 'STARTTLS'}, IPv4)`, config: { host, port, secure, user: cleanUser, pass: cleanPass } },
-      { desc: `${host}:${port === 465 ? 587 : 465} (${port === 465 ? 'STARTTLS' : 'SSL'}, IPv4)`, config: { host, port: port === 465 ? 587 : 465, secure: port !== 465, user: cleanUser, pass: cleanPass } }
-    ];
-
-    if (isGmail) {
-      strategies.push({
-        desc: 'Nodemailer Gmail Engine (IPv4)',
-        config: { host, user: cleanUser, pass: cleanPass, useService: true }
-      });
-    }
-
-    let lastError: any = null;
-    for (const strat of strategies) {
-      try {
-        console.log(`[SMTP Test] Проверка подключения через ${strat.desc}...`);
-        const transport = createNodemailerTransport(strat.config);
-        await transport.verify();
-        console.log(`✅ [SMTP Test] Успешное подключение через ${strat.desc}!`);
-        return res.json({
-          success: true,
-          message: `Подключение к SMTP прошло успешно (${strat.desc})! Пользователь: ${cleanUser}. Сервер готов к отправке писем.`
-        });
-      } catch (err: any) {
-        console.warn(`⚠️ [SMTP Test] ${strat.desc} не удалось:`, err.message);
-        lastError = err;
-      }
-    }
-
-    res.status(400).json({
-      success: false,
-      error: `Ошибка подключения к SMTP: ${lastError?.message || 'Не удалось установить соединение'}`
-    });
-  } catch (err: any) {
-    console.error("SMTP verify error:", err);
-    res.status(400).json({
-      success: false,
-      error: `Ошибка подключения к SMTP: ${err.message || 'Проверьте хост, порт, логин и пароль'}`
-    });
-  }
+    smtp = await getSmtpTransporter({ ...await getMailingSettings(), ...req.body });
+    if (!smtp.configured || !smtp.transporter) return res.status(400).json({ success: false, error: smtp.error });
+    await smtp.transporter.verify();
+    res.json({ success: true, message: `Подключение к SMTP проверено (${smtp.host}:${smtp.port}). Письмо не отправлялось.` });
+  } catch {
+    res.status(400).json({ success: false, error: 'Не удалось подключиться к SMTP. Проверьте хост, порт и пароль приложения.' });
+  } finally { smtp?.transporter?.close(); }
 });
 
 // POST Send Auto-Mailing
@@ -304,49 +254,6 @@ router.post("/send", async (req, res) => {
   } catch (error: any) {
     console.error("Error sending mailing:", error);
     res.status(500).json({ error: error.message || "Failed to process mailing request" });
-  }
-});
-
-// GET Check Scheduler Diagnostics
-router.get("/check-scheduler", async (req, res) => {
-  try {
-    const settings = await getMailingSettings();
-    const subscribers = await getMailingSubscribers();
-    const activeSubs = subscribers.filter(s => s.isActive);
-    const tz = settings?.timezone || 'Asia/Almaty';
-    const zoned = getZonedTime(tz);
-
-    const normTarget = (settings?.sendTime || '09:00').trim().padStart(5, '0');
-    const normCurrent = zoned.HHmm.trim().padStart(5, '0');
-    const timeMatched = normTarget === normCurrent;
-
-    let dayMatched = false;
-    const dayOfWeek = zoned.dayOfWeek;
-    if (settings?.scheduleType === 'daily') dayMatched = true;
-    else if (settings?.scheduleType === 'workdays') dayMatched = dayOfWeek >= 1 && dayOfWeek <= 5;
-    else if (settings?.scheduleType === 'weekly') dayMatched = dayOfWeek === 1;
-    else if (settings?.scheduleType === 'custom' && Array.isArray(settings?.scheduleDays)) dayMatched = settings.scheduleDays.includes(dayOfWeek);
-
-    const isEnabled = settings?.enabled !== false && String(settings?.enabled) !== 'false' && settings?.scheduleType !== 'manual';
-    const smtpCheck = await getSmtpTransporter(settings);
-
-    res.json({
-      enabled: settings?.enabled ?? true,
-      scheduleType: settings?.scheduleType || 'daily',
-      timezone: tz,
-      currentZonedTime: zoned.fullZonedString,
-      currentHHmm: zoned.HHmm,
-      targetSendTime: settings?.sendTime || '09:00',
-      timeMatched,
-      dayMatched,
-      shouldRunNow: isEnabled && timeMatched && dayMatched,
-      activeSubscribersCount: activeSubs.length,
-      smtpConfigured: smtpCheck.configured,
-      smtpError: smtpCheck.error || null,
-      lastAutoSentKey: getLastAutoSentKey()
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message || "Failed to check scheduler status" });
   }
 });
 

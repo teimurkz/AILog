@@ -2,22 +2,27 @@ import { getWarehouseData } from "./warehouse.service.js";
 import { generateWarehouseExcelBufferAsync } from "./excel.service.js";
 import {
   getMailingSubscribers,
-  saveMailingSubscribers,
+  markMailingSubscribersSent,
   getMailingSettings,
   saveMailingSettings,
   addMailingLog
 } from "./mailing.service.js";
 import { sendMailWithResilience } from "./email.service.js";
 import { getZonedTime } from "../utils/helpers.js";
+import { usesFirebase } from './tracking-context.js';
+import { db } from '../config/firebase.js';
 
 let lastAutoSentKey = '';
 let lastIntervalSentTime = 0;
 let isDispatching = false;
 let isPolling = false;
+let schedulerStarted = false;
+let localAttempt = { key: '', count: 0, notBefore: 0, blocked: false };
 
 export function resetAutoSentKey() {
   lastAutoSentKey = '';
   lastIntervalSentTime = 0;
+  localAttempt = { key: '', count: 0, notBefore: 0, blocked: false };
   console.log("🔄 [Cron Scheduler] Кэш планировщика сброшен (обновлены настройки времени).");
 }
 
@@ -29,18 +34,21 @@ export async function executeMailingDispatch(options: {
   targetSubscriberIds?: string[];
   customEmail?: string;
   triggerSource?: string;
+  warehouseData?: any;
+  beforeSend?: () => Promise<void>;
+  logId?: string;
 }) {
   const { targetSubscriberIds, customEmail, triggerSource = 'automatic' } = options;
 
   // 1. Fetch stock data & generate formatted Excel
-  const warehouseData = await getWarehouseData();
+  const warehouseData = options.warehouseData || await getWarehouseData(true, undefined, { requireFresh: true });
   const excelBuffer = await generateWarehouseExcelBufferAsync(warehouseData);
   
   const dateStr = new Date().toISOString().split('T')[0];
   const attachmentName = `Warehouse_Stock_Report_${dateStr}.xlsx`;
 
   // 2. Recipients
-  let allSubscribers = await getMailingSubscribers();
+  const allSubscribers = await getMailingSubscribers();
   let recipientsToMessage: any[] = [];
 
   if (customEmail) {
@@ -56,9 +64,13 @@ export async function executeMailingDispatch(options: {
   }
 
   if (recipientsToMessage.length === 0) {
+    const error = "Нет активных получателей для отправки рассылки (проверьте галочки 'Активен' в списке получателей).";
+    await addMailingLog({ id: options.logId || `mail-log-${Date.now()}`, timestamp: new Date().toISOString(), status: 'failed', triggerSource, recipientsCount: 0, recipientEmails: [], fileName: attachmentName, fileSize: `${(excelBuffer.length / 1024).toFixed(1)} KB`, errorMessage: error });
     return {
       success: false,
-      error: "Нет активных получателей для отправки рассылки (проверьте галочки 'Активен' в списке получателей)."
+      retryable: false,
+      uncertain: false,
+      error,
     };
   }
 
@@ -67,11 +79,15 @@ export async function executeMailingDispatch(options: {
 
   let sendStatus: 'success' | 'failed' | 'partial' = 'success';
   let errorMsg: string | undefined = undefined;
+  let retryable = false;
+  let uncertain = false;
+  let acceptedEmails: string[] = [];
 
   // 3. Resilient SMTP Send
+  await options.beforeSend?.();
   try {
     const fromHeader = settings.smtpFrom || `"Логистика и Склад (Silk Road)" <${settings.smtpUser || process.env.SMTP_USER || 'ti07kz@gmail.com'}>`;
-    await sendMailWithResilience({
+    const delivery = await sendMailWithResilience({
       from: fromHeader,
       to: recipientEmails.join(', '),
       subject: settings.emailSubject || '📊 Ежедневный отчет: Статус машин и остатки на складах',
@@ -115,28 +131,28 @@ export async function executeMailingDispatch(options: {
         }
       ]
     }, settings);
-    sendStatus = 'success';
+    acceptedEmails = (delivery.info.accepted || []).map((address: any) => String(address?.address || address));
+    const rejected = delivery.info.rejected || [];
+    sendStatus = rejected.length ? (acceptedEmails.length ? 'partial' : 'failed') : 'success';
+    if (rejected.length) errorMsg = `SMTP отклонил ${rejected.length} получателей. Принято: ${acceptedEmails.length}.`;
   } catch (mailErr: any) {
-    console.error("Nodemailer SMTP resilient sending error:", mailErr);
     sendStatus = 'failed';
     errorMsg = mailErr.message || "Ошибка отправки через SMTP сервер";
+    retryable = mailErr.retryable === true;
+    uncertain = mailErr.uncertain !== false && !retryable;
+    if (uncertain) errorMsg = `Результат доставки неизвестен. Проверьте почту перед повтором. ${errorMsg}`;
   }
 
   const nowIso = new Date().toISOString();
-  let updatedSubs = false;
-  allSubscribers = allSubscribers.map(s => {
-    if (recipientEmails.includes(s.email)) {
-      updatedSubs = true;
-      return { ...s, lastSentAt: nowIso };
-    }
-    return s;
-  });
-  if (updatedSubs) {
-    await saveMailingSubscribers(allSubscribers);
+  let warning: string | undefined;
+  try {
+    await markMailingSubscribersSent(allSubscribers.filter(s => acceptedEmails.includes(s.email)), nowIso);
+  } catch {
+    warning = 'Не удалось обновить время отправки у получателей.';
   }
 
   const logEntry = {
-    id: `mail-log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    id: options.logId || `mail-log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     timestamp: nowIso,
     recipientsCount: recipientEmails.length,
     recipientEmails,
@@ -144,20 +160,25 @@ export async function executeMailingDispatch(options: {
     fileName: attachmentName,
     fileSize: `${(excelBuffer.length / 1024).toFixed(1)} KB`,
     triggerSource,
-    errorMessage: errorMsg
+    errorMessage: errorMsg,
+    acceptedEmails,
+    deliveryUncertain: uncertain,
   };
 
-  await addMailingLog(logEntry);
+  try { await addMailingLog(logEntry); }
+  catch { warning = 'Результат отправки не удалось записать в журнал. Не повторяйте письмо без проверки.'; }
 
   return {
-    success: sendStatus !== 'failed',
-    message: sendStatus === 'failed' ? `Ошибка рассылки: ${errorMsg}` : `Файл Excel успешно отправлен ${recipientEmails.length} получателям!`,
-    error: sendStatus === 'failed' ? errorMsg : undefined,
-    log: logEntry
+    success: sendStatus === 'success',
+    message: sendStatus === 'success' ? `SMTP принял письмо для ${acceptedEmails.length} получателей.` : `Ошибка рассылки: ${errorMsg}`,
+    error: errorMsg,
+    retryable, uncertain, warning,
+    log: logEntry,
   };
 }
 
 export function startBackgroundSheetsPolling() {
+  if (usesFirebase()) return; // Firebase is driven only by warehouseMailing's scheduled trigger.
   console.log("📊 [Sheets Poller] Фоновая проверка обновлений Google Таблиц запущена (каждые 60 сек)...");
   setInterval(async () => {
     if (isPolling) return;
@@ -187,6 +208,9 @@ export function startBackgroundSheetsPolling() {
 }
 
 export function startMailingScheduler() {
+  if (usesFirebase()) return;
+  if (schedulerStarted) return;
+  schedulerStarted = true;
   console.log("⏰ [Mailing Scheduler] Автоматическая служба рассылки запущена (проверка каждые 15 сек)...");
   
   setInterval(async () => {
@@ -261,8 +285,7 @@ export function startMailingScheduler() {
       const targetMinutes = (tH || 0) * 60 + (tM || 0);
       const currentMinutes = (cH || 0) * 60 + (cM || 0);
 
-      // Window check: target time reached and not passed by more than 4 mins
-      const inTimeWindow = (currentMinutes >= targetMinutes) && (currentMinutes <= targetMinutes + 4);
+      const inTimeWindow = (currentMinutes >= targetMinutes) && (currentMinutes <= targetMinutes + 90);
       if (!inTimeWindow) {
         return;
       }
@@ -287,30 +310,22 @@ export function startMailingScheduler() {
       if (!shouldSend) {
         return;
       }
+      if (localAttempt.key === sendKey && (localAttempt.blocked || localAttempt.count >= 3 || localAttempt.notBefore > Date.now())) return;
+      localAttempt = { key: sendKey, count: localAttempt.key === sendKey ? localAttempt.count + 1 : 1, notBefore: Date.now() + 5 * 60_000, blocked: false };
 
-      // 🔒 CRITICAL: Lock immediately BEFORE starting async dispatch and persist to prevent concurrent intervals or server restarts from duplicating!
+      // Local process mutex; Firebase uses the durable transaction-based runner.
       isDispatching = true;
-      lastAutoSentKey = sendKey;
-
-      try {
-        await saveMailingSettings({
-          ...settings,
-          lastAutoSentKey: sendKey,
-          lastAutoSentDate: todayDateStr,
-          lastAutoSentTime: normTarget,
-          lastSentTimestamp: new Date().toISOString()
-        });
-      } catch (saveErr) {
-        console.warn("Could not persist auto-send lock:", saveErr);
-      }
 
       console.log(`🚀 [Cron Scheduler] Наступило время рассылки (${normCurrent} по часовому поясу ${tz}). Запуск отправки...`);
 
       try {
         const result = await executeMailingDispatch({ triggerSource: 'automatic' });
         if (result.success) {
+          lastAutoSentKey = sendKey;
+          await saveMailingSettings({ ...await getMailingSettings(), lastAutoSentKey: sendKey, lastAutoSentDate: todayDateStr, lastAutoSentTime: normTarget, lastSentTimestamp: new Date().toISOString() });
           console.log(`✅ [Cron Scheduler] Успешно отправлена авто-рассылка:`, result.message);
         } else {
+          localAttempt.blocked = !result.retryable;
           console.error(`❌ [Cron Scheduler] Ошибка отправки авто-рассылки:`, result.error || result.message);
         }
       } catch (dispatchErr) {
@@ -339,8 +354,15 @@ export async function getSchedulerDiagnostics() {
   const targetMinutes = (tH || 0) * 60 + (tM || 0);
   const currentMinutes = (cH || 0) * 60 + (cM || 0);
   const diffMinutes = targetMinutes - currentMinutes;
+  const state = usesFirebase() ? (await db.doc('mailing_scheduler/warehouse').get()).data() : undefined;
+  const heartbeatAge = state?.lastCheckedAt ? Date.now() - Date.parse(state.lastCheckedAt) : Infinity;
 
   return {
+    executionMode: usesFirebase() ? 'firebase-scheduled' : 'local',
+    schedulerHealthy: usesFirebase() ? heartbeatAge >= 0 && heartbeatAge < 5 * 60000 : schedulerStarted,
+    lastCheckedAt: state?.lastCheckedAt || null,
+    lastRunStatus: state?.lastRunStatus || null,
+    lastError: state?.lastError || null,
     enabled: settings?.enabled ?? true,
     scheduleType: settings?.scheduleType || 'daily',
     sendTime: settings?.sendTime || '09:00',

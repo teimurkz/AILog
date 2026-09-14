@@ -528,7 +528,7 @@ export async function getWarehouseChangeLogs() {
 let cachedWarehouseResult: any = null;
 let lastSyncTimestamp: string = '';
 
-export async function getWarehouseData(forceRefresh = false, onDispatchCallback?: () => void) {
+export async function getWarehouseData(forceRefresh = false, onDispatchCallback?: () => void, options: { requireFresh?: boolean } = {}) {
   const settings = await getMailingSettings();
   const spreadsheetId = (settings?.spreadsheetId || customSpreadsheetId || DEFAULT_SPREADSHEET_ID).trim();
   customSpreadsheetId = spreadsheetId;
@@ -558,6 +558,9 @@ export async function getWarehouseData(forceRefresh = false, onDispatchCallback?
   }
 
   if (!syncSuccess || result.length === 0) {
+    // Mailing must not distribute an incomplete fallback or overwrite the
+    // warehouse snapshot with a failed download. The UI can still use GViz.
+    if (options.requireFresh) throw new Error('Не удалось загрузить полный свежий отчет из Google Таблицы. Отправка отложена.');
     syncMethod = 'gviz_fallback';
     const fallbackSheets = [
       { id: 'trucks_report', name: 'Отчет по машинам', sheetName: 'Отчет по машинам', isArchive: false, isTrucksReport: true },
