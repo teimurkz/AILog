@@ -1,11 +1,15 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Maximize2, Minimize2, LocateFixed, Route } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { splitGpsTrail } from '../../lib/gps-trail';
+import { ExpandableMap } from './ExpandableMap';
 
 export interface LocationPoint {
   lat: number;
   lng: number;
   timestamp?: string;
+  accuracy?: number;
 }
 
 interface LeafletRouteMapProps {
@@ -54,6 +58,8 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const isFirstRenderRef = useRef<boolean>(true);
+  const [trailMode, setTrailMode] = useState<'points' | 'line' | 'hidden'>('points');
+  const trailSegments = useMemo(() => splitGpsTrail(locationHistory || []), [locationHistory]);
 
   // Persistent layer references to prevent re-creating and flickering
   const highwayPolylineRef = useRef<L.Polyline | null>(null);
@@ -181,7 +187,7 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
     if (!mapInstanceRef.current) return;
     const map = mapInstanceRef.current;
 
-    // Strict condition: If no real GPS or tracking is inactive, clean up any marker/trajectory and do not draw truck
+    // Do not display a truck or recorded trail until real GPS has arrived.
     if (!hasRealGps) {
       if (truckMarkerRef.current) {
         map.removeLayer(truckMarkerRef.current);
@@ -197,42 +203,41 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
       return;
     }
 
-    const historyPoints: L.LatLngExpression[] = locationHistory && locationHistory.length > 1
-      ? locationHistory.map(pt => [pt.lat, pt.lng])
+    const historySegments: L.LatLngExpression[][] = trailMode === 'line'
+      ? trailSegments.filter(segment => segment.length > 1).map(segment => segment.map(pt => [pt.lat, pt.lng]))
       : [];
 
-    // A. Update or create driven trajectory line (Green solid line)
-    if (historyPoints.length > 1) {
+    // Each segment is separate: never draw a chord across missing observations.
+    if (historySegments.length) {
       if (!trajectoryPolylineRef.current) {
-        trajectoryPolylineRef.current = L.polyline(historyPoints, {
+        trajectoryPolylineRef.current = L.polyline(historySegments, {
           color: '#10b981',
-          weight: 6,
-          opacity: 0.95,
+          weight: 3,
+          opacity: 0.7,
           lineCap: 'round',
           lineJoin: 'round',
+          interactive: false,
         }).addTo(map);
       } else {
-        trajectoryPolylineRef.current.setLatLngs(historyPoints);
+        trajectoryPolylineRef.current.setLatLngs(historySegments);
       }
     } else if (trajectoryPolylineRef.current) {
       map.removeLayer(trajectoryPolylineRef.current);
       trajectoryPolylineRef.current = null;
     }
 
-    // B. Update breadcrumb dots
+    // Small circles replace the large overlapping marker labels. Line mode
+    // keeps only segment endpoints and isolated observations visible.
     if (dotsGroupRef.current) {
       dotsGroupRef.current.clearLayers();
-      if (historyPoints.length > 1) {
-        historyPoints.forEach((pt, idx) => {
-          if (idx % 2 === 0 || idx === historyPoints.length - 1) {
-            const dotIcon = L.divIcon({
-              className: 'trajectory-dot-icon',
-              html: `<div style="width:8px;height:8px;background:#10b981;border:2px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3);"></div>`,
-              iconSize: [12, 12],
-              iconAnchor: [6, 6]
-            });
-            L.marker(pt, { icon: dotIcon }).addTo(dotsGroupRef.current!);
-          }
+      if (trailMode !== 'hidden') {
+        const points = trailMode === 'points' ? trailSegments.flat() :
+          trailSegments.flatMap(segment => segment.length > 1 ? [segment[0], segment[segment.length - 1]] : segment);
+        points.forEach(pt => {
+          L.circleMarker([pt.lat, pt.lng], {
+            radius: 3, color: '#ffffff', weight: 1, opacity: 0.7,
+            fillColor: '#10b981', fillOpacity: 0.8, interactive: false,
+          }).addTo(dotsGroupRef.current!);
         });
       }
     }
@@ -346,28 +351,36 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
       truckMarkerRef.current.setIcon(icon);
       truckMarkerRef.current.setPopupContent(popupContent);
     }
-  }, [currentLat, currentLng, speed, heading, etaFormatted, locationHistory, waypoints, truckPlate, driverName, lastPingSecondsAgo, signalStatus, signalStatusText, hasRealGps, isTrackingActive]);
+  }, [currentLat, currentLng, speed, heading, etaFormatted, trailSegments, trailMode, waypoints, truckPlate, driverName, lastPingSecondsAgo, signalStatus, signalStatusText, hasRealGps, isTrackingActive]);
+
+  // Resizing the modal, rotating a phone or expanding only the map must not
+  // leave Leaflet's tiles using the old container dimensions.
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const observer = new ResizeObserver(() => mapInstanceRef.current?.invalidateSize({ pan: false }));
+    observer.observe(mapRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   // Recenter map smooth view to truck position
   const handleRecenterTruck = () => {
-    if (mapInstanceRef.current && hasRealGps && isTrackingActive) {
+    if (mapInstanceRef.current && hasRealGps) {
       mapInstanceRef.current.flyTo([currentLat, currentLng], 12, { animate: true, duration: 1 });
     }
   };
 
   // Recenter map view to whole route
   const handleRecenterRoute = () => {
-    if (mapInstanceRef.current && waypoints.length > 1) {
-      const highwayPoints: L.LatLngExpression[] = detailedRoadPolyline && detailedRoadPolyline.length > 0
-        ? detailedRoadPolyline.map(pt => [pt.lat, pt.lng])
-        : waypoints.map(wp => [wp.lat, wp.lng]);
-
-      const polyline = L.polyline(highwayPoints);
-      const bounds = polyline.getBounds();
-      if (hasRealGps && isTrackingActive) {
+    if (mapInstanceRef.current) {
+      const points: L.LatLngExpression[] = [
+        ...(detailedRoadPolyline || []), ...waypoints,
+        ...(hasRealGps ? trailSegments.flat() : []),
+      ].map(pt => [pt.lat, pt.lng]);
+      const bounds = L.latLngBounds(points);
+      if (hasRealGps) {
         bounds.extend([currentLat, currentLng]);
       }
-      mapInstanceRef.current.fitBounds(bounds, { padding: [40, 40] });
+      if (bounds.isValid()) mapInstanceRef.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
     }
   };
 
@@ -387,7 +400,7 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
   }, []);
 
   return (
-    <div className={`relative w-full ${height} rounded-2xl overflow-hidden border border-slate-700 shadow-inner group`}>
+    <ExpandableMap height={height}>{({ expanded, toggleExpanded }) => <>
       {/* CSS for smooth marker transition */}
       <style>{`
         .leaflet-marker-icon.custom-neat-truck-marker {
@@ -395,42 +408,51 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
         }
       `}</style>
 
-      {/* Informative banner when GPS tracking is not active / waiting for real driver Live GPS */}
-      {(!hasRealGps || !isTrackingActive) && (
-        <div className="absolute top-3 left-3 z-[400] max-w-[80%] bg-slate-900/92 backdrop-blur-md text-white px-3.5 py-2.5 rounded-xl border border-amber-500/40 shadow-xl flex items-center gap-2.5 text-xs pointer-events-none">
-          <span className="text-base animate-pulse">🛰️</span>
-          <div>
+      <div className="shrink-0 space-y-1 border-b border-slate-700 bg-slate-900 p-2 text-xs text-slate-200"
+        style={expanded ? { paddingTop: 'max(8px, env(safe-area-inset-top))', paddingLeft: 'max(8px, env(safe-area-inset-left))', paddingRight: 'max(8px, env(safe-area-inset-right))' } : undefined}>
+        <div className="flex flex-wrap items-center gap-1">
+          {hasRealGps && <button type="button" onClick={handleRecenterTruck}
+            className="flex min-h-10 items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 font-semibold text-white hover:bg-emerald-500"
+            title="Сфокусировать карту на местоположении фуры">
+            <LocateFixed size={16} aria-hidden="true" /> Фура
+          </button>}
+          <button type="button" onClick={handleRecenterRoute}
+            className="flex min-h-10 items-center gap-1.5 rounded-lg px-2.5 hover:bg-slate-800">
+            <Route size={16} aria-hidden="true" /> Весь маршрут
+          </button>
+          <button type="button" onClick={toggleExpanded} aria-expanded={expanded}
+            aria-label={expanded ? 'Свернуть карту' : 'Развернуть карту на весь экран'}
+            className="ml-auto flex min-h-10 items-center gap-1.5 rounded-lg bg-slate-700 px-2.5 font-semibold text-white hover:bg-slate-600">
+            {expanded ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}
+            {expanded ? 'Свернуть' : 'Развернуть'}
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Отображение истории GPS">
+          <span className="mr-1 text-slate-400">История:</span>
+          {([['points', 'Точки'], ['line', 'След'], ['hidden', 'Скрыть']] as const).map(([mode, label]) =>
+            <button key={mode} type="button" aria-pressed={trailMode === mode} onClick={() => setTrailMode(mode)}
+              className={`min-h-9 rounded-lg px-3 ${trailMode === mode ? 'bg-emerald-900 text-emerald-200' : 'text-slate-300 hover:bg-slate-800'}`}>
+              {label}
+            </button>)}
+        </div>
+      </div>
+
+      <div className="relative min-h-0 flex-1">
+        {(!hasRealGps || !isTrackingActive) && (
+          <div className="pointer-events-none absolute bottom-7 left-3 right-3 z-[400] rounded-xl border border-amber-500/40 bg-slate-900/90 px-3 py-2 text-xs text-slate-300 shadow-xl">
             <div className="font-bold text-amber-300">
               {signalStatusText || (driverConsent ? 'Ожидание геопозиции водителя' : 'GPS-отслеживание не запущено')}
             </div>
-            <div className="text-[11px] text-slate-300">
-              {hasRealGps ? 'На карте сохранена последняя полученная точка.' : 'Машина появится на карте после отправки геопозиции водителем.'}
-            </div>
+            {hasRealGps ? 'На карте сохранена последняя полученная точка.' : 'Машина появится после отправки геопозиции водителем.'}
           </div>
-        </div>
-      )}
-
-      {/* Floating View Control Tools */}
-      <div className="absolute top-3 right-3 z-[400] flex flex-col gap-1.5 bg-slate-900/90 p-1.5 rounded-xl border border-slate-700 shadow-xl backdrop-blur-md">
-        {hasRealGps && isTrackingActive && (
-          <button
-            onClick={handleRecenterTruck}
-            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-md active:scale-95 cursor-pointer"
-            title="Сфокусировать карту на местоположении фуры"
-          >
-            <span>🎯 Сфокусировать на фуре</span>
-          </button>
         )}
-        <button
-          onClick={handleRecenterRoute}
-          className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
-          title="Показать весь маршрут полностью"
-        >
-          <span>🛣️ Весь маршрут</span>
-        </button>
+        <div ref={mapRef} className="h-full w-full z-10" />
       </div>
-
-      <div ref={mapRef} className="w-full h-full z-10" />
-    </div>
+      <div className="shrink-0 bg-slate-900 px-3 py-1.5 text-[11px] text-slate-400" role="status"
+        style={expanded ? { paddingBottom: 'max(6px, env(safe-area-inset-bottom))' } : undefined}>
+        {trailMode === 'points' ? 'Зелёные точки — полученные координаты GPS.' :
+          trailMode === 'line' ? 'Зелёный след — участки GPS. Пропуски и скачки не соединяются.' : 'История GPS скрыта. Машина и маршрут остаются на карте.'}
+      </div>
+    </>}</ExpandableMap>
   );
 };

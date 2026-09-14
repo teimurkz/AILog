@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "test:crm": "node --import tsx --test tests/crm-data-loading.test.ts",
-    "test:gps": "node --import tsx --test tests/gps-tracking.test.ts",
+    "test:gps": "node --import tsx --test tests/gps-tracking.test.ts tests/gps-trail.test.ts",
     "test:firebase": "node --import tsx --test tests/firebase-tracking.test.ts",
     "test:server": "node --import tsx --test tests/server-startup.test.ts",
     "test:functions": "node --import tsx --test tests/firebase-functions.test.ts",

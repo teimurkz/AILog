@@ -416,7 +416,7 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
                 <p className="text-xs text-slate-500" role="status">
                   {routeData?.routeStatus === 'building' ? 'Строится путь по дорогам от первой GPS-точки машины до города назначения…' :
                     routeData?.routeStatus === 'approximate' ? 'Путь по дорогам временно недоступен. Пунктир показывает ориентировочное направление от старта GPS.' :
-                    routeData?.routeStatus === 'road' ? 'Старт маршрута — первая GPS-точка рейса. Зелёная линия — полученная история движения.' :
+                    routeData?.routeStatus === 'road' ? 'Старт маршрута — первая GPS-точка рейса. Синий пунктир — маршрут до города назначения.' :
                     'Маршрут появится после первой геопозиции машины.'}
                 </p>
 
