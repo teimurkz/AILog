@@ -379,3 +379,52 @@ test('Power Automate bounds MIME size and refuses messages without stable identi
   await assert.rejects(f.service.receivePower(key!, Buffer.from(header + 'Message-ID: <no-files@example.test>\r\n\r\nWaiting for files'), receipt), statusError(503));
   assert.equal((await f.db.collection('shipments').get()).docs.length, 0);
 });
+
+for (const contentType of ['application/octet-stream', 'text/plain; charset=utf-8']) {
+  for (const firebase of [false, true]) {
+    test(`Power Automate imports exported EML sent as ${contentType} (${firebase ? 'Firebase rawBody' : 'Express stream'}) without changing bytes`, async t => {
+      const f = await fixture(), { key } = await f.service.savePowerSettings(settings, 'admin', true);
+      const attachment = Buffer.from([0, 128, 255, 13, 10, 254]);
+      f.files.set('pdf', attachment);
+      const bytes = await exportedEmail(f);
+      const app = express();
+      if (firebase) app.use(express.raw({ type: '*/*' }), (req, _res, next) => {
+        // Cloud Functions has already consumed the stream. text/plain may have
+        // a decoded string body; the untouched original is always in rawBody.
+        (req as any).rawBody = req.body;
+        if (req.is('text/plain')) req.body = req.body.toString('utf8');
+        next();
+      });
+      app.use('/receive', createPowerAutomateReceiver(async () => f.service));
+      const server = http.createServer(app);
+      await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+      t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+      const url = `http://127.0.0.1:${(server.address() as any).port}/receive`;
+      const headers = { 'Content-Type': contentType, 'X-CRM-Ingest-Key': key!, 'X-CRM-Received-At': receipt };
+
+      const unauthorized = await fetch(url, { method: 'POST', headers: { ...headers, 'X-CRM-Ingest-Key': '0'.repeat(64) }, body: bytes });
+      assert.equal(unauthorized.status, 401);
+      const wrongSender = await fetch(url, { method: 'POST', headers, body: await exportedEmail(f, { sender: 'someone@example.test' }) });
+      assert.equal(wrongSender.status, 422);
+      const html = await fetch(url, { method: 'POST', headers, body: '<html>Invoice text without the original email</html>' });
+      assert.equal(html.status, 422);
+      assert.equal(f.savedFiles.size, 0);
+      assert.equal((await f.db.collection('shipments').get()).docs.length, 0);
+
+      const response = await fetch(url, { method: 'POST', headers, body: bytes });
+      const result = await response.json();
+      assert.equal(response.status, 200, JSON.stringify(result));
+      assert.equal(result.status, 'created');
+      const replay = await fetch(url, { method: 'POST', headers, body: bytes });
+      assert.equal(replay.status, 200);
+      assert.equal((await replay.json()).shipmentId, result.shipmentId);
+      const shipments = (await f.db.collection('shipments').get()).docs;
+      assert.equal(shipments.length, 1);
+      assert.equal(shipments[0].data().documents_received_at, receipt);
+      assert.equal(f.savedFiles.size, 3);
+      const original = [...f.savedFiles.entries()].find(([path]) => path.includes('/email-'))![1];
+      assert.deepEqual(original, bytes);
+      assert.ok([...f.savedFiles.values()].some(file => file.equals(attachment)));
+    });
+  }
+}

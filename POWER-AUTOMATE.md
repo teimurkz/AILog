@@ -84,6 +84,13 @@ https://asia-east1-logisticsapp-216d5.cloudfunctions.net/crmApi/api/outlook/powe
 **Body:** select **Body** under **Export email (V2)** in Dynamic content.
 Use the exported binary body, not the HTML Body from the trigger, and do not wrap it in JSON or base64 text.
 
+Microsoft can preserve the export's original media type when forwarding binary
+content. The receiver accepts raw EML with `message/rfc822`,
+`application/octet-stream`, or `text/plain` (including charset parameters).
+All three paths preserve the original bytes and still validate the key, sender,
+received time, message identity, attachments and 25 MB size limit. JSON objects
+and the trigger's HTML body are not substitutes for an exported email.
+
 If expressions are needed, Received Time for the V3 trigger is `triggerBody()?['receivedDateTime']`.
 For the HTTP Body, prefer Dynamic content so the designer inserts the actual action name.
 
@@ -111,7 +118,7 @@ Under HTTP **Settings**:
 | 403 | Receiving is disabled in CRM. |
 | 400 | Missing or invalid X-CRM-Received-At. Choose Received Time from the trigger. |
 | 413 | Original EML exceeds 25 MB. Handle this message manually. |
-| 415 | Set Content-Type to message/rfc822. |
+| 415 | Check the received Content-Type in the error and select Body from Export email (V2). If the error still says only message/rfc822 is allowed, deploy the updated crmApi. |
 | 422 | Sender, invoice or document format needs review. Read the error in CRM. |
 | 429 | Another import is running; retry after one minute. |
 | 503 | Temporary failure. Retry; completed shipments will not duplicate. |
@@ -119,6 +126,22 @@ Under HTTP **Settings**:
 Для исправленного письма или после исправления разбора можно повторно запустить
 неудачную передачу через **Run history → Resubmit**. Неполная загрузка файлов
 не создаёт отправление; новые версии документов дополняют существующее.
+
+При ошибке `415 UnsupportedMediaType`, несмотря на настроенный заголовок
+`message/rfc822`, обновите сервер: прежняя версия отклоняла бинарный экспорт
+Outlook с другим типом содержимого. В Google Cloud Shell из каталога проекта:
+
+```bash
+git pull --ff-only origin main &&
+npm ci &&
+npm --prefix functions ci &&
+firebase deploy --only functions:crm:crmApi --project logisticsapp-216d5
+```
+
+Для этого исправления достаточно публикации `crmApi`. Ключ и настройки
+отправителя остаются прежними. После успешной публикации повторите неудачный
+запуск через **Resubmit**. Если меняли сам поток, сохраните его и проверьте новым
+письмом. Отправитель в CRM должен соответствовать выбранному тестовому письму.
 
 Если Outlook показывает письмо без вложений во время проверки Microsoft Defender,
 Export email нужно выполнить заново после появления документов: повтор одного
@@ -132,4 +155,5 @@ HTTP-запроса передаёт прежний экспорт. CRM в эт�
 Официальные источники:
 [Outlook connector / Export email (V2)](https://learn.microsoft.com/en-us/connectors/office365/),
 [email triggers](https://learn.microsoft.com/en-us/power-automate/email-triggers),
+[content types and binary forwarding](https://learn.microsoft.com/en-us/azure/logic-apps/logic-apps-content-type),
 [Power Automate licensing](https://learn.microsoft.com/en-us/power-platform/admin/powerapps-flow-licensing-faq).
