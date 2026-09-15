@@ -97,8 +97,14 @@ For the HTTP Body, prefer Dynamic content so the designer inserts the actual act
 Under HTTP **Settings**:
 
 - Enable **Secure inputs** and **Secure outputs** to hide the key and documents in run history.
+- Under **Content transfer**, set **Allow chunking: Off**. Send the complete EML in one request (up to 25 MB).
 - Use a bounded retry policy, for example **Fixed interval**, **Count: 4**, **Interval: PT1M**.
 - Set **Asynchronous pattern: Off** if this option is shown; the endpoint returns the final result directly.
+
+**Allow chunking** and **Asynchronous pattern** are different settings. The CRM
+receiver does not implement Microsoft's multi-request upload protocol. With
+chunking enabled, HTTP can first send an empty POST to negotiate the upload,
+before sending the actual email. Turn chunking off for this receiver.
 
 ## 4. Проверка работы
 
@@ -143,6 +149,13 @@ firebase deploy --only functions:crm:crmApi --project logisticsapp-216d5
 запуск через **Resubmit**. Если меняли сам поток, сохраните его и проверьте новым
 письмом. Отправитель в CRM должен соответствовать выбранному тестовому письму.
 
+Если новая ошибка показывает `Content-Type: не указан`, обновлённый сервер уже
+отвечает, но в запросе отсутствует заголовок формата. В **Edit → HTTP → Settings →
+Content transfer** проверьте **Allow chunking: Off**. Затем в **Parameters**
+проверьте заголовок `Content-Type: message/rfc822` и **Body из Export email (V2)**.
+Сохраните поток и выполните новый тест с новым письмом. Для изменения этих
+параметров повторная публикация функции не требуется.
+
 Если Outlook показывает письмо без вложений во время проверки Microsoft Defender,
 Export email нужно выполнить заново после появления документов: повтор одного
 HTTP-запроса передаёт прежний экспорт. CRM в этом случае возвращает 503 и не отмечает письмо завершённым.
@@ -156,4 +169,5 @@ HTTP-запроса передаёт прежний экспорт. CRM в эт�
 [Outlook connector / Export email (V2)](https://learn.microsoft.com/en-us/connectors/office365/),
 [email triggers](https://learn.microsoft.com/en-us/power-automate/email-triggers),
 [content types and binary forwarding](https://learn.microsoft.com/en-us/azure/logic-apps/logic-apps-content-type),
+[HTTP chunking protocol](https://learn.microsoft.com/en-us/azure/logic-apps/logic-apps-handle-large-messages),
 [Power Automate licensing](https://learn.microsoft.com/en-us/power-platform/admin/powerapps-flow-licensing-faq).
