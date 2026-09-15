@@ -248,7 +248,7 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
                 <p className="text-sm font-bold text-slate-900">{shipment.route.split(' - ')[0]}</p>
                 <p className="text-[10px] sm:text-xs text-slate-500">{t('departureDate')}: {format(parseISO(shipment.departure_date), 'MMM d')}</p>
               </div>
-              <div className="flex-1 w-full sm:w-auto px-4 sm:px-8 relative py-4 sm:py-0">
+              <div className="flex-1 w-full sm:w-auto min-h-24 sm:min-h-20 px-4 sm:px-8 relative py-4 sm:py-0">
                 <div className="h-0.5 w-full bg-slate-100 absolute top-10 sm:top-6 left-0" />
                 <div 
                   className={cn("h-0.5 absolute top-10 sm:top-6 left-0 transition-all duration-1000", isDelayed ? 'bg-red-500' : 'bg-blue-600')}

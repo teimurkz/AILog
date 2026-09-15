@@ -446,12 +446,12 @@ export const WarehouseAutoMailing: React.FC = () => {
   return (
     <div className="mailing-page w-full min-w-0 space-y-6">
       {/* Top Banner & Quick Controls */}
-      <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-slate-800 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
+      <div className="crm-page-header relative">
         <div className="absolute top-0 right-0 transform -translate-y-8 w-64 h-64 bg-white/10 rounded-full blur-2xl pointer-events-none" />
         
         <div className="relative z-10 flex min-w-0 flex-col xl:flex-row xl:items-center justify-between gap-6">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/15 backdrop-blur-md rounded-full text-xs font-semibold text-blue-100">
+            <div className="crm-eyebrow inline-flex items-center gap-2 px-3 py-1 bg-white/15 backdrop-blur-md rounded-full text-xs font-semibold text-blue-100">
               <Sparkles className="w-3.5 h-3.5 text-amber-300" />
               <span>Авто-рассылка остатков Google Таблицы (Excel)</span>
             </div>
@@ -467,7 +467,7 @@ export const WarehouseAutoMailing: React.FC = () => {
             <button
               type="button"
               onClick={() => void downloadFirebaseFile('/api/mailing/download-excel', 'warehouse_report.xlsx').catch(error => alert(error.message))}
-              className="px-4 py-2.5 bg-white/15 hover:bg-white/25 text-white font-bold text-xs sm:text-sm rounded-xl transition-all flex items-center gap-2 backdrop-blur-md border border-white/20 shadow-sm"
+              className="crm-button-secondary px-4 py-2.5 font-medium text-sm rounded-xl transition-all flex items-center gap-2 border"
             >
               <Download className="w-4 h-4 text-emerald-300" />
               <span>Скачать свежий Excel</span>
@@ -515,10 +515,10 @@ export const WarehouseAutoMailing: React.FC = () => {
       )}
 
       {/* Master Scheduler Live Status & Toggle Banner */}
-      <div className={`p-5 rounded-2xl border shadow-sm transition-all ${
+      <div className={`crm-service-status p-5 rounded-2xl border shadow-sm transition-all ${
         automaticReady
-          ? 'bg-gradient-to-r from-emerald-950 via-slate-900 to-indigo-950 text-white border-emerald-500/40' 
-          : 'bg-gradient-to-r from-amber-950 via-slate-900 to-slate-900 text-white border-amber-500/40'
+          ? 'bg-emerald-600 text-white border-emerald-500/40'
+          : 'bg-amber-600 text-white border-amber-500/40'
       }`}>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -613,7 +613,7 @@ export const WarehouseAutoMailing: React.FC = () => {
         {diagInfo && <MailingDiagnosticsPanel diagnostics={diagInfo} onClose={() => setDiagInfo(null)} />}
 
         {/* Diagnostic alert if SMTP password missing */}
-        {(!settings.smtpPass && !statusInfo?.hasSmtpPass) && (
+        {(!settings.smtpConfigured && !settings.smtpPass && !statusInfo?.hasSmtpPass) && (
           <div className="mt-4 p-3 bg-rose-950/80 border border-rose-500/40 rounded-xl text-xs text-rose-200 flex items-center gap-2.5">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
             <span>
@@ -762,7 +762,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                 >
                   <div className="flex min-w-0 flex-1 basis-56 items-center gap-3">
                     <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm ${
-                      sub.isActive ? 'bg-gradient-to-br from-blue-500 to-indigo-600' : 'bg-slate-400'
+                      sub.isActive ? 'bg-blue-600' : 'bg-slate-400'
                     }`}>
                       {sub.name ? sub.name.charAt(0).toUpperCase() : sub.email.charAt(0).toUpperCase()}
                     </div>
@@ -1262,8 +1262,8 @@ export const WarehouseAutoMailing: React.FC = () => {
 
       {/* Add / Edit Subscriber Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl border border-slate-200 dark:border-slate-700">
+        <div className="crm-dialog-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div className="crm-dialog bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl border border-slate-200 dark:border-slate-700">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-blue-600" />

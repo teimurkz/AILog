@@ -1,3 +1,4 @@
+import { ResponsiveTable } from '../common/ResponsiveTable';
 import React, { useState, useEffect } from 'react';
 import { 
   Truck, 
@@ -288,7 +289,7 @@ export const RegionalOrders: React.FC = () => {
             initial={{ opacity: 0, y: -20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            className="p-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-2xl shadow-xl flex items-center justify-between border border-emerald-400"
+            className="p-4 bg-emerald-600 text-white rounded-2xl shadow-xl flex items-center justify-between border border-emerald-400"
           >
             <div className="flex items-center gap-3">
               <div className="p-2 bg-white/20 backdrop-blur-md rounded-xl">
@@ -313,7 +314,7 @@ export const RegionalOrders: React.FC = () => {
             initial={{ opacity: 0, y: -20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            className="p-4 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 text-white rounded-2xl shadow-xl flex items-center justify-between border border-amber-300"
+            className="p-4 bg-amber-600 text-white rounded-2xl shadow-xl flex items-center justify-between border border-amber-300"
           >
             <div className="flex items-center gap-3">
               <div className="p-2.5 bg-white/20 backdrop-blur-md rounded-xl animate-bounce">
@@ -350,13 +351,13 @@ export const RegionalOrders: React.FC = () => {
       </AnimatePresence>
 
       {/* Header Controls Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-800 p-6 rounded-3xl border border-slate-200 dark:border-slate-700/60 shadow-sm">
+      <div className="crm-page-header flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-white dark:bg-slate-800 p-6 rounded-3xl border border-slate-200 dark:border-slate-700/60 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="p-3 bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-2xl shadow-md shadow-blue-500/20">
+          <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-md shadow-blue-500/20">
             <Truck className="w-7 h-7" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
                 Заказ машин в регионы
               </h2>
@@ -408,7 +409,7 @@ export const RegionalOrders: React.FC = () => {
           {/* New Order Button */}
           <button
             onClick={() => setIsModalOpen(true)}
-            className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2 active:scale-95"
+            className="px-5 py-2.5 bg-blue-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2 active:scale-95"
           >
             <Plus className="w-4 h-4" />
             <span>+ Заказать фуру в регион</span>
@@ -515,7 +516,7 @@ export const RegionalOrders: React.FC = () => {
           </div>
 
           {/* View Switcher: Table vs Kanban */}
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl self-end md:self-auto">
+          <div className="flex shrink-0 items-center gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl self-end md:self-auto">
             <button
               onClick={() => setViewMode('table')}
               className={`p-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
@@ -596,8 +597,8 @@ export const RegionalOrders: React.FC = () => {
       ) : viewMode === 'table' ? (
         /* TABLE VIEW */
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          <div className="min-w-0">
+            <ResponsiveTable className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-700/60 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                   <th className="py-3.5 px-3 w-10 text-center">
@@ -793,7 +794,7 @@ export const RegionalOrders: React.FC = () => {
 
                       {/* Actions */}
                       <td className="py-3.5 px-4 text-center">
-                        <div className="flex items-center justify-center gap-1">
+                        <div className="flex flex-wrap items-center justify-center gap-1">
                           {isAdmin && <button
                             onClick={() => setSelectedMapOrder(order)}
                             className="px-2 py-1 text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1"
@@ -844,12 +845,12 @@ export const RegionalOrders: React.FC = () => {
                   );
                 })}
               </tbody>
-            </table>
+            </ResponsiveTable>
           </div>
         </div>
       ) : (
         /* KANBAN BOARD VIEW */
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 overflow-x-auto pb-4">
+        <div className="crm-kanban pb-4">
           {(['new', 'assigned', 'loading', 'dispatched', 'delivered'] as RegionalOrderStatus[]).map((st) => {
             const cfg = STATUS_CONFIG[st];
             const columnOrders = filteredOrders.filter(o => o.status === st);
@@ -1007,12 +1008,12 @@ export const RegionalOrders: React.FC = () => {
       {/* Modal 2: View Attached Invoice Document or Digital Spec in Browser */}
       <AnimatePresence>
         {activeInvoicePreview && (
-          <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6">
+          <div className="crm-dialog-overlay fixed inset-0 z-50 overflow-y-auto bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-5xl w-full p-5 sm:p-6 overflow-hidden space-y-4 my-6"
+              className="crm-dialog bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-5xl w-full p-5 sm:p-6 overflow-hidden space-y-4 my-6"
             >
               {/* Header Toolbar */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-700 pb-4">
@@ -1312,12 +1313,12 @@ export const RegionalOrders: React.FC = () => {
       {/* Modal 3: Logistics Management & Truck Assignment Modal */}
       <AnimatePresence>
         {editingOrder && (
-          <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="crm-dialog-overlay fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-lg w-full p-6 space-y-5"
+              className="crm-dialog bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-lg w-full p-6 space-y-5"
             >
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-3">
                 <div className="flex items-center gap-2">
@@ -1451,7 +1452,7 @@ export const RegionalOrders: React.FC = () => {
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.9 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 text-white backdrop-blur-md px-5 py-3 rounded-2xl shadow-2xl border border-slate-700 flex flex-wrap items-center gap-3"
+            className="crm-bulk-actions fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 text-white backdrop-blur-md px-5 py-3 rounded-2xl shadow-2xl border border-slate-700 flex flex-wrap items-center gap-3"
           >
             <div className="flex items-center gap-2 text-xs font-bold border-r border-slate-700 pr-4">
               <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />

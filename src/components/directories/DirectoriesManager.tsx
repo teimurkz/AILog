@@ -115,13 +115,13 @@ export const DirectoriesManager: React.FC = () => {
       {activeTab === 'contacts' && <DataLoadNotice loading={contactsLoading} error={contactsError} onRetry={retryContacts} />}
       {activeTab === 'trucks' && <DataLoadNotice loading={trucksLoading} error={trucksError} onRetry={retryTrucks} />}
       {/* Top Banner Header */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 text-white shadow-xl border border-indigo-900/40 relative overflow-hidden">
+      <div className="crm-page-header relative">
         <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5 mb-2">
-              <div className="p-2 bg-indigo-600/30 border border-indigo-400/30 rounded-xl">
-                <BookOpen className="w-5 h-5 text-indigo-300" />
+              <div className="p-2 bg-blue-50 border border-blue-100 rounded-xl">
+                <BookOpen className="w-5 h-5 text-blue-600" />
               </div>
               <h2 className="text-xl sm:text-2xl font-black tracking-tight">Справочники и базы данных</h2>
             </div>
@@ -153,13 +153,13 @@ export const DirectoriesManager: React.FC = () => {
         </div>
 
         {/* Tab Navigation Switches */}
-        <div className="mt-6 flex flex-wrap gap-2 pt-4 border-t border-indigo-800/50">
+        <div className="mt-6 flex flex-wrap gap-2 pt-4 border-t border-slate-200">
           <button
             onClick={() => { setActiveTab('contacts'); setSearchQuery(''); }}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
               activeTab === 'contacts' 
-                ? 'bg-white text-indigo-950 shadow-md' 
-                : 'bg-indigo-900/40 text-indigo-200 hover:bg-indigo-900/80'
+                ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
             }`}
           >
             <MapPin className="w-4 h-4" />
@@ -170,8 +170,8 @@ export const DirectoriesManager: React.FC = () => {
             onClick={() => { setActiveTab('trucks'); setSearchQuery(''); }}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
               activeTab === 'trucks' 
-                ? 'bg-white text-indigo-950 shadow-md' 
-                : 'bg-indigo-900/40 text-indigo-200 hover:bg-indigo-900/80'
+                ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
             }`}
           >
             <TruckIcon className="w-4 h-4" />
@@ -182,8 +182,8 @@ export const DirectoriesManager: React.FC = () => {
             onClick={() => { setActiveTab('cities'); setSearchQuery(''); }}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
               activeTab === 'cities' 
-                ? 'bg-white text-indigo-950 shadow-md' 
-                : 'bg-indigo-900/40 text-indigo-200 hover:bg-indigo-900/80'
+                ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
             }`}
           >
             <Building2 className="w-4 h-4" />
@@ -311,7 +311,7 @@ export const DirectoriesManager: React.FC = () => {
                   <div>
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-extrabold text-[11px] rounded-lg border border-indigo-200/50 dark:border-indigo-800/50">
+                        <span className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-extrabold text-[11px] rounded-lg border border-indigo-200/50 dark:border-slate-200">
                           {contact.city}
                         </span>
                       </div>
@@ -553,7 +553,7 @@ export const DirectoriesManager: React.FC = () => {
                 className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-sm flex items-center justify-between gap-3"
               >
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl border border-indigo-200/50 dark:border-indigo-800/50 text-indigo-600 dark:text-indigo-400">
+                  <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl border border-indigo-200/50 dark:border-slate-200 text-indigo-600 dark:text-indigo-400">
                     <Navigation className="w-5 h-5" />
                   </div>
                   <div>

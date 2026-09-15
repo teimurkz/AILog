@@ -299,11 +299,11 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         {/* Desktop View */}
-        <div className="hidden lg:block overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[800px]">
+        <div className="hidden xl:block">
+          <table className="w-full text-left border-collapse table-fixed">
             <thead>
               <tr className={cn("bg-slate-50 border-b border-slate-100", isRTL && "flex-row-reverse")}>
-                <th className="px-6 py-4 w-10">
+                <th className="px-3 py-3 w-10">
                   <input 
                     type="checkbox" 
                     checked={selectedIds.size === filtered.length && filtered.length > 0}
@@ -311,11 +311,11 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
                     className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
                 </th>
-                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('orderName')}</th>
-                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('loadingDate')}</th>
-                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('transitTime')}</th>
-                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('customsArrival')}</th>
-                <th className={cn("px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right", isRTL && "text-left")}>{t('shipmentDetails')}</th>
+                <th className={cn("px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('orderName')}</th>
+                <th className={cn("px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('loadingDate')}</th>
+                <th className={cn("px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('transitTime')}</th>
+                <th className={cn("px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider", isRTL && "text-right")}>{t('customsArrival')}</th>
+                <th className={cn("px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right", isRTL && "text-left")}>{t('shipmentDetails')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -339,7 +339,7 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
                         isExpanded && "bg-blue-50/20"
                       )}
                     >
-                      <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                         <input 
                           type="checkbox" 
                           checked={selectedIds.has(s.id)}
@@ -347,7 +347,7 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
                           className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                         />
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-3 py-3">
                         <div className={cn("flex items-center gap-3", isRTL && "flex-row-reverse")}>
                           <div className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center font-bold">
                             <Package className="w-5 h-5" />
@@ -358,13 +358,13 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-sm font-semibold text-slate-700">
+                      <td className="px-3 py-3 text-sm font-semibold text-slate-700">
                         {loadingDateDisplay}
                       </td>
-                      <td className="px-6 py-4 text-sm font-semibold text-slate-700">
+                      <td className="px-3 py-3 text-sm font-semibold text-slate-700">
                         {ttDisplay}
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-3 py-3">
                         {isDelivered ? (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
@@ -382,7 +382,7 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
                           </span>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-2">
                           <button 
                             onClick={() => toggleExpand(s.id)}
@@ -404,7 +404,7 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
                     {/* Expanded Row Details */}
                     {isExpanded && (
                       <tr className="bg-slate-50/50">
-                        <td colSpan={6} className="px-6 py-4">
+                        <td colSpan={6} className="px-3 py-3">
                           <motion.div 
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: 'auto' }}
@@ -495,7 +495,7 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
         </div>
 
         {/* Mobile View */}
-        <div className="lg:hidden divide-y divide-slate-100">
+        <div className="xl:hidden divide-y divide-slate-100">
           {filtered.map((s) => {
             const isExpanded = expandedIds.has(s.id);
             const daysPassed = shipmentDaysPassed(s, now);

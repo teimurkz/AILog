@@ -70,11 +70,11 @@ export const NewShipmentModal = ({ isOpen, onClose }: NewShipmentModalProps) => 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+    <div className="crm-dialog-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden"
+        className="crm-dialog bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden"
       >
         <div className="p-4 sm:p-8 border-b border-slate-100">
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900">{t('newShipment')}</h2>

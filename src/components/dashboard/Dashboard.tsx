@@ -60,8 +60,8 @@ export const Dashboard = ({ shipments, onSelect }: DashboardProps) => {
   stats[5].value = sortedItems.length;
 
   return (
-    <div className="space-y-8">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 sm:gap-6">
+    <div className="space-y-5">
+      <div className="crm-stats crm-stats--dashboard">
         {stats.map((stat, i) => (
           <motion.div
             key={stat.label}
@@ -79,7 +79,7 @@ export const Dashboard = ({ shipments, onSelect }: DashboardProps) => {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <h3 className={cn("text-lg font-bold text-slate-900 mb-6", isRTL && "text-right")}>{t('recentActivity')}</h3>
           <div className="space-y-4">

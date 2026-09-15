@@ -196,13 +196,13 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 15 }}
           className={`bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full overflow-hidden space-y-5 transition-all ${
-            isFullscreen ? 'max-w-none h-[96vh] flex flex-col p-6' : 'max-w-4xl p-5 sm:p-6 my-6'
+            isFullscreen ? 'max-w-none h-[calc(100dvh-16px)] sm:h-[calc(100dvh-32px)] flex flex-col p-3 sm:p-6' : 'max-w-4xl p-5 sm:p-6 my-6'
           }`}
         >
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-700 pb-4 shrink-0">
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-2xl shadow-md shadow-blue-500/20">
+              <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-md shadow-blue-500/20">
                 <Navigation className="w-6 h-6" />
               </div>
               <div>
@@ -279,11 +279,11 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
           {gpsError && <p role="alert" className="text-sm text-rose-600">{gpsError}</p>}
           {activeTab === 'map' ? (
             /* TAB 1: INTERACTIVE ROUTE MAP & ETA CALCULATOR */
-            <div className="space-y-5">
+            <div className={`space-y-5 ${isFullscreen ? 'min-h-0 flex-1 overflow-y-auto' : ''}`}>
               {/* ETA & Live Status Cards Banner */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {/* Distance & ETA */}
-                <div className="p-4 bg-gradient-to-br from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl border border-blue-700/50 shadow-lg relative overflow-hidden">
+                <div className="p-4 bg-blue-600 text-white rounded-2xl border border-blue-700/50 shadow-lg relative overflow-hidden">
                   <div className="absolute right-3 top-3 opacity-10">
                     <Clock className="w-16 h-16 text-blue-300" />
                   </div>
@@ -336,7 +336,7 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
                   <div className="mt-2">
                     <div className="w-full bg-slate-200 dark:bg-slate-700 h-2.5 rounded-full overflow-hidden">
                       <div 
-                        className="bg-gradient-to-r from-blue-500 to-emerald-500 h-full rounded-full transition-all duration-700" 
+                        className="bg-blue-600 h-full rounded-full transition-all duration-700"
                         style={{ width: `${routeData?.progressPercent ?? 0}%` }}
                       />
                     </div>
@@ -353,13 +353,13 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
 
               {/* Real OpenStreetMap (Leaflet) Interactive Map Container */}
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200">
                     <Navigation className="w-4 h-4 text-blue-500" />
                     <span>Интерактивная карта OpenStreetMap (Трасса Казахстан)</span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <a
                       href={whatsappShareUrl}
                       target="_blank"
@@ -407,7 +407,7 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
                   lastPingSecondsAgo={lastPingAge ?? 0}
                   signalStatus={routeData?.signalStatus}
                   signalStatusText={routeData?.signalStatusText}
-                  height={isFullscreen ? "h-[calc(96vh-320px)] min-h-[480px]" : "h-[380px]"}
+                  height={isFullscreen ? "h-[60dvh] min-h-[320px]" : "h-[380px]"}
                   hasRealGps={routeData?.hasRealGps}
                   isTrackingActive={routeData?.isTrackingActive}
                   driverConsent={routeData?.driverConsent}
@@ -451,7 +451,7 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
               </div>
             </div>
           ) : (
-            <div className="space-y-4 text-sm text-slate-700 dark:text-slate-200">
+            <div className={`space-y-4 text-sm text-slate-700 dark:text-slate-200 ${isFullscreen ? 'min-h-0 flex-1 overflow-y-auto' : ''}`}>
               <div className="rounded-2xl bg-blue-50 dark:bg-slate-900 p-5 space-y-3">
                 <h4 className="font-bold">Отслеживание через Telegram @{botUsername}</h4>
                 <ol className="list-decimal pl-5 space-y-2">

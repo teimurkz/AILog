@@ -45,6 +45,11 @@ export const MainAppContent = () => {
 
   const isRegionalOnly = isRegionalManager && !isAdmin;
   const currentTab = isRegionalOnly && activeTab !== 'directories' ? 'regional-orders' : activeTab;
+  const pageTitle = t((({
+    'regional-orders': 'regionalOrders', 'auto-mailing': 'autoMailing',
+    'analytics-reports': 'analyticsReports', 'kusto-stock-expiry': 'kustoStockExpiry',
+    'stamp-scans': 'stampOnScans', 'admin-tools': 'adminPanel',
+  } as Record<string, string>)[currentTab] || currentTab) as any);
 
   React.useEffect(() => {
     if (isRegionalOnly && activeTab !== 'regional-orders' && activeTab !== 'directories') {
@@ -64,7 +69,7 @@ export const MainAppContent = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col relative antialiased selection:bg-blue-100 selection:text-blue-900">
+    <div className="crm-app min-h-screen text-slate-900 flex flex-col relative antialiased selection:bg-blue-100 selection:text-blue-900">
       <Sidebar 
         activeTab={currentTab} 
         setActiveTab={(t) => { setActiveTab(t); setSelectedShipment(null); }} 
@@ -84,7 +89,7 @@ export const MainAppContent = () => {
           </button>
           <div className="flex flex-col">
             <span className="text-xs font-bold text-slate-900 leading-tight truncate max-w-[190px] sm:max-w-xs">
-              {t(currentTab as any) || currentTab}
+              {pageTitle}
             </span>
             <span className="text-[10px] text-slate-500">Silk Road Logistics</span>
           </div>
@@ -102,12 +107,12 @@ export const MainAppContent = () => {
         "flex-1 min-w-0 transition-all duration-300 flex flex-col",
         isRTL ? "lg:mr-64" : "lg:ml-64"
       )}>
-        <div className="flex-1 w-full max-w-[1700px] mx-auto p-3.5 sm:p-5 md:p-6 lg:p-8 space-y-6">
+        <div className="crm-content flex-1 w-full max-w-[1856px] mx-auto p-3 sm:p-5 lg:p-6 space-y-5">
           {/* Desktop & Tablet Header */}
-          <header className={cn("hidden lg:flex items-center justify-between gap-4 pb-2 border-b border-slate-200/60", isRTL && "flex-row-reverse")}>
+          <header className={cn("hidden lg:flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-slate-200", isRTL && "flex-row-reverse")}>
             <div className={isRTL ? "text-right" : "text-left"}>
-              <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
-                {t(currentTab as any) || currentTab}
+              <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+                {pageTitle}
               </h1>
               <p className="text-sm text-slate-500 mt-0.5">{t('controlCenter')}</p>
             </div>
@@ -145,9 +150,9 @@ export const MainAppContent = () => {
           <AnimatePresence mode="wait">
             <motion.div
               key={selectedShipment ? 'details' : currentTab}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
               className="w-full min-w-0"
             >

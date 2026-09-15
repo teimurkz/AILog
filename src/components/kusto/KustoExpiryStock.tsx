@@ -1,3 +1,4 @@
+import { ResponsiveTable } from '../common/ResponsiveTable';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   FileSpreadsheet, 
@@ -1382,24 +1383,24 @@ export const KustoExpiryStock: React.FC = () => {
   return (
     <div className="space-y-6 pb-12">
       {/* Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden">
+      <div className="crm-page-header relative">
         <div className="absolute top-0 right-0 -mt-8 -mr-8 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 backdrop-blur-md rounded-full text-xs font-semibold text-indigo-200 mb-3">
+            <div className="crm-eyebrow inline-flex items-center gap-2 px-3 py-1 bg-white/10 backdrop-blur-md rounded-full text-xs font-semibold text-slate-600 mb-3">
               <Calendar className="w-3.5 h-3.5" />
               <span>Склады КУСТО — Отчет по остаткам и срокам годности</span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
               Остатки по срокам КУСТО
             </h2>
-            <p className="text-slate-300 text-sm mt-1 max-w-2xl">
+            <p className="text-slate-600 text-sm mt-1 max-w-2xl">
               Точный импорт и мониторинг отчетов WMS/1C: артикул, наименование, партия, сроки годности и коммерциализации, статусы стока (N, A, B, H, E).
             </p>
             {reportDateInfo && (
-              <div className="inline-flex items-center gap-1.5 mt-2.5 text-xs text-indigo-200 bg-indigo-950/60 px-2.5 py-1 rounded-lg border border-indigo-800/50">
-                <Clock className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Дата формирования отчета: <strong className="text-white">{reportDateInfo}</strong></span>
+              <div className="inline-flex items-center gap-1.5 mt-2.5 text-xs text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                <Clock className="w-3.5 h-3.5 text-blue-600" />
+                <span>Дата формирования отчета: <strong className="text-slate-900">{reportDateInfo}</strong></span>
               </div>
             )}
           </div>
@@ -1417,7 +1418,7 @@ export const KustoExpiryStock: React.FC = () => {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading}
-              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-2 cursor-pointer"
+              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-2 cursor-pointer"
             >
               <Upload className="w-4 h-4" />
               <span>{isUploading ? 'Импорт файла...' : 'Загрузить отчет (.xlsx)'}</span>
@@ -1455,15 +1456,15 @@ export const KustoExpiryStock: React.FC = () => {
                 setIsMappingModalOpen(true);
               }}
               title="Настройка соответствия колонок из Excel"
-              className="px-4 py-2.5 bg-slate-800/90 hover:bg-slate-700 text-indigo-200 border border-indigo-500/30 font-bold text-sm rounded-xl transition-all flex items-center gap-2 cursor-pointer"
+              className="px-4 py-2.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-indigo-500/30 font-bold text-sm rounded-xl transition-all flex items-center gap-2 cursor-pointer"
             >
-              <SlidersHorizontal className="w-4 h-4 text-indigo-400" />
+              <SlidersHorizontal className="w-4 h-4 text-blue-600" />
               <span>Настройка колонок</span>
             </button>
 
             <button
               onClick={handleExportExcel}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-sm rounded-xl transition-all flex items-center gap-2 cursor-pointer"
+              className="px-4 py-2.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 font-bold text-sm rounded-xl transition-all flex items-center gap-2 cursor-pointer"
             >
               <Download className="w-4 h-4" />
               <span>Экспорт отчета</span>
@@ -1472,7 +1473,7 @@ export const KustoExpiryStock: React.FC = () => {
             <button
               onClick={handleResetData}
               title="Сбросить к исходному отчету"
-              className="p-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 rounded-xl transition-colors cursor-pointer"
+              className="p-2.5 bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-900 border border-slate-200 rounded-xl transition-colors cursor-pointer"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
@@ -1480,23 +1481,23 @@ export const KustoExpiryStock: React.FC = () => {
         </div>
 
         {/* File & Mapping Status Bar */}
-        <div className="mt-4 pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-300">
+        <div className="mt-4 pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
           <span className="flex items-center gap-2">
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
             <span>
               {fileName ? (
-                <>Загруженный файл: <strong className="text-white">{fileName}</strong></>
+                <>Загруженный файл: <strong className="text-slate-900">{fileName}</strong></>
               ) : (
                 'Используется базовый отчет остатков КУСТО'
               )}
             </span>
           </span>
           
-          <div className="flex items-center gap-3 text-slate-400">
-            <span>Всего позиций в таблице: <strong className="text-white">{items.length}</strong></span>
+          <div className="flex items-center gap-3 text-slate-500">
+            <span>Всего позиций в таблице: <strong className="text-slate-900">{items.length}</strong></span>
             <button
               onClick={() => setIsMappingModalOpen(true)}
-              className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold underline cursor-pointer"
+              className="text-xs text-blue-600 hover:text-indigo-300 font-semibold underline cursor-pointer"
             >
               ⚙️ Проверить сопоставление полей
             </button>
@@ -1527,7 +1528,7 @@ export const KustoExpiryStock: React.FC = () => {
       </div>
 
       {/* KPI Cards Overview */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3.5">
+      <div className="crm-stats">
         {/* Total Free Stock Card */}
         <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1.5">
@@ -1641,7 +1642,7 @@ export const KustoExpiryStock: React.FC = () => {
 
       {/* Filter and Control Toolbar */}
       <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700 shadow-sm space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+        <div className="crm-filters">
           {/* Search Input */}
           <div className="relative sm:col-span-2">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1740,8 +1741,8 @@ export const KustoExpiryStock: React.FC = () => {
 
       {/* Main 16-Column Excel Data Table */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto momentum-scroll custom-scrollbar max-h-[700px]">
-          <table className="w-full text-left text-xs border-collapse min-w-[1200px]">
+        <div className="min-w-0 overflow-y-auto custom-scrollbar max-h-[700px]">
+          <ResponsiveTable wide className="w-full text-left text-xs border-collapse">
             <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-900/95 backdrop-blur-md text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 text-[11px]">
               <tr>
                 <th className="px-3 py-3 w-8 text-center">№</th>
@@ -1864,7 +1865,7 @@ export const KustoExpiryStock: React.FC = () => {
                 </tr>
               </tfoot>
             )}
-          </table>
+          </ResponsiveTable>
         </div>
       </div>
 
@@ -1948,8 +1949,8 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div className="crm-dialog-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
+      <div className="crm-dialog bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         
         {/* Modal Header */}
         <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-900/50">
@@ -2066,8 +2067,8 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
                 <Eye className="w-4 h-4 text-indigo-500" />
                 Предпросмотр данных с текущим сопоставлением (первые 2 строки):
               </div>
-              <div className="overflow-x-auto text-xs">
-                <table className="w-full border-collapse">
+              <div className="min-w-0 text-xs">
+                <ResponsiveTable wide className="w-full border-collapse">
                   <thead>
                     <tr className="bg-slate-200 dark:bg-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">
                       <th className="p-2">Артикул</th>
@@ -2092,7 +2093,7 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </ResponsiveTable>
               </div>
             </div>
           )}

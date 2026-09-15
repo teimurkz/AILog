@@ -1,3 +1,4 @@
+import { ResponsiveTable } from '../common/ResponsiveTable';
 import { firebaseFetch, downloadFirebaseFile } from '../../services/firebase-fetch';
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
@@ -162,12 +163,12 @@ export const AnalyticsReports: React.FC = () => {
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Top Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden border border-slate-800">
+      <div className="crm-page-header relative">
         <div className="absolute top-0 right-0 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
         
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-500/20 rounded-full text-xs font-semibold text-blue-300 border border-blue-400/20">
+            <div className="crm-eyebrow inline-flex items-center gap-2 px-3 py-1 bg-blue-500/20 rounded-full text-xs font-semibold text-blue-300 border border-blue-400/20">
               <BarChart3 className="w-3.5 h-3.5 text-blue-400" />
               <span>Центр аналитики и отчётности</span>
             </div>
@@ -413,8 +414,8 @@ export const AnalyticsReports: React.FC = () => {
             <p className="text-xs text-emerald-600/80">Задержек по транспортировке из Ирана в Алматы на данный момент не выявлено.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="min-w-0">
+            <ResponsiveTable className="w-full text-left text-xs">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 font-semibold border-b border-slate-200 dark:border-slate-700">
                   <th className="py-2.5 px-3">Инвойс / Счет</th>
@@ -458,7 +459,7 @@ export const AnalyticsReports: React.FC = () => {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ResponsiveTable>
           </div>
         )}
       </div>

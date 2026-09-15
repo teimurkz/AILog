@@ -54,7 +54,7 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
       { id: 'directories', icon: BookOpen, label: t('directories') },
     ];
   } else if (isAdmin) {
-    menuItems.push({ id: 'admin-tools', icon: Shield, label: 'Admin Panel' });
+    menuItems.push({ id: 'admin-tools', icon: Shield, label: t('adminPanel') });
   }
 
   const languages: { id: Language; label: string; flag: string }[] = [
@@ -67,6 +67,13 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
     setActiveTab(id);
     if (window.innerWidth < 1024) onClose();
   };
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [isOpen, onClose]);
 
   return (
     <>
@@ -81,9 +88,9 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
       />
 
       <aside className={cn(
-        "w-64 bg-slate-900 text-slate-300 flex flex-col h-full max-h-screen fixed top-0 bottom-0 z-50 transition-transform duration-300 ease-in-out lg:translate-x-0 shadow-2xl border-r border-slate-800/80",
+        "crm-sidebar w-64 max-w-[calc(100vw-40px)] bg-slate-900 text-slate-300 flex flex-col h-dvh fixed top-0 bottom-0 z-50 transition-transform duration-300 ease-in-out lg:translate-x-0 border-r border-slate-800/80 lg:visible",
         isRTL ? "right-0" : "left-0",
-        isOpen ? "translate-x-0" : (isRTL ? "translate-x-full" : "-translate-x-full")
+        isOpen ? "translate-x-0 visible" : (isRTL ? "translate-x-full invisible" : "-translate-x-full invisible")
       )}>
         {/* Sidebar Header */}
         <div className="p-4 sm:p-5 flex items-center justify-between border-b border-slate-800/80 shrink-0 bg-slate-950/40">
@@ -113,6 +120,8 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
             {menuItems.map((item) => (
               <button
                 key={item.id}
+                aria-current={activeTab === item.id ? 'page' : undefined}
+                title={item.label}
                 onClick={() => handleTabClick(item.id)}
                 className={cn(
                   "w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-150 text-left text-sm font-medium",
@@ -123,7 +132,7 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
                 )}
               >
                 <item.icon className={cn("w-4 h-4 shrink-0", activeTab === item.id ? "text-white" : "text-slate-400")} />
-                <span className="truncate">{item.label}</span>
+                <span className="min-w-0 leading-snug">{item.label}</span>
               </button>
             ))}
           </div>

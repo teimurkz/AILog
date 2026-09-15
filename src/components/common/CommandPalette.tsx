@@ -40,11 +40,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
   }, [isOpen, onClose]);
 
   const navItems = [
-    { id: 'regional', title: 'Региональные рейсы (Астана, Шымкент)', icon: Truck, category: 'Навигация' },
+    { id: 'regional-orders', title: 'Региональные рейсы (Астана, Шымкент)', icon: Truck, category: 'Навигация' },
     { id: 'shipments', title: 'Складской учет и статусы авто', icon: Building2, category: 'Навигация' },
-    { id: 'stamps', title: 'Печать и штампы на PDF / Сканы', icon: Stamp, category: 'Инструменты' },
-    { id: 'automailing', title: 'Авто-рассылка отчетов Excel', icon: Mail, category: 'Инструменты' },
-    { id: 'analytics', title: 'Аналитика и сводные отчеты', icon: FileSpreadsheet, category: 'Аналитика' },
+    { id: 'stamp-scans', title: 'Печать и штампы на PDF / Сканы', icon: Stamp, category: 'Инструменты' },
+    { id: 'auto-mailing', title: 'Авто-рассылка отчетов Excel', icon: Mail, category: 'Инструменты' },
+    { id: 'analytics-reports', title: 'Аналитика и сводные отчеты', icon: FileSpreadsheet, category: 'Аналитика' },
     { id: 'directories', title: 'Справочники (Водители, Клиенты)', icon: User, category: 'Настройки' },
   ];
 
@@ -57,12 +57,12 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[9999] bg-slate-900/80 backdrop-blur-md flex items-start justify-center pt-16 sm:pt-24 px-4 overflow-y-auto">
+      <div className="crm-dialog-overlay fixed inset-0 z-[9999] bg-slate-900/80 backdrop-blur-md flex items-start justify-center pt-16 sm:pt-24 px-4 overflow-y-auto">
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: -10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: -10 }}
-          className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-xl w-full overflow-hidden space-y-0"
+          className="crm-dialog bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-xl w-full overflow-hidden space-y-0"
         >
           {/* Header Input */}
           <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center gap-3">

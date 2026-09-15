@@ -1,3 +1,4 @@
+import { ResponsiveTable } from '../common/ResponsiveTable';
 import React, { useState, useMemo } from 'react';
 import {
   FileSpreadsheet,
@@ -463,8 +464,8 @@ export const WarehouseChangeLogs: React.FC<WarehouseChangeLogsProps> = ({
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-slate-700 dark:text-slate-300">
+          <div className="min-w-0">
+            <ResponsiveTable className="w-full text-left text-sm text-slate-700 dark:text-slate-300">
               <thead className="bg-slate-50 dark:bg-slate-900/80 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                 <tr>
                   <th className="px-4 py-3.5">Дата / Время</th>
@@ -596,7 +597,7 @@ export const WarehouseChangeLogs: React.FC<WarehouseChangeLogsProps> = ({
                   );
                 })}
               </tbody>
-            </table>
+            </ResponsiveTable>
           </div>
         )}
       </div>

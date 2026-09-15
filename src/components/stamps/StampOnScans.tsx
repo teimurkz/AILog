@@ -484,11 +484,11 @@ export const StampOnScans = () => {
   return (
     <div className="space-y-6">
       {/* Top Banner Header */}
-      <div className="bg-gradient-to-r from-blue-900 via-slate-900 to-indigo-900 text-white p-6 sm:p-8 rounded-3xl shadow-xl relative overflow-hidden">
+      <div className="crm-page-header relative">
         <div className="absolute top-0 right-0 -mt-8 -mr-8 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-xs font-bold uppercase tracking-wider mb-3 backdrop-blur-sm border border-blue-400/20">
+            <div className="crm-eyebrow inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-xs font-bold uppercase tracking-wider mb-3 backdrop-blur-sm border border-blue-400/20">
               <Sparkles className="w-3.5 h-3.5" />
               <span>{t('pdfStampingTool')}</span>
             </div>
@@ -522,10 +522,10 @@ export const StampOnScans = () => {
       )}
 
       {/* Main Grid: Left Side (Stamp & Settings) + Right Side (PDF Preview & Canvas) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         
         {/* LEFT COLUMN: 1. Sample Stamps Manager & 2. PDF Upload / Page Selectors */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="xl:col-span-5 space-y-6">
           
           {/* 1. SAVED STAMPS MANAGER */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
@@ -942,7 +942,7 @@ export const StampOnScans = () => {
               type="button"
               onClick={handleProcessPdf}
               disabled={isProcessing || !pdfFile || !selectedStampId}
-              className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 text-white font-extrabold text-sm rounded-2xl shadow-lg shadow-blue-600/25 flex items-center justify-center gap-2 transition-all"
+              className="w-full py-4 bg-blue-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 text-white font-extrabold text-sm rounded-2xl shadow-lg shadow-blue-600/25 flex items-center justify-center gap-2 transition-all"
             >
               {isProcessing ? (
                 <>
@@ -960,7 +960,7 @@ export const StampOnScans = () => {
         </div>
 
         {/* RIGHT COLUMN: Interactive Document Canvas Preview */}
-        <div className="lg:col-span-7 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col">
+        <div className="xl:col-span-7 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
               <Eye className="w-5 h-5 text-blue-600" />

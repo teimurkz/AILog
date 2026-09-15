@@ -1,3 +1,4 @@
+import { ResponsiveTable } from '../common/ResponsiveTable';
 import { firebaseFetch } from '../../services/firebase-fetch';
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
@@ -384,14 +385,14 @@ export const WarehouseInventory: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header Banner */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700/60 transition-all">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center space-x-4 space-x-reverse">
+      <div className="crm-page-header">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
             <div className="p-3.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-xl">
               <WarehouseIcon className="w-8 h-8" />
             </div>
             <div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
                   {t('warehousesTitle')}
                 </h1>
@@ -489,7 +490,7 @@ export const WarehouseInventory: React.FC = () => {
         <>
           {/* Primary KPI Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm flex items-center space-x-4 space-x-reverse">
+        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm flex items-center gap-4">
           <div className="p-3 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-xl">
             <Building2 className="w-6 h-6" />
           </div>
@@ -503,7 +504,7 @@ export const WarehouseInventory: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm flex items-center space-x-4 space-x-reverse">
+        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm flex items-center gap-4">
           <div className="p-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl">
             <Package className="w-6 h-6" />
           </div>
@@ -517,7 +518,7 @@ export const WarehouseInventory: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm flex items-center space-x-4 space-x-reverse">
+        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm flex items-center gap-4">
           <div className="p-3 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-xl">
             <Layers className="w-6 h-6" />
           </div>
@@ -531,7 +532,7 @@ export const WarehouseInventory: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm flex items-center space-x-4 space-x-reverse">
+        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm flex items-center gap-4">
           <div className="p-3 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-xl">
             <CheckCircle2 className="w-6 h-6" />
           </div>
@@ -825,7 +826,7 @@ export const WarehouseInventory: React.FC = () => {
 
         {/* Filters and Search Control Bar */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-700/60 bg-white dark:bg-slate-800 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+          <div className="crm-filters">
             {/* Search Input */}
             <div className="relative lg:col-span-2">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -998,8 +999,8 @@ export const WarehouseInventory: React.FC = () => {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto momentum-scroll custom-scrollbar">
-                <table className="w-full text-left border-collapse min-w-[850px]">
+              <div className="min-w-0 custom-scrollbar">
+                <ResponsiveTable className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700/60 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                       <th className="py-3.5 px-4 w-12 text-center">№</th>
@@ -1124,7 +1125,7 @@ export const WarehouseInventory: React.FC = () => {
                       );
                     })}
                   </tbody>
-                </table>
+                </ResponsiveTable>
               </div>
             )}
           </>

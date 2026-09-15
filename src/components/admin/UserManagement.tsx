@@ -1,3 +1,4 @@
+import { ResponsiveTable } from '../common/ResponsiveTable';
 import React from 'react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { UserProfile } from '../../types';
@@ -52,8 +53,8 @@ export const UserManagement = () => {
             <p className="text-slate-400 text-sm mt-1">Make sure other users have logged in at least once.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[600px]">
+          <div className="min-w-0">
+            <ResponsiveTable className="w-full text-left border-collapse">
               <thead>
                 <tr className={cn("bg-slate-50", isRTL && "text-right")}>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">User</th>
@@ -116,7 +117,7 @@ export const UserManagement = () => {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ResponsiveTable>
           </div>
         )}
       </div>

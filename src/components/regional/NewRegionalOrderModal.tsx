@@ -368,15 +368,15 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
+    <div className="crm-dialog-overlay fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 15 }}
-        className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-3xl overflow-hidden my-6"
+        className="crm-dialog bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-3xl overflow-hidden my-6"
       >
         {/* Modal Header */}
-        <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 p-5 sm:p-6 text-white flex items-center justify-between">
+        <div className="bg-blue-600 p-5 sm:p-6 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-white/20 backdrop-blur-md rounded-2xl">
               <Truck className="w-7 h-7 text-white" />
@@ -844,7 +844,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-6 py-2.5 text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl shadow-lg shadow-blue-500/25 transition-all flex items-center gap-2 disabled:opacity-50"
+              className="px-6 py-2.5 text-xs font-bold text-white bg-blue-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl shadow-lg shadow-blue-500/25 transition-all flex items-center gap-2 disabled:opacity-50"
             >
               <Truck className="w-4 h-4" />
               <span>{isSubmitting ? 'Размещение...' : '🚀 Разместить заявку на фуру'}</span>

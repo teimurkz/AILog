@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:layout": "node --import tsx --test tests/responsive-table.test.tsx",
     "test:outlook": "node --import tsx --test tests/outlook-import.test.ts",
     "test:mailing": "node --import tsx --test tests/mailing-scheduler.test.ts tests/mailing-storage.test.ts tests/mailing-diagnostics.test.tsx",
     "test:crm": "node --import tsx --test tests/crm-data-loading.test.ts",
