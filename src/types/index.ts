@@ -26,6 +26,12 @@ export interface Shipment {
   status: ShipmentStatus;
   status_message?: string;
   documents_url: string[]; // Links to Firebase Storage
+  mail_documents?: import('../../shared/outlook-import').MailDocument[];
+  source_email_urls?: string[];
+  documents_received_at?: string;
+  transit_start_source?: 'email';
+  commercial_invoice_number?: string;
+  invoice_date?: string;
   last_updated: string;
   createdBy: string;
   items: string[];

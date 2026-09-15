@@ -14,7 +14,7 @@ import {
   Clock,
   FileSpreadsheet
 } from 'lucide-react';
-import { differenceInDays, parseISO, format } from 'date-fns';
+import { parseISO, format } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { Shipment, ShipmentStatus } from '../../types';
@@ -22,6 +22,9 @@ import { cn } from '../../lib/utils';
 import { shipmentsApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { ExcelImport } from '../admin/ExcelImport';
+import { OutlookImport } from './OutlookImport';
+import { shipmentDaysPassed } from '../../utils/shipmentUtils';
+import { useMinuteClock } from '../../hooks/useMinuteClock';
 
 interface ShipmentListProps {
   shipments: Shipment[];
@@ -33,6 +36,7 @@ interface ShipmentListProps {
 export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: ShipmentListProps) => {
   const { t, isRTL } = useLanguage();
   const { isAdmin, isLogistics } = useAuth();
+  const now = useMinuteClock();
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'invoiceAsc' | 'invoiceDesc' | 'departureDate' | 'itemsAsc' | 'itemsDesc'>('newest');
   const [statusFilter, setStatusFilter] = useState<ShipmentStatus | 'All'>('All');
@@ -43,6 +47,7 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
   const [showBulkDeliverConfirm, setShowBulkDeliverConfirm] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [showExcelImport, setShowExcelImport] = useState(false);
+  const [showOutlookImport, setShowOutlookImport] = useState(false);
 
   const toggleExpand = (id: string) => {
     const next = new Set(expandedIds);
@@ -252,6 +257,8 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
           )}
           {!filterStatus && isLogistics && (
             <>
+              {isAdmin && <button onClick={() => setShowOutlookImport(!showOutlookImport)} aria-expanded={showOutlookImport}
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 text-blue-700 font-semibold rounded-xl hover:bg-blue-100">Почта Outlook</button>}
               <button 
                 onClick={() => setShowExcelImport(!showExcelImport)}
                 className={cn(
@@ -276,6 +283,7 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
         </div>
       </div>
 
+      {showOutlookImport && isAdmin && <OutlookImport onOpenShipment={id => { const shipment = shipments.find(item => item.id === id); if (shipment) onSelect(shipment); }} />}
       <AnimatePresence>
         {showExcelImport && (
           <motion.div
@@ -313,9 +321,9 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
             <tbody className="divide-y divide-slate-100">
               {filtered.map((s) => {
                 const isExpanded = expandedIds.has(s.id);
-                const daysPassed = differenceInDays(new Date(), parseISO(s.departure_date));
+                const daysPassed = shipmentDaysPassed(s, now);
                 const loadingDateDisplay = s.loading_date || (s.departure_date ? format(parseISO(s.departure_date), 'dd.MM.yyyy') : '-');
-                const ttDisplay = s.transit_time ? `${s.transit_time} дн.` : `${daysPassed} дн.`;
+                const ttDisplay = s.transit_time ? `${s.transit_time} дн.` : `${daysPassed ?? '—'} дн.`;
                 
                 const hasCustomsArrival = !!s.customs_arrival_date || s.status === 'Customs' || !!s.customs_date;
                 const isDelivered = s.status === 'Delivered' || !!s.unl_date || !!s.actual_arrival_date;
@@ -468,7 +476,7 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
                               </div>
                               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('transitTime')}</p>
-                                <p className="text-xs font-bold text-slate-800 mt-0.5">{s.transit_time ? `${s.transit_time} ${t('days')}` : `${daysPassed} ${t('days')}`}</p>
+                                <p className="text-xs font-bold text-slate-800 mt-0.5">{s.transit_time ? `${s.transit_time} ${t('days')}` : `${daysPassed ?? '—'} ${t('days')}`}</p>
                               </div>
                               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('currentStatus')}</p>
@@ -490,9 +498,9 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
         <div className="lg:hidden divide-y divide-slate-100">
           {filtered.map((s) => {
             const isExpanded = expandedIds.has(s.id);
-            const daysPassed = differenceInDays(new Date(), parseISO(s.departure_date));
+            const daysPassed = shipmentDaysPassed(s, now);
             const loadingDateDisplay = s.loading_date || (s.departure_date ? format(parseISO(s.departure_date), 'dd.MM.yyyy') : '-');
-            const ttDisplay = s.transit_time ? `${s.transit_time} дн.` : `${daysPassed} дн.`;
+            const ttDisplay = s.transit_time ? `${s.transit_time} дн.` : `${daysPassed ?? '—'} дн.`;
             const hasCustomsArrival = !!s.customs_arrival_date || s.status === 'Customs' || !!s.customs_date;
             const isDelivered = s.status === 'Delivered' || !!s.unl_date || !!s.actual_arrival_date;
 

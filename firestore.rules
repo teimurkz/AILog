@@ -85,6 +85,18 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // OAuth tokens, device codes and import checkpoints are server-only,
+    // including for the CRM administrator. The API exposes a safe status DTO.
+    match /outlook_private/{document=**} {
+      allow read, write: if false;
+    }
+    match /outlook_imports/{document=**} {
+      allow read, write: if false;
+    }
+    match /outlook_invoice_index/{document=**} {
+      allow read, write: if false;
+    }
+
     match /saved_delivery_contacts/{contactId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated();

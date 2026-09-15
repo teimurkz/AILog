@@ -22,9 +22,10 @@ import { subscribeToShipmentLogs } from '../../services/firestore-collections';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { Shipment, ShipmentLog, ShipmentStatus } from '../../types';
 import { cn } from '../../lib/utils';
-import { isShipmentDelayed } from '../../utils/shipmentUtils';
+import { isShipmentDelayed, shipmentDaysPassed } from '../../utils/shipmentUtils';
 import { useAuth } from '../../contexts/AuthContext';
 import { auth } from '../../firebase';
+import { useMinuteClock } from '../../hooks/useMinuteClock';
 
 interface ShipmentDetailsProps {
   shipment: Shipment;
@@ -197,8 +198,9 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
     }
   };
 
-  const daysPassed = differenceInDays(new Date(), parseISO(shipment.departure_date));
-  const progress = Math.min(Math.max((daysPassed / shipment.est_travel_time) * 100, 0), 100);
+  const now = useMinuteClock();
+  const daysPassed = shipmentDaysPassed(shipment, now);
+  const progress = Math.min(Math.max(((daysPassed ?? 0) / Math.max(shipment.est_travel_time, 1)) * 100, 0), 100);
   const isDelayed = isShipmentDelayed(shipment);
 
   return (
@@ -311,7 +313,7 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
                   <span className="text-xs font-medium">{t('timeElapsed')}</span>
                 </div>
                 <p className={cn("text-sm font-bold text-slate-900", isRTL && "text-right")}>
-                  {daysPassed} {t('daysPassed')}
+                  {daysPassed ?? '—'} {t('daysPassed')}
                 </p>
               </div>
             </div>
@@ -440,7 +442,7 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
                 </div>
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('transitTime')}</p>
-                  <p className="font-bold text-slate-800 mt-0.5">{shipment.transit_time ? `${shipment.transit_time} ${t('days')}` : `${daysPassed} ${t('days')}`}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.transit_time ? `${shipment.transit_time} ${t('days')}` : `${daysPassed ?? '—'} ${t('days')}`}</p>
                 </div>
               </div>
             </div>
@@ -486,22 +488,28 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
                 </div>
               )}
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            {shipment.documents_received_at && <div className="mb-4 rounded-xl bg-blue-50 p-3 text-sm text-blue-900">
+              <p className="font-semibold">Документы получены: {new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Almaty' }).format(new Date(shipment.documents_received_at))} (Алматы)</p>
+              {shipment.transit_start_source === 'email' && <p className="mt-1">Отсчёт пути начинается с первого письма с документами.</p>}
+              {shipment.commercial_invoice_number && <p className="mt-1">Инвойс: {shipment.commercial_invoice_number}{shipment.invoice_date ? ` от ${shipment.invoice_date}` : ''}</p>}
+              <div className="mt-2 flex flex-wrap gap-3">{shipment.source_email_urls?.map((url, index) => <a key={url} href={url} target="_blank" rel="noopener noreferrer" className="underline">Скачать исходное письмо {index + 1}</a>)}</div>
+            </div>}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {shipment.documents_url?.map((url, idx) => (
-                <div key={idx} className="relative group/file">
+                <div key={idx} className="relative min-w-0 group/file">
                   <a 
                     href={url} 
                     target="_blank" 
                     rel="noopener noreferrer"
                     className={cn(
-                      "p-3 bg-slate-50 border border-slate-100 rounded-xl hover:border-blue-200 hover:bg-blue-50 transition-all flex items-center gap-3 group",
+                      "min-w-0 p-3 bg-slate-50 border border-slate-100 rounded-xl hover:border-blue-200 hover:bg-blue-50 transition-all flex items-center gap-3 group",
                       isRTL && "flex-row-reverse"
                     )}
                   >
                     <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm group-hover:text-blue-600">
                       <FileText className="w-4 h-4" />
                     </div>
-                    <span className="text-xs font-medium text-slate-600 truncate">Doc {idx + 1}</span>
+                    <span className="text-xs font-medium text-slate-600 break-all">{shipment.mail_documents?.find(file => file.url === url)?.fileName || `Doc ${idx + 1}`}</span>
                   </a>
                   {isLogistics && (
                     <button

@@ -7,6 +7,22 @@ const telegramToken = defineSecret('TELEGRAM_BOT_TOKEN');
 const webhookSecret = defineSecret('TELEGRAM_WEBHOOK_SECRET');
 let application: Promise<ReturnType<typeof import('../../server/app.js').createCrmApi>> | undefined;
 
+export const outlookShipments = onSchedule({
+  region: config.region,
+  schedule: 'every 5 minutes',
+  timeZone: 'Asia/Almaty',
+  timeoutSeconds: 300,
+  memory: '1GiB',
+  maxInstances: 1,
+  concurrency: 1,
+  retryCount: 0,
+}, async () => {
+  process.env.CRM_STORAGE_MODE = 'firebase';
+  process.env.DISABLE_BACKGROUND_SCHEDULERS = 'true';
+  const { getOutlookImportService } = await import('../../server/services/outlook-import.service.js');
+  await (await getOutlookImportService()).run();
+});
+
 // Cloud Scheduler invokes this even with the CRM closed or scaled to zero.
 export const warehouseMailing = onSchedule({
   region: config.region,

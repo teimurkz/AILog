@@ -86,3 +86,10 @@ test('GPS, completion and Telegram webhook cannot be forged using a public order
   const webhook = await fetch(base + '/api/driver/telegram/webhook', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': 'wrong' }, body: '{"update_id":123}' });
   assert.equal(webhook.status, 403);
 });
+
+test('Outlook credentials, login and import cannot be accessed without CRM authentication', async () => {
+  for (const [path, method] of [['/api/outlook/status', 'GET'], ['/api/outlook/connect', 'POST'], ['/api/outlook/run', 'POST'], ['/api/outlook/settings', 'PUT'], ['/api/outlook/connection', 'DELETE']]) {
+    const response = await fetch(base + path, { method });
+    assert.equal(response.status, 401);
+  }
+});

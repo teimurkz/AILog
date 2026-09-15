@@ -34,6 +34,7 @@ export function createCrmApi(httpServer?: Parameters<typeof initSocketServer>[0]
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
   app.use('/api', authenticateCrm);
   app.use('/api/auth', authRoutes);
+  app.use('/api/outlook', requireSignedIn, lazyRoute(() => import('./routes/outlook.routes.js')));
 
   if (!usesFirebase()) app.use('/uploads', express.static(path.join(process.cwd(), 'server', 'uploads')));
   app.use('/api/orders', ordersRoutes);
