@@ -88,7 +88,7 @@ test('GPS, completion and Telegram webhook cannot be forged using a public order
 });
 
 test('Outlook credentials, login and import cannot be accessed without CRM authentication', async () => {
-  for (const [path, method] of [['/api/outlook/status', 'GET'], ['/api/outlook/connect', 'POST'], ['/api/outlook/run', 'POST'], ['/api/outlook/settings', 'PUT'], ['/api/outlook/connection', 'DELETE']]) {
+  for (const [path, method] of [['/api/outlook/status', 'GET'], ['/api/outlook/connect', 'POST'], ['/api/outlook/run', 'POST'], ['/api/outlook/settings', 'PUT'], ['/api/outlook/connection', 'DELETE'], ['/api/outlook/power-automate', 'GET'], ['/api/outlook/power-automate/key', 'POST'], ['/api/outlook/power-automate/receive', 'POST']]) {
     const response = await fetch(base + path, { method });
     assert.equal(response.status, 401);
   }

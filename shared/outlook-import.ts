@@ -44,6 +44,13 @@ export interface OutlookLogin {
   expiresAt: string;
   interval: number;
 }
+export type MailImportSettings = Pick<OutlookSettings, 'mailbox' | 'sender' | 'importFrom' | 'travelDays' | 'enabled'>;
+export interface PowerAutomateStatus {
+  settings: MailImportSettings;
+  configured: boolean;
+  lastReceived: string | null;
+  lastError: string | null;
+}
 
 // Treat invoice names as identifiers. Never parse 0012.30 as a number or strip
 // punctuation: those transformations can merge different trucks.
@@ -56,12 +63,17 @@ export function validateOutlookSettings(input: unknown): OutlookSettings {
   if (!value || !guid.test(value.tenantId || '') || !guid.test(value.clientId || '')) {
     throw new Error('Укажите Tenant ID и Client ID приложения Microsoft.');
   }
+  return { tenantId: value.tenantId!, clientId: value.clientId!, ...validateMailImportSettings(value) };
+}
+export function validateMailImportSettings(input: unknown): MailImportSettings {
+  const value = input as Partial<MailImportSettings>;
+  if (!value) throw new Error('Укажите настройки импорта.');
   const email = /^[a-z0-9.!#$%&*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
   if (!email.test(value.mailbox || '') || !email.test(value.sender || '')) throw new Error('Проверьте адрес почты и адрес отправителя.');
   const time = Date.parse(value.importFrom || '');
   if (!Number.isFinite(time) || time > Date.now()) throw new Error('Укажите дату начала импорта не позднее текущего времени.');
   if (!Number.isInteger(value.travelDays) || value.travelDays! < 1 || value.travelDays! > 180) throw new Error('Ожидаемый срок перевозки: от 1 до 180 дней.');
   if (typeof value.enabled !== 'boolean') throw new Error('Не указан режим импорта.');
-  return { tenantId: value.tenantId!, clientId: value.clientId!, mailbox: emailKey(value.mailbox!),
+  return { mailbox: emailKey(value.mailbox!),
     sender: emailKey(value.sender!), importFrom: new Date(time).toISOString(), travelDays: value.travelDays!, enabled: value.enabled };
 }

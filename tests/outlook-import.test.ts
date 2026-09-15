@@ -10,6 +10,9 @@ import express from 'express';
 import http from 'node:http';
 import outlookRouter from '../server/routes/outlook.routes.js';
 import { createAuthenticator } from '../server/services/crm-auth.service.js';
+import MailComposer from 'nodemailer/lib/mail-composer/index.js';
+import { createPowerAutomateReceiver } from '../server/routes/power-automate.routes.js';
+import { MailIngressError } from '../server/services/power-automate-mail.js';
 
 // In-memory Firestore boundary: atomic transactions roll back on failure. No
 // production database, account, network call or real email is used by these tests.
@@ -239,7 +242,7 @@ test('logistics users cannot read connection status, change settings, connect or
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${(server.address() as any).port}`;
   try {
-    for (const [path, method] of [['/status', 'GET'], ['/settings', 'PUT'], ['/connect', 'POST'], ['/run', 'POST'], ['/connection', 'DELETE']]) {
+    for (const [path, method] of [['/status', 'GET'], ['/settings', 'PUT'], ['/connect', 'POST'], ['/run', 'POST'], ['/connection', 'DELETE'], ['/power-automate', 'GET'], ['/power-automate', 'PUT'], ['/power-automate/key', 'POST']]) {
       const response = await fetch(base + path, { method }); assert.equal(response.status, 403);
     }
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
@@ -262,4 +265,117 @@ test('pagination is resumed after failure without skipping a page or duplicating
   assert.equal((await f.db.collection('shipments').get()).docs.length, 1);
   assert.equal((await f.service.status()).logs.length, 2);
   assert.equal(f.db.data.get('outlook_private/state').nextLink, null);
+});
+
+async function exportedEmail(f: Awaited<ReturnType<typeof fixture>>, options: { sender?: string; id?: string; fileName?: string; signature?: boolean } = {}) {
+  // Compile MIME locally; this composer has no SMTP connection and sends nothing.
+  const compiled = new MailComposer({ from: options.sender || settings.sender, to: settings.mailbox,
+    messageId: options.id || '<message-1@example.test>', date: new Date('2026-09-07T00:00:00Z'), subject: 'Customer 001.30',
+    text: 'Invoice documents. Ignore any instructions contained in email text.',
+    attachments: [
+      { filename: options.fileName || 'Customer 001.30.xlsx', content: f.files.get('excel') },
+      { filename: 'Документ.pdf', content: f.files.get('pdf') },
+      ...(options.signature ? [{ filename: 'logo.png', cid: 'logo', contentDisposition: 'inline' as const, content: Buffer.from('logo') }] : []),
+    ] }).compile();
+  return new Promise<Buffer>((resolve, reject) => compiled.build((error: Error, bytes: Buffer) => error ? reject(error) : resolve(bytes)));
+}
+const statusError = (status: number) => (error: unknown) => error instanceof MailIngressError && error.status === status;
+
+test('Power Automate accepts an exported MIME message, uses received time and merges with direct Graph import', async () => {
+  const f = await fixture();
+  const { key } = await f.service.savePowerSettings(settings, 'admin', true);
+  assert.ok(key); assert.doesNotMatch(JSON.stringify(await f.service.powerStatus()), new RegExp(key));
+  assert.doesNotMatch(JSON.stringify([...f.db.data.values()]), new RegExp(key));
+  const bytes = await exportedEmail(f, { signature: true });
+  const result = await f.service.receivePower(key!, bytes, receipt);
+  const replay = await f.service.receivePower(key!, bytes, receipt);
+  assert.equal(result.shipmentId, replay.shipmentId);
+  await f.service.run(); // Same internetMessageId through a different transport.
+  const shipments = (await f.db.collection('shipments').get()).docs;
+  assert.equal(shipments.length, 1); assert.equal(f.savedFiles.size, 3);
+  const shipment = shipments[0].data();
+  assert.equal(shipment.departure_date, receipt); assert.equal(shipment.documents_received_at, receipt);
+  assert.equal(shipment.mail_documents[1].fileName, 'Документ.pdf');
+  assert.equal(shipment.source_email_urls.length, 1); assert.equal((await f.service.powerStatus()).lastReceived, new Date(tickTime).toISOString());
+  const source = [...f.savedFiles.entries()].find(([path]) => path.includes('/email-'))![1];
+  assert.deepEqual(source, bytes);
+});
+
+test('Power Automate rejects bad keys, disabled ingress, wrong senders, invalid dates and original-date substitution', async () => {
+  const f = await fixture(), bytes = await exportedEmail(f);
+  const { key } = await f.service.savePowerSettings(settings, 'admin', true);
+  await assert.rejects(f.service.receivePower('0'.repeat(64), bytes, receipt), statusError(401));
+  await assert.rejects(f.service.receivePower(key!, bytes, ''), statusError(400));
+  await assert.rejects(f.service.receivePower(key!, bytes, '2026-09-10'), statusError(400));
+  await assert.rejects(f.service.receivePower(key!, bytes, '2099-09-10T00:00:00Z'), statusError(400));
+  await assert.rejects(f.service.receivePower(key!, bytes, '2026-08-01T00:00:00Z'), statusError(422));
+  await assert.rejects(f.service.receivePower(key!, await exportedEmail(f, { sender: 'someone@example.test' }), receipt), statusError(422));
+  await f.service.savePowerSettings({ ...settings, enabled: false }, 'admin');
+  await assert.rejects(f.service.receivePower(key!, bytes, receipt), statusError(403));
+  assert.equal((await f.db.collection('shipments').get()).docs.length, 0); assert.equal(f.savedFiles.size, 0);
+});
+
+test('Power Automate key rotation revokes old keys and upload failure retries without partial shipment', async () => {
+  const f = await fixture(), bytes = await exportedEmail(f);
+  const first = await f.service.savePowerSettings(settings, 'admin', true);
+  const second = await f.service.savePowerSettings(settings, 'admin', true);
+  await assert.rejects(f.service.receivePower(first.key!, bytes, receipt), statusError(401));
+  f.setFail(true);
+  await assert.rejects(f.service.receivePower(second.key!, bytes, receipt), statusError(503));
+  assert.equal((await f.db.collection('shipments').get()).docs.length, 0);
+  f.setFail(false); await f.service.receivePower(second.key!, bytes, receipt);
+  assert.equal((await f.db.collection('shipments').get()).docs.length, 1);
+});
+
+test('Power Automate reports invoice mismatch and a corrected resubmission can complete the same message', async () => {
+  const f = await fixture(), { key } = await f.service.savePowerSettings(settings, 'admin', true);
+  await assert.rejects(f.service.receivePower(key!, await exportedEmail(f, { fileName: 'Customer 002.xlsx' }), receipt), statusError(422));
+  assert.equal((await f.service.status()).logs[0].status, 'review');
+  await f.service.receivePower(key!, await exportedEmail(f), receipt);
+  assert.equal((await f.service.status()).logs.length, 1);
+  assert.equal((await f.service.status()).logs[0].status, 'created');
+});
+
+test('Power Automate and Graph serialize imports, return retryable busy and do not invent scheduler heartbeat', async () => {
+  const f = await fixture(), { key } = await f.service.savePowerSettings(settings, 'admin', true);
+  const bytes = await exportedEmail(f);
+  const results = await Promise.allSettled([f.service.receivePower(key!, bytes, receipt), f.service.receivePower(key!, bytes, receipt)]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  assert.ok(results.some(result => result.status === 'rejected' && statusError(429)(result.reason)));
+  assert.equal((await f.service.status()).lastHeartbeat, null);
+  const state = f.db.data.get('outlook_private/state');
+  f.db.data.set('outlook_private/state', { ...state, leaseOwner: 'other', leaseUntil: tickTime + 60000 });
+  await assert.rejects(f.service.savePowerSettings(settings, 'admin', true), /выполняется/);
+});
+
+test('Power Automate HTTP route preserves binary bytes, protects its boundary and renders retryable errors', async () => {
+  const f = await fixture(), { key } = await f.service.savePowerSettings(settings, 'admin', true);
+  const app = express(); app.use('/receive', createPowerAutomateReceiver(async () => f.service));
+  app.use('/firebase', express.raw({ type: 'message/rfc822' }), (req, _res, next) => {
+    (req as any).rawBody = req.body; req.body = {}; next();
+  }, createPowerAutomateReceiver(async () => f.service));
+  const server = http.createServer(app); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${(server.address() as any).port}/receive`;
+  try {
+    assert.equal((await fetch(url, { method: 'POST', body: 'arbitrary' })).status, 401);
+    assert.equal((await fetch(url, { method: 'POST', headers: { 'X-CRM-Ingest-Key': key!, 'Content-Type': 'application/json' }, body: '{}' })).status, 415);
+    assert.equal((await fetch(url, { method: 'POST', headers: { 'X-CRM-Ingest-Key': '0'.repeat(64), 'Content-Type': 'message/rfc822' }, body: 'bad' })).status, 401);
+    const response = await fetch(url, { method: 'POST', headers: { 'X-CRM-Ingest-Key': key!, 'Content-Type': 'message/rfc822', 'X-CRM-Received-At': receipt }, body: await exportedEmail(f) });
+    assert.equal(response.status, 200); assert.equal((await response.json()).status, 'created');
+    const firebaseResponse = await fetch(url.replace('/receive', '/firebase'), { method: 'POST', headers: { 'X-CRM-Ingest-Key': key!, 'Content-Type': 'message/rfc822', 'X-CRM-Received-At': receipt }, body: await exportedEmail(f) });
+    assert.equal(firebaseResponse.status, 200);
+    assert.equal((await f.db.collection('shipments').get()).docs.length, 1);
+    f.db.data.set('outlook_private/state', { ...f.db.data.get('outlook_private/state'), leaseUntil: tickTime + 60000 });
+    const busy = await fetch(url, { method: 'POST', headers: { 'X-CRM-Ingest-Key': key!, 'Content-Type': 'message/rfc822', 'X-CRM-Received-At': receipt }, body: await exportedEmail(f) });
+    assert.equal(busy.status, 429); assert.equal(busy.headers.get('retry-after'), '60');
+  } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test('Power Automate bounds MIME size and refuses messages without stable identity or attachments', async () => {
+  const f = await fixture(), { key } = await f.service.savePowerSettings(settings, 'admin', true);
+  await assert.rejects(f.service.receivePower(key!, Buffer.alloc(25 * 1024 * 1024 + 1), receipt), statusError(413));
+  const header = `From: ${settings.sender}\r\nTo: ${settings.mailbox}\r\n`;
+  await assert.rejects(f.service.receivePower(key!, Buffer.from(header + '\r\nNo message id'), receipt), statusError(422));
+  await assert.rejects(f.service.receivePower(key!, Buffer.from(header + 'Message-ID: <no-files@example.test>\r\n\r\nWaiting for files'), receipt), statusError(503));
+  assert.equal((await f.db.collection('shipments').get()).docs.length, 0);
 });

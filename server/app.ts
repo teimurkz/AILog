@@ -30,6 +30,9 @@ export function createCrmApi(httpServer?: Parameters<typeof initSocketServer>[0]
     res.setHeader('Cache-Control', 'no-store');
     res.json({ service: 'silk-road-crm', status: 'ok' });
   });
+  // This one inbound endpoint uses its own revocable key, never Firebase login
+  // or an open data-write route. Mount before JSON parsing to preserve MIME.
+  app.use('/api/outlook/power-automate/receive', lazyRoute(() => import('./routes/power-automate.routes.js')));
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
   app.use('/api', authenticateCrm);

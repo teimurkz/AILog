@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Mail, RefreshCw, ExternalLink, AlertCircle } from 'lucide-react';
 import { firebaseFetch } from '../../services/firebase-fetch';
 import type { OutlookSettings, OutlookStatus, OutlookLogin } from '../../../shared/outlook-import';
+import { PowerAutomateImport } from './PowerAutomateImport';
 
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await firebaseFetch('/api/outlook' + path, { method,
@@ -72,10 +73,13 @@ export function OutlookImport({ onOpenShipment }: { onOpenShipment: (id: string)
       </div>
       <button className={`${button} bg-slate-100 text-slate-700`} disabled={busy} onClick={() => action(async () => { await load(); })}><RefreshCw className="inline h-4 w-4 mr-2" />Обновить статус</button>
     </div>
+    <PowerAutomateImport />
     {error && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800 break-words"><AlertCircle className="inline h-4 w-4 mr-2" />{error}</div>}
     {notice && <p role="status" className="rounded-xl bg-blue-50 p-3 text-sm text-blue-800">{notice}</p>}
     {!status && !error && <p className="text-sm text-slate-500">Загружаю состояние подключения…</p>}
     {status && form && <>
+      <details className="space-y-4 rounded-xl border border-slate-200 p-3">
+      <summary className="cursor-pointer text-sm font-semibold text-slate-700">Прямое подключение через Microsoft Entra</summary>
       <div className="grid gap-3 sm:grid-cols-3 text-sm">
         <div className="rounded-xl bg-slate-50 p-3 min-w-0"><p className="text-slate-500">Почта</p><p className="font-semibold break-all">{status.connected ? status.connectedMailbox : 'Не подключена'}</p></div>
         <div className="rounded-xl bg-slate-50 p-3"><p className="text-slate-500">Автоматический импорт</p><p className="font-semibold">{!status.settings.enabled ? 'Выключен' : fresh ? 'Включён, служба на связи' : 'Включён, нет сигнала службы'}</p></div>
@@ -117,6 +121,7 @@ export function OutlookImport({ onOpenShipment }: { onOpenShipment: (id: string)
         <p className="text-sm text-blue-800">Код действует до {dateText(login.expiresAt)}. После входа подключение появится здесь автоматически.</p>
       </div>}
       <p className="text-xs leading-relaxed text-slate-500">Читаются письма выбранного отправителя, кроме удалённых и спама. Исходное письмо и документы сохраняются в отправлении. Дата первого письма запускает отсчёт; повторная отправка его не обнуляет. Microsoft запрашивает разрешение на чтение почты, отбор по отправителю выполняет CRM.</p>
+      </details>
       <div className="space-y-2">
         <h4 className="text-sm font-bold text-slate-800">Последние результаты</h4>
         {!status.logs.length && <p className="text-sm text-slate-500">Писем ещё не обработано.</p>}

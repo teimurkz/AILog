@@ -2,7 +2,9 @@
   "name": "silk-road-firebase-functions",
   "private": true,
   "main": "lib/index.js",
-  "engines": { "node": "22" },
+  "engines": {
+    "node": "22"
+  },
   "dependencies": {
     "@google/genai": "^1.51.0",
     "@turf/turf": "^7.4.0",
@@ -14,9 +16,10 @@
     "firebase-functions": "^7.3.2",
     "geolib": "^3.3.14",
     "jszip": "^3.10.1",
-    "saxes": "^5.0.1",
+    "mailparser": "^3.9.28",
     "nodemailer": "^9.0.5",
     "pdf-parse": "^2.4.5",
+    "saxes": "^5.0.1",
     "socket.io": "^4.8.3",
     "xlsx": "^0.18.5"
   }

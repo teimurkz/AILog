@@ -1,9 +1,10 @@
 import crypto from 'node:crypto';
 import type { Firestore } from 'firebase-admin/firestore';
-import { emailKey, invoiceKey, validateOutlookSettings, type MailDocument, type OutlookSettings, type OutlookStatus, type OutlookLogin, type OutlookImportLog } from '../../shared/outlook-import.js';
+import { emailKey, invoiceKey, validateOutlookSettings, validateMailImportSettings, type PowerAutomateStatus, type MailDocument, type OutlookSettings, type OutlookStatus, type OutlookLogin, type OutlookImportLog } from '../../shared/outlook-import.js';
 import { OutlookGraph, OutlookError, microsoftTokenRequest, outlookScopes, type GraphMessage } from './outlook-graph.js';
 import { ImportReview, invoiceName, parseInvoiceWorkbook, mergeMailShipment } from './outlook-invoice.js';
 import type { Shipment } from '../../src/types/index.js';
+import { MailIngressError, readPowerAutomateMail, type MailSource } from './power-automate-mail.js';
 
 const hash = (text: string | Buffer) => crypto.createHash('sha256').update(text).digest('hex');
 const random = () => crypto.randomUUID();
@@ -27,6 +28,7 @@ export function createOutlookImportService(deps: Dependencies) {
   const now = deps.now || Date.now, iso = () => new Date(now()).toISOString();
   const stateRef = db.collection('outlook_private').doc('state');
   const credentialsRef = db.collection('outlook_private').doc('credentials');
+  const powerRef = db.collection('outlook_private').doc('powerAutomate');
   const flows = db.collection('outlook_private').doc('flows').collection('sessions');
   const ledger = db.collection('outlook_imports');
   const ensureIdle = (state: State) => { if ((state.leaseUntil || 0) > now()) throw new ImportReview('Проверка писем уже выполняется. Дождитесь её завершения.'); };
@@ -120,11 +122,12 @@ export function createOutlookImportService(deps: Dependencies) {
       tx.delete(credentialsRef);
     });
   }
-  async function importMessage(client: OutlookGraph, state: State, message: GraphMessage, leaseOwner: string) {
+  async function importMessage(client: MailSource, state: State, message: GraphMessage, leaseOwner: string, retryReview = false) {
     const settings = state.settings!, receivedAt = new Date(message.receivedDateTime).toISOString();
     if (emailKey(message.from?.emailAddress?.address || '') !== settings.sender || message.isDraft || Date.parse(receivedAt) < Date.parse(settings.importFrom)) return;
     const messageId = hash(settings.mailbox + '\0' + (message.internetMessageId || message.id)), record = ledger.doc(messageId);
-    if ((await record.get()).exists) return;
+    const previous = await record.get();
+    if (previous.exists && !(retryReview && previous.data()?.status === 'review')) return previous.data();
     let name: string | undefined;
     const base = { subject: (message.subject || '(Без темы)').slice(0, 500), receivedAt, checkedAt: iso(),
       graphMessageId: message.id, mailbox: settings.mailbox };
@@ -165,7 +168,7 @@ export function createOutlookImportService(deps: Dependencies) {
         const [control, done, index, existing] = await Promise.all([tx.get(stateRef), tx.get(record), tx.get(indexRef), tx.get(shipmentRef)]);
         const current = control.data() as State;
         if (current.connectionId !== state.connectionId || current.leaseOwner !== leaseOwner || current.leaseUntil! <= now()) throw new ImportReview('Сеанс импорта изменился. Повторите проверку.');
-        if (done.exists) return;
+        if (done.exists && !(retryReview && done.data()?.status === 'review')) return;
         if (index.exists && index.data()?.shipmentId !== shipmentId) throw new ImportReview('Инвойс уже связан с другим отправлением.');
         if (index.data()?.fullInvoice && index.data()?.fullInvoice !== draft.commercial_invoice_number) throw new ImportReview('Короткое имя инвойса уже связано с другим полным номером инвойса.');
         const old = existing.exists ? existing.data() as Shipment : undefined;
@@ -175,7 +178,7 @@ export function createOutlookImportService(deps: Dependencies) {
         if ((patch.mail_documents?.length || 0) > 200 || (patch.source_email_urls?.length || 0) > 100) throw new ImportReview('У отправления слишком много версий документов. Нужна ручная проверка.');
         tx.set(shipmentRef, { ...patch, id: shipmentId }, { merge: true });
         tx.set(indexRef, { shipmentId, invoice: name, fullInvoice: draft.commercial_invoice_number });
-        tx.create(record, { ...base, status: old ? 'updated' : 'created', invoice: name, shipmentId, documents: documents.length });
+        tx.set(record, { ...base, status: old ? 'updated' : 'created', invoice: name, shipmentId, documents: documents.length });
         tx.create(shipmentRef.collection('logs').doc(messageId), { timestamp: iso(), shipmentId,
           location: 'Outlook', message: `Получены документы к ${name}: ${documents.length} файлов. Дата письма: ${receivedAt}.`, updatedBy: 'Импорт из Outlook' });
       });
@@ -184,6 +187,64 @@ export function createOutlookImportService(deps: Dependencies) {
       // Auth errors are global connection failures, not failures of this email.
       if (error instanceof OutlookError && ['graph_401', 'graph_403'].includes(error.code)) throw error;
       await record.set({ ...base, status: 'review', ...(name ? { invoice: name } : {}), reason: safeError(error) });
+    }
+    return (await record.get()).data();
+  }
+  async function powerStatus(): Promise<PowerAutomateStatus> {
+    const saved = (await powerRef.get()).data() || {};
+    const { mailbox, sender, importFrom, travelDays, enabled } = saved.settings || emptySettings();
+    return { settings: { mailbox, sender, importFrom, travelDays, enabled }, configured: Boolean(saved.keyHash),
+      lastReceived: saved.lastReceived || null, lastError: saved.lastError || null };
+  }
+  async function savePowerSettings(input: unknown, uid: string, rotate = false) {
+    const settings = validateMailImportSettings(input), key = rotate ? crypto.randomBytes(32).toString('hex') : undefined;
+    await db.runTransaction(async tx => {
+      const [control, saved] = await Promise.all([tx.get(stateRef), tx.get(powerRef)]);
+      ensureIdle((control.data() || {}) as State);
+      if (settings.enabled && !saved.data()?.keyHash && !key) throw new MailIngressError(400, 'Сначала создайте ключ подключения.');
+      tx.set(powerRef, { settings, ownerUid: uid, ...(key ? { keyHash: hash(key) } : {}) }, { merge: true });
+    });
+    // The secret is returned once to the verified admin; only its hash is stored.
+    return key ? { key } : { saved: true };
+  }
+  function checkPowerKey(saved: any, key: string) {
+    if (!/^[a-f0-9]{64}$/.test(key) || !/^[a-f0-9]{64}$/.test(saved?.keyHash || '') ||
+      !crypto.timingSafeEqual(Buffer.from(hash(key), 'hex'), Buffer.from(saved.keyHash, 'hex'))) {
+      throw new MailIngressError(401, 'Неверный ключ Power Automate.');
+    }
+    if (!saved.settings?.enabled) throw new MailIngressError(403, 'Приём писем Power Automate выключен в CRM.');
+  }
+  async function authorizePower(key: string) { checkPowerKey((await powerRef.get()).data(), key); }
+  async function receivePower(key: string, bytes: Buffer, receivedAt: string) {
+    const leaseOwner = random();
+    const context = await db.runTransaction(async tx => {
+      const [control, power] = await Promise.all([tx.get(stateRef), tx.get(powerRef)]);
+      const state = (control.data() || {}) as State, saved = power.data();
+      checkPowerKey(saved, key);
+      if ((state.leaseUntil || 0) > now()) throw new MailIngressError(429, 'Другой импорт ещё выполняется. Повторите передачу через минуту.');
+      tx.set(stateRef, { leaseOwner, leaseUntil: now() + 360000 }, { merge: true });
+      return { ...state, settings: { tenantId: '', clientId: '', ...saved!.settings }, ownerUid: saved!.ownerUid } as State;
+    });
+    try {
+      const { message, source } = await readPowerAutomateMail(bytes, receivedAt, context.settings!.sender, now());
+      if (Date.parse(message.receivedDateTime) < Date.parse(context.settings!.importFrom)) {
+        throw new MailIngressError(422, 'Дата письма раньше выбранного периода импорта в CRM.');
+      }
+      const result = await importMessage(source, context, message, leaseOwner, true);
+      if (!result) throw new MailIngressError(422, 'В письме нет документов для создания отправления.');
+      if (result.status === 'review') throw new MailIngressError(422, result.reason);
+      await powerRef.update({ lastReceived: iso(), lastError: null });
+      return { status: result.status, shipmentId: result.shipmentId, invoice: result.invoice, documents: result.documents };
+    } catch (error) {
+      const detail = error instanceof MailIngressError ? error.message : safeError(error);
+      await powerRef.update({ lastError: detail });
+      if (error instanceof MailIngressError) throw error;
+      throw new MailIngressError(503, detail);
+    } finally {
+      await db.runTransaction(async tx => {
+        const saved = (await tx.get(stateRef)).data();
+        if (saved?.leaseOwner === leaseOwner) tx.update(stateRef, { leaseOwner: '', leaseUntil: 0 });
+      });
     }
   }
   async function run(manual = false) {
@@ -239,7 +300,7 @@ export function createOutlookImportService(deps: Dependencies) {
     });
     return run(true);
   }
-  return { status, saveSettings, beginLogin, pollLogin, disconnect, run, retry };
+  return { status, saveSettings, beginLogin, pollLogin, disconnect, run, retry, powerStatus, savePowerSettings, authorizePower, receivePower };
 }
 
 let runtime: ReturnType<typeof createOutlookImportService> | undefined;

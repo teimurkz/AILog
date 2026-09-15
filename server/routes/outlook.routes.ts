@@ -3,7 +3,8 @@ import { getCrmUser, requireSameOrigin } from '../services/crm-auth.service.js';
 import { getOutlookImportService } from '../services/outlook-import.service.js';
 import { ImportReview } from '../services/outlook-invoice.js';
 import { OutlookError } from '../services/outlook-graph.js';
-import { validateOutlookSettings } from '../../shared/outlook-import.js';
+import { validateOutlookSettings, validateMailImportSettings } from '../../shared/outlook-import.js';
+import { MailIngressError } from '../services/power-automate-mail.js';
 
 const router = Router();
 router.use((req, res, next) => {
@@ -15,11 +16,20 @@ router.use((req, res, next) => {
 });
 const route = (fn: (service: Awaited<ReturnType<typeof getOutlookImportService>>, req: any) => Promise<unknown>): RequestHandler => (req, res) => {
   void getOutlookImportService().then(service => fn(service, req)).then(result => res.json(result || { success: true })).catch(error => {
-    const known = error instanceof ImportReview || error instanceof OutlookError;
-    res.status(known ? 400 : 503).json({ error: known ? error.message : 'Не удалось выполнить запрос. Проверьте публикацию функции и доступ Firebase.' });
+    const known = error instanceof ImportReview || error instanceof OutlookError || error instanceof MailIngressError;
+    res.status(error instanceof MailIngressError ? error.status : known ? 400 : 503).json({ error: known ? error.message : 'Не удалось выполнить запрос. Проверьте публикацию функции и доступ Firebase.' });
   });
 };
 router.get('/status', route(service => service.status()));
+router.get('/power-automate', route(service => service.powerStatus()));
+router.put('/power-automate', requireSameOrigin, (req, res, next) => {
+  try { req.body = validateMailImportSettings(req.body); next(); }
+  catch (error) { res.status(400).json({ error: (error as Error).message }); }
+}, route((service, req) => service.savePowerSettings(req.body, getCrmUser(req)!.uid)));
+router.post('/power-automate/key', requireSameOrigin, (req, res, next) => {
+  try { req.body = validateMailImportSettings(req.body); next(); }
+  catch (error) { res.status(400).json({ error: (error as Error).message }); }
+}, route((service, req) => service.savePowerSettings(req.body, getCrmUser(req)!.uid, true)));
 router.put('/settings', requireSameOrigin, (req, res, next) => {
   try { req.body = validateOutlookSettings(req.body); next(); }
   catch (error) { res.status(400).json({ error: (error as Error).message }); }
