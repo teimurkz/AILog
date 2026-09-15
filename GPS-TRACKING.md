@@ -1,5 +1,7 @@
 # GPS и CRM через Firebase, интерфейс в Google AI Studio
 
+Если публикация AI Studio завершается ошибкой `The provided source archive is corrupted`, используйте [публикацию сайта через Cloud Shell](CLOUD-RUN-RECOVERY.md). Она обновляет прежний Cloud Run-сервис из GitHub; функции Firebase публикуются отдельно по инструкциям ниже.
+
 Приложению в AI Studio больше не требуется собственный Express-сервер. Обычные данные CRM читаются через Firebase Web SDK. Региональные заявки сохраняются через HTTPS-функцию `crmApi` в Firebase; она проверяет тот же Firebase-вход и сохраняет документы в прежней именованной базе. Telegram отправляет координаты в эту же функцию. Карта администратора подписана на изменения Firestore, без Socket.IO и постоянного серверного соединения.
 
 **Получение кода из GitHub само по себе не публикует Cloud Functions.** До однократной настройки Firebase ниже приём Telegram и изменение региональных заявок работать не будут. Firestore и Authentication сами по себе не исполняют обработчик Telegram. Для публикации Cloud Functions нужен тариф [Blaze](https://firebase.google.com/docs/functions/get-started). При подготовке кода тариф не подключался, функции и правила не публиковались, webhook не менялся.

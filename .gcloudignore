@@ -1,0 +1,20 @@
+# Upload only inputs for the web Docker build to Cloud Build.
+*
+!Dockerfile
+!.dockerignore
+!package.json
+!package-lock.json
+!index.html
+!vite.config.ts
+!tsconfig.json
+!firebase-applet-config.json
+!firebase-functions-config.json
+!src/
+!src/**
+!shared/
+!shared/**
+!public/
+!public/**
+!deploy/
+!deploy/web/
+!deploy/web/nginx.conf
