@@ -50,7 +50,11 @@ export function PowerAutomateImport() {
     {status && form && <>
       <p className="text-sm text-slate-600"><strong>{status.settings.enabled && status.configured ? 'Приём писем включён' : 'Приём писем выключен'}</strong>
         {' · '}{status.lastReceived ? 'Последнее письмо принято: ' + new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Almaty' }).format(new Date(status.lastReceived)) + ' (Алматы)' : 'Писем от потока ещё не принято'}</p>
-      {status.lastError && <p className="text-sm text-amber-800 break-words">{status.lastError}</p>}
+      {status.lastError && <div className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 break-words">
+        <p className="font-semibold">Последняя неудачная попытка{status.lastErrorAt && Number.isFinite(Date.parse(status.lastErrorAt)) ? ': ' + new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Almaty' }).format(new Date(status.lastErrorAt)) + ' (Алматы)' : ''}</p>
+        <p>{status.lastError}</p>
+        <p className="text-xs">Это результат предыдущей передачи письма. Сохранение настроек не запускает повторную проверку. После успешного приёма письма сообщение исчезнет.</p>
+      </div>}
       <fieldset disabled={busy} className="space-y-4 min-w-0">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">Рабочий почтовый адрес<input className={field} type="email" value={form.mailbox} onChange={e => change('mailbox', e.target.value)} /></label>

@@ -194,7 +194,7 @@ export function createOutlookImportService(deps: Dependencies) {
     const saved = (await powerRef.get()).data() || {};
     const { mailbox, sender, importFrom, travelDays, enabled } = saved.settings || emptySettings();
     return { settings: { mailbox, sender, importFrom, travelDays, enabled }, configured: Boolean(saved.keyHash),
-      lastReceived: saved.lastReceived || null, lastError: saved.lastError || null };
+      lastReceived: saved.lastReceived || null, lastError: saved.lastError || null, lastErrorAt: saved.lastErrorAt || null };
   }
   async function savePowerSettings(input: unknown, uid: string, rotate = false) {
     const settings = validateMailImportSettings(input), key = rotate ? crypto.randomBytes(32).toString('hex') : undefined;
@@ -233,11 +233,11 @@ export function createOutlookImportService(deps: Dependencies) {
       const result = await importMessage(source, context, message, leaseOwner, true);
       if (!result) throw new MailIngressError(422, 'В письме нет документов для создания отправления.');
       if (result.status === 'review') throw new MailIngressError(422, result.reason);
-      await powerRef.update({ lastReceived: iso(), lastError: null });
+      await powerRef.update({ lastReceived: iso(), lastError: null, lastErrorAt: null });
       return { status: result.status, shipmentId: result.shipmentId, invoice: result.invoice, documents: result.documents };
     } catch (error) {
       const detail = error instanceof MailIngressError ? error.message : safeError(error);
-      await powerRef.update({ lastError: detail });
+      await powerRef.update({ lastError: detail, lastErrorAt: iso() });
       if (error instanceof MailIngressError) throw error;
       throw new MailIngressError(503, detail);
     } finally {

@@ -12,7 +12,7 @@ import outlookRouter from '../server/routes/outlook.routes.js';
 import { createAuthenticator } from '../server/services/crm-auth.service.js';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { createPowerAutomateReceiver } from '../server/routes/power-automate.routes.js';
-import { MailIngressError } from '../server/services/power-automate-mail.js';
+import { MailIngressError, readPowerAutomateMail } from '../server/services/power-automate-mail.js';
 
 // In-memory Firestore boundary: atomic transactions roll back on failure. No
 // production database, account, network call or real email is used by these tests.
@@ -313,6 +313,56 @@ test('Power Automate rejects bad keys, disabled ingress, wrong senders, invalid 
   await f.service.savePowerSettings({ ...settings, enabled: false }, 'admin');
   await assert.rejects(f.service.receivePower(key!, bytes, receipt), statusError(403));
   assert.equal((await f.db.collection('shipments').get()).docs.length, 0); assert.equal(f.savedFiles.size, 0);
+});
+
+test('Power Automate explains the actual and expected sender, including an old test after settings change', async () => {
+  const f = await fixture(), { key } = await f.service.savePowerSettings(settings, 'admin', true);
+  const testSender = 'test-sender@example.test';
+  await assert.rejects(f.service.receivePower(key!, await exportedEmail(f, { sender: testSender }), receipt), (error: unknown) => {
+    assert.ok(error instanceof MailIngressError); assert.equal(error.status, 422);
+    assert.match(error.message, /From: test-sender@example\.test/);
+    assert.match(error.message, /Ожидается: partner@example\.test/);
+    assert.doesNotMatch(error.message, /Invoice documents|Документ\.pdf|PRIVATE/);
+    return true;
+  });
+  const failed = await f.service.powerStatus();
+  assert.equal(failed.lastErrorAt, new Date(tickTime).toISOString());
+  assert.equal(failed.lastReceived, null);
+  assert.equal(f.savedFiles.size, 0);
+  assert.equal((await f.db.collection('shipments').get()).docs.length, 0);
+
+  f.setTime(tickTime + 60000);
+  await f.service.savePowerSettings({ ...settings, sender: testSender }, 'admin');
+  const saved = await f.service.powerStatus();
+  assert.equal(saved.lastErrorAt, failed.lastErrorAt); // Settings save is not a new mail attempt.
+  assert.equal(saved.lastError, failed.lastError); // Keep the expected address at the time of failure.
+  assert.equal(saved.lastReceived, null);
+  await f.service.receivePower(key!, await exportedEmail(f, { sender: testSender }), receipt);
+  const success = await f.service.powerStatus();
+  assert.equal(success.lastError, null); assert.equal(success.lastErrorAt, null);
+  assert.equal(success.lastReceived, new Date(tickTime + 60000).toISOString());
+});
+
+test('Power Automate accepts sender display names and case differences but refuses multiple From addresses', async () => {
+  const f = await fixture(), { key } = await f.service.savePowerSettings(settings, 'admin', true);
+  await f.service.receivePower(key!, await exportedEmail(f, { sender: 'Partner Name <PARTNER@EXAMPLE.TEST>' }), receipt);
+  assert.equal((await f.db.collection('shipments').get()).docs.length, 1);
+  const bytes = Buffer.from(`From: ${settings.sender}, someone@example.test\r\nMessage-ID: <multiple@example.test>\r\n\r\nTest`);
+  await assert.rejects(readPowerAutomateMail(bytes, receipt, settings.sender, tickTime), (error: unknown) => {
+    assert.ok(error instanceof MailIngressError); assert.equal(error.status, 422);
+    assert.match(error.message, /From: partner@example\.test, someone@example\.test/);
+    return true;
+  });
+});
+
+test('Power Automate distinguishes a missing MIME From header from a sender mismatch and never trusts body text', async () => {
+  const f = await fixture(), { key } = await f.service.savePowerSettings(settings, 'admin', true);
+  const body = Buffer.from(`<html>From: ${settings.sender}<p>Forwarded email</p></html>`);
+  await assert.rejects(f.service.receivePower(key!, body, receipt), /не найден адрес отправителя From/);
+  const forwarded = Buffer.from(`From: someone@example.test\r\nMessage-ID: <forward@example.test>\r\n\r\nFrom: ${settings.sender}`);
+  await assert.rejects(f.service.receivePower(key!, forwarded, receipt), /From: someone@example\.test/);
+  assert.equal(f.savedFiles.size, 0);
+  assert.equal((await f.db.collection('shipments').get()).docs.length, 0);
 });
 
 test('Power Automate key rotation revokes old keys and upload failure retries without partial shipment', async () => {

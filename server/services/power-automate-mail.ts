@@ -20,8 +20,15 @@ export async function readPowerAutomateMail(bytes: Buffer, receivedAt: string, s
   let mail: Awaited<ReturnType<typeof simpleParser>>;
   try { mail = await simpleParser(bytes, { skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true, skipTextLinks: true }); }
   catch { throw new MailIngressError(422, 'Не удалось прочитать EML. В HTTP Body выберите Body действия Export email (V2).'); }
-  if (mail.from?.value.length !== 1 || emailKey(mail.from.value[0].address || '') !== sender) {
-    throw new MailIngressError(422, 'Отправитель исходного письма не совпадает с настройкой CRM.');
+  const from = mail.from?.value || [];
+  if (!from.length || !from.some(item => item.address)) {
+    throw new MailIngressError(422, 'В переданных данных не найден адрес отправителя From. В HTTP Body выберите Body действия Export email (V2), а не текст письма из триггера.');
+  }
+  if (from.length !== 1 || emailKey(from[0].address || '') !== emailKey(sender)) {
+    // Show only bounded addresses, never the message body, names or attachments.
+    const addressLabel = (value: string) => value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 254);
+    const actual = from.slice(0, 3).map(item => addressLabel(item.address || '(адрес отсутствует)')).join(', ') + (from.length > 3 ? ', …' : '');
+    throw new MailIngressError(422, `Отправитель исходного письма не совпадает с настройкой CRM. В письме From: ${actual}. Ожидается: ${addressLabel(sender)}. Проверьте, что Export email (V2) использует Message Id из триггера и выбран запуск нужного письма, а не прежнего теста.`);
   }
   if (!mail.messageId || mail.messageId.length > 1000 || /[\r\n]/.test(mail.messageId)) {
     throw new MailIngressError(422, 'В письме отсутствует корректный Message-ID. Передайте оригинал через Export email (V2).');

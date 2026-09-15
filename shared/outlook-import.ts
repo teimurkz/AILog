@@ -50,6 +50,7 @@ export interface PowerAutomateStatus {
   configured: boolean;
   lastReceived: string | null;
   lastError: string | null;
+  lastErrorAt?: string | null;
 }
 
 // Treat invoice names as identifiers. Never parse 0012.30 as a number or strip
