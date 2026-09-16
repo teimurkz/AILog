@@ -12,6 +12,7 @@ import {
 } from '../types';
 
 import { firebaseFetch } from './firebase-fetch';
+import type { StatusChangeOptions } from '../../shared/regional-order-status';
 import { readCrmCollection, readCrmDocument, readShipmentLogs, saveCrmDocument, deleteCrmDocument, addShipmentLog } from './firestore-collections';
 const BASE_URL = '/api';
 
@@ -34,7 +35,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
       const err = await res.json();
       if (err.error) msg = err.error;
     } catch {}
-    throw new Error(msg);
+    throw Object.assign(new Error(msg), { status: res.status });
   }
 
   return res.json();
@@ -66,7 +67,7 @@ export const ordersApi = {
     });
   },
 
-  update: (id: string, updates: Partial<RegionalTruckOrder>) => {
+  update: (id: string, updates: Partial<RegionalTruckOrder> & StatusChangeOptions) => {
     return fetchJson<RegionalTruckOrder>(`${BASE_URL}/orders/regional/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: JSON.stringify(updates)

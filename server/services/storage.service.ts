@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { usesFirebase } from './tracking-context.js';
+import type { RegionalStatusCorrection } from '../../shared/regional-order-status.js';
 
 export interface LocationPoint {
   lat: number;
@@ -54,6 +55,7 @@ export interface RegionalOrderRecord {
   assignedTruckPlate?: string;
   dispatchedAt?: string;
   deliveredAt?: string;
+  statusCorrections?: RegionalStatusCorrection[];
   currentLat?: number;
   currentLng?: number;
   speed?: number;

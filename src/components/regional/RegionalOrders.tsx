@@ -44,6 +44,8 @@ import { RegionalTruckOrder, RegionalOrderStatus, InvoiceItem, DeliveryPoint } f
 import { NewRegionalOrderModal } from './NewRegionalOrderModal';
 import { RouteMapModal } from './RouteMapModal';
 import { generateWhatsAppLink, buildWhatsAppStatusMessage } from '../../utils/whatsapp';
+import { buildRegionalOrderEdit } from '../../utils/regional-order-edit';
+import { isClosedRegionalOrder } from '../../../shared/regional-order-status';
 
 const STATUS_CONFIG: Record<RegionalOrderStatus, { label: string; bg: string; text: string; border: string; icon: React.FC<{ className?: string }> }> = {
   new: {
@@ -100,6 +102,7 @@ export const RegionalOrders: React.FC = () => {
     retry: retryOrders,
     addOrder, 
     updateOrderStatus, 
+    updateOrder,
     deleteOrder, 
     lastNewOrderAlert, 
     dismissAlert 
@@ -195,6 +198,8 @@ export const RegionalOrders: React.FC = () => {
   const [assignedTruckPlate, setAssignedTruckPlate] = useState('');
   const [assignedDriver, setAssignedDriver] = useState('');
   const [editStatus, setEditStatus] = useState<RegionalOrderStatus>('new');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const requestPushPermission = async () => {
     // 1. Always play audio chime feedback
@@ -254,6 +259,7 @@ export const RegionalOrders: React.FC = () => {
   const dispatchedCount = orders.filter(o => o.status === 'dispatched').length;
 
   const handleOpenEdit = (order: RegionalTruckOrder) => {
+    setEditError(null);
     setEditingOrder(order);
     setEditStatus(order.status);
     setAssignedTruckPlate(order.assignedTruckPlate || '');
@@ -261,19 +267,20 @@ export const RegionalOrders: React.FC = () => {
   };
 
   const handleSaveEdit = async () => {
-    if (!editingOrder) return;
+    if (!editingOrder || savingEdit) return;
+    setSavingEdit(true);
+    setEditError(null);
     try {
-      let finalStatus = editStatus;
-      if (editStatus === 'new' && (assignedTruckPlate.trim() || assignedDriver.trim())) {
-        finalStatus = 'assigned';
-      }
-      await updateOrderStatus(editingOrder.id, finalStatus, {
-        assignedTruckPlate: assignedTruckPlate.trim(),
-        assignedDriver: assignedDriver.trim(),
-      });
+      const updates = buildRegionalOrderEdit(editingOrder, { status: editStatus, assignedTruckPlate, assignedDriver });
+      if (Object.keys(updates).length) await updateOrder(editingOrder.id, updates);
       setEditingOrder(null);
+      showSuccess('Изменения заявки сохранены.');
     } catch (e) {
-      console.error("Save edit error:", e);
+      const message = e instanceof Error ? e.message : 'Не удалось сохранить изменения заявки.';
+      setEditError(message);
+      showError(message);
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -1369,6 +1376,8 @@ export const RegionalOrders: React.FC = () => {
                   </label>
                   <select
                     value={editStatus}
+                    aria-label="Статус заявки"
+                    disabled={savingEdit || (isClosedRegionalOrder(editingOrder.status) && !isAdmin)}
                     onChange={(e) => setEditStatus(e.target.value as RegionalOrderStatus)}
                     className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white"
                   >
@@ -1376,6 +1385,17 @@ export const RegionalOrders: React.FC = () => {
                       <option key={st} value={st}>{STATUS_CONFIG[st].label}</option>
                     ))}
                   </select>
+                  {isClosedRegionalOrder(editingOrder.status) && (
+                    <p className="text-xs text-slate-500">
+                      {isAdmin ? 'Можно исправить статус этой заявки. Для следующей доставки создайте новую заявку.' :
+                        'Исправить статус закрытого рейса может администратор. Данные водителя и машины можно редактировать.'}
+                    </p>
+                  )}
+                  {isClosedRegionalOrder(editingOrder.status) && editStatus !== editingOrder.status && !isClosedRegionalOrder(editStatus) && (
+                    <p role="status" className="text-xs text-amber-700 dark:text-amber-300">
+                      Заявка вернётся в работу. История GPS сохранится. Для продолжения отслеживания водитель должен снова принять рейс в боте и включить новую трансляцию геопозиции.
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -1405,6 +1425,7 @@ export const RegionalOrders: React.FC = () => {
                 </div>
               </div>
 
+              {editError && <p role="alert" className="text-sm text-red-600">{editError}</p>}
               {/* Action Buttons */}
               <div className="pt-2 flex items-center justify-between border-t border-slate-200 dark:border-slate-700">
                 {canDeleteOrder(editingOrder) ? (
@@ -1434,9 +1455,10 @@ export const RegionalOrders: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleSaveEdit}
+                    disabled={savingEdit}
                     className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:bg-blue-700 transition-colors"
                   >
-                    Сохранить назначения
+                    {savingEdit ? 'Сохранение…' : 'Сохранить назначения'}
                   </button>
                 </div>
               </div>

@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import express from 'express';
 import http from 'node:http';
 import { io as connectSocket } from 'socket.io-client';
+import { buildRegionalOrderEdit } from '../src/utils/regional-order-edit.js';
 
 // Import services only after changing to isolated storage. Real orders, tokens,
 // driver sessions and Telegram message queues are never touched by these tests.
@@ -240,7 +241,7 @@ test('completion rejects other drivers, old buttons and late GPS across subseque
   assert.equal(store.getOrder(b.id)?.status, 'delivered');
 });
 
-test('invalid coordinates and missing consent are rejected; cancelled trips cannot be revived', async () => {
+test('invalid coordinates and missing consent are rejected; stale updates cannot revive cancelled trips', async () => {
   const o = order();
   assert.equal((await request('/api/driver/location', { orderId: o.id, lat: 10, lng: 10 })).status, 403);
   await callback(601, `consent_trip:${o.orderNumber}`);
@@ -256,6 +257,107 @@ test('invalid coordinates and missing consent are rejected; cancelled trips cann
   tracking.syncActiveOrders([{ ...o, status: 'dispatched' }]);
   assert.equal(store.getOrder(o.id)?.status, 'cancelled');
   assert.equal((await request(`/api/orders/regional/${o.id}`, { status: 'dispatched' }, 'PUT')).status, 409);
+});
+
+test('administrator corrects a closed trip without losing history; old Telegram edits cannot resume GPS', async () => {
+  const o = order();
+  const t = now();
+  await callback(611, `consent_trip:${o.orderNumber}`);
+  await gps(locationMessage(611, 61, t));
+  await callback(611, `finish_trip:${o.orderNumber}`);
+  const closed = structuredClone(store.getOrder(o.id)!);
+  const history = structuredClone(store.getTelemetry(o.id));
+  const patch = buildRegionalOrderEdit(closed, { ...closed, status: 'dispatched', assignedTruckPlate: 'CORRECTED' });
+  const corrected = await request(`/api/orders/regional/${o.id}`, patch, 'PUT');
+  assert.equal(corrected.status, 200);
+  assert.equal(corrected.body.status, 'dispatched');
+  assert.equal(corrected.body.assignedTruckPlate, 'CORRECTED');
+  assert.equal(corrected.body.driverConsent, false);
+  assert.equal(corrected.body.isTrackingActive, false);
+  assert.equal(corrected.body.deliveredAt, undefined);
+  assert.equal(corrected.body.dispatchedAt, closed.dispatchedAt);
+  assert.equal(corrected.body.currentLat, closed.currentLat);
+  assert.deepEqual(corrected.body.trackingStartLocation, closed.trackingStartLocation);
+  assert.deepEqual(store.getTelemetry(o.id), history);
+  assert.equal(store.getSession(611), undefined);
+  assert.deepEqual(corrected.body.statusCorrections[0], { from: 'delivered', to: 'dispatched',
+    at: corrected.body.statusCorrections[0].at, by: store.getUser('admin_local')!.email, previousDeliveredAt: closed.deliveredAt });
+  assert.equal(corrected.body.expectedStatus, undefined);
+  assert.equal(corrected.body.correctClosedStatus, undefined);
+  await gps(locationMessage(611, 61, t, true, t + 2, 44, 77), true);
+  assert.equal(store.getOrder(o.id)!.currentLat, closed.currentLat);
+  assert.equal((await request('/api/driver/location', { orderId: o.id, lat: 44, lng: 77 })).status, 403);
+  await callback(611, `consent_trip:${o.orderNumber}`);
+  await gps(locationMessage(611, 61, t, true, t + 3, 44, 77), true);
+  assert.equal(store.getOrder(o.id)!.currentLat, closed.currentLat, 'old live message still cannot bind after new consent');
+  await gps(locationMessage(611, 62, t + 4, true, undefined, 43.251, 76.921));
+  assert.equal(store.getOrder(o.id)!.isTrackingActive, true);
+  assert.equal(store.getOrder(o.id)!.currentLat, 43.251);
+  assert.deepEqual(store.getTelemetry(o.id).slice(0, history.length), history);
+});
+
+test('closed status corrections cover every status and require current admin intent', async () => {
+  store.saveUser({ uid: 'status-operator', email: 'operator@example.test', displayName: 'Operator', role: 'logistics' });
+  const staffToken = authorize('status-operator');
+  for (const fromStatus of ['delivered', 'cancelled'] as const) {
+    for (const to of ['new', 'assigned', 'loading', 'dispatched', 'delivered', 'cancelled'] as const) {
+      if (to === fromStatus) continue;
+      const o = order();
+      store.saveOrder({ ...o, status: fromStatus, assignedDriver: 'Driver', assignedTruckPlate: 'PLATE' });
+      const original = structuredClone(store.getOrder(o.id)!);
+      const patch = buildRegionalOrderEdit(original, { ...original, status: to });
+      assert.equal(patch.status, to, 'an explicit new status must not auto-assign the order');
+      const denied = await fetch(base + `/api/orders/regional/${o.id}`, { method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + staffToken }, body: JSON.stringify(patch) });
+      assert.equal(denied.status, 403);
+      assert.deepEqual(store.getOrder(o.id), original);
+      assert.equal((await request(`/api/orders/regional/${o.id}`, { status: to }, 'PUT')).status, 409);
+      assert.equal((await request(`/api/orders/regional/${o.id}`, { status: to, correctClosedStatus: true }, 'PUT')).status, 409);
+      assert.deepEqual(store.getOrder(o.id), original);
+      const accepted = await request(`/api/orders/regional/${o.id}`, patch, 'PUT');
+      assert.equal(accepted.status, 200);
+      assert.equal(accepted.body.status, to);
+      assert.equal(accepted.body.statusCorrections.length, 1);
+      assert.equal(accepted.body.isTrackingActive, false);
+    }
+  }
+});
+
+test('saving a stale assignment form preserves a driver-completed status and delivery date', async () => {
+  const o = order();
+  store.saveOrder({ ...o, status: 'dispatched', assignedDriver: 'Driver', assignedTruckPlate: 'OLD',
+    dispatchedAt: '2026-09-01T10:00:00Z' });
+  const form = structuredClone(store.getOrder(o.id)!);
+  tracking.completeDriverTrip(o.id);
+  const closed = structuredClone(store.getOrder(o.id)!);
+  const patch = buildRegionalOrderEdit(form, { ...form, assignedTruckPlate: 'NEW' });
+  assert.equal(Object.hasOwn(patch, 'status'), false);
+  const saved = await request(`/api/orders/regional/${o.id}`, patch, 'PUT');
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.status, 'delivered');
+  assert.equal(saved.body.deliveredAt, closed.deliveredAt);
+  assert.equal(saved.body.dispatchedAt, closed.dispatchedAt);
+  assert.equal(saved.body.trackingStoppedAt, closed.trackingStoppedAt);
+  assert.equal(saved.body.assignedTruckPlate, 'NEW');
+  assert.equal(saved.body.isTrackingActive, false);
+  const staleStatus = buildRegionalOrderEdit(form, { ...form, status: 'loading' });
+  assert.equal((await request(`/api/orders/regional/${o.id}`, staleStatus, 'PUT')).status, 409);
+  assert.equal(store.getOrder(o.id)!.status, 'delivered');
+});
+
+test('invalid statuses and forged audit or GPS fields cannot alter a regional order', async () => {
+  const o = order();
+  const before = structuredClone(store.getOrder(o.id)!);
+  assert.equal((await request(`/api/orders/regional/${o.id}`, { status: 'anything', assignedDriver: 'changed' }, 'PUT')).status, 400);
+  assert.deepEqual(store.getOrder(o.id), before);
+  const saved = await request(`/api/orders/regional/${o.id}`, { assignedDriver: 'Driver',
+    statusCorrections: [{ from: 'delivered', to: 'new' }], correctClosedStatus: true, expectedStatus: 'new',
+    isTrackingActive: true, driverConsent: true, currentLat: 43, currentLng: 76,
+    dispatchedAt: 'fake', deliveredAt: 'fake' }, 'PUT');
+  assert.equal(saved.status, 200);
+  for (const field of ['statusCorrections', 'correctClosedStatus', 'expectedStatus', 'isTrackingActive', 'driverConsent', 'currentLat', 'dispatchedAt', 'deliveredAt']) {
+    assert.equal(saved.body[field], undefined);
+  }
 });
 
 test('session, consent and GPS survive a fresh server process; next edited message continues same trip', async () => {

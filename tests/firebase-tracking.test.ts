@@ -13,6 +13,7 @@ const { storageService } = await import('../server/services/storage.service.js')
 const tracking = await import('../server/services/telegram.service.js');
 const { withFirebaseTracking, REMOVE_FIELD } = await import('../server/services/firebase-tracking.service.js');
 const { afterTrackingCommit } = await import('../server/services/tracking-context.js');
+const { updateRegionalOrder } = await import('../server/services/regional-order-update.service.js');
 type Data = Record<string, Record<string, any>>;
 const merge = (target: any, patch: any): any => {
   const result = { ...target };
@@ -169,6 +170,39 @@ test('a concurrent order with the same ID cannot be overwritten during creation'
     destinationCity: 'Астана', status: 'new' }), { store: cloud }), { code: 6 });
   assert.deepEqual(cloud.data.regional_orders['new-id'], concurrent);
   assert.equal(cloud.writes, 0);
+});
+
+test('status correction is atomic in Firebase, keeps business documents and GPS history, and audits once on retry', async () => {
+  const cloud = database();
+  const id = 'firebase-existing-order';
+  const doc = cloud.data.regional_orders[id];
+  Object.assign(doc, { status: 'delivered', deliveredAt: '2026-09-15T10:00:00Z',
+    invoices: [{ id: 'original-invoice', fileName: '389.xlsx', fileData: 'original-file' }] });
+  cloud.data.gps_tracking = { [id]: { position: { hasRealGps: true, driverConsent: true,
+    isTrackingActive: false, speed: 0, currentLat: 47.1, currentLng: 51.88, lastGpsUpdate: '2026-09-15T10:00:00Z',
+    trackingStartLocation: { lat: 43.3, lng: 76.9 } }, history: [{ lat: 43.3, lng: 76.9 }, { lat: 47.1, lng: 51.88 }] } };
+  const original = structuredClone(cloud.data);
+  const input = { status: 'dispatched' as const, expectedStatus: 'delivered' as const, correctClosedStatus: true };
+  const actor = { isAdmin: true, email: 'owner@example.test' };
+  cloud.failCommit = true;
+  await assert.rejects(withFirebaseTracking(() => updateRegionalOrder(id, input, actor), { store: cloud }));
+  assert.deepEqual(cloud.data, original, 'failed commits cannot partly reopen a trip');
+  cloud.failCommit = false;
+  cloud.retryOnce = true;
+  await withFirebaseTracking(() => updateRegionalOrder(id, input, actor), { store: cloud });
+  const saved = cloud.data.regional_orders[id];
+  assert.equal(saved.status, 'dispatched');
+  assert.equal(saved.deliveredAt, undefined);
+  assert.equal(saved.statusCorrections.length, 1);
+  assert.equal(saved.statusCorrections[0].previousDeliveredAt, original.regional_orders[id].deliveredAt);
+  for (const [key, value] of Object.entries(original.regional_orders[id])) {
+    if (!['status', 'deliveredAt', 'updatedAt'].includes(key)) assert.deepEqual(saved[key], value, key);
+  }
+  assert.deepEqual(cloud.data.gps_tracking[id].history, original.gps_tracking[id].history);
+  assert.deepEqual(cloud.data.gps_tracking[id].position.trackingStartLocation, original.gps_tracking[id].position.trackingStartLocation);
+  assert.equal(cloud.data.gps_tracking[id].position.driverConsent, false);
+  assert.equal(cloud.data.gps_tracking[id].position.isTrackingActive, false);
+  assert.equal(saved.driverConsent, undefined, 'private GPS fields stay in the private collection');
 });
 
 test('Firebase builds the Atyrau route from saved GPS without changing the order or its history', async () => {

@@ -6,6 +6,7 @@ import { updateCachedOrderStatus, stopOrderTracking } from '../services/telegram
 import { isCrmAdmin, requireSameOrigin, requireSignedIn, getCrmUser } from '../services/crm-auth.service.js';
 import { withoutGps } from '../services/gps-access.service.js';
 import { randomUUID } from 'node:crypto';
+import { updateRegionalOrder, RegionalOrderUpdateError } from '../services/regional-order-update.service.js';
 
 const router = Router();
 router.use(requireSignedIn);
@@ -133,31 +134,14 @@ router.post('/regional', tracked((req, res) => {
 // PUT /api/orders/regional/:id - update order
 router.put('/regional/:id', tracked((req, res) => {
   try {
-    const existing = storageService.getOrder(req.params.id);
-    if (!existing) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
-
-    // GPS and driver consent are written exclusively by the tracking service.
-    const updates = withoutGps(req.body) as Partial<RegionalOrderRecord>;
-    if (['delivered', 'cancelled'].includes(existing.status) && updates.status && updates.status !== existing.status) {
-      return res.status(409).json({ error: 'Рейс уже закрыт. Создайте новую заявку для следующей доставки.' });
-    }
-    const merged: RegionalOrderRecord = {
-      ...existing,
-      ...updates,
-      id: existing.id,
-      createdByEmail: existing.createdByEmail,
-      createdByName: existing.createdByName,
-      updatedAt: new Date().toISOString()
-    };
-
-    const saved = storageService.saveOrder(merged);
-    updateCachedOrderStatus(saved.orderNumber, saved.status, saved);
+    const saved = updateRegionalOrder(req.params.id, req.body, {
+      isAdmin: isCrmAdmin(req), email: getCrmUser(req)!.email,
+    });
     broadcastRealtimeEvent('order_updated', saved);
 
     return res.json(isCrmAdmin(req) ? saved : withoutGps(saved));
   } catch (err: any) {
+    if (err instanceof RegionalOrderUpdateError) return res.status(err.statusCode).json({ error: err.message });
     return res.status(500).json({ error: err.message });
   }
 }));

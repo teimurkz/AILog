@@ -4,6 +4,7 @@ import { subscribeToOwnerOrders, subscribeToOwnerGps } from '../services/firesto
 import { ordersApi } from '../services/api';
 import { mergeOrderGps, type GpsDocument } from '../../shared/gps-projection';
 import { RegionalTruckOrder, RegionalOrderStatus } from '../types';
+import type { StatusChangeOptions } from '../../shared/regional-order-status';
 
 export const playNotificationSound = () => {
   try {
@@ -146,18 +147,28 @@ export const useRegionalOrders = () => {
     setOrders(prev => [created, ...prev.filter(order => order.id !== created.id)]);
     return created.id;
   };
-  const updateOrderStatus = async (orderId: string, status: RegionalOrderStatus,
-    assignedData?: { assignedTruckPlate?: string; assignedDriver?: string; comments?: string }) => {
-    const now = new Date().toISOString();
-    const updated = await ordersApi.update(orderId, { status, ...assignedData,
-      ...(status === 'dispatched' ? { dispatchedAt: now } : {}), updatedAt: now });
-    setOrders(prev => prev.map(order => order.id === updated.id ? { ...order, ...updated } : order));
-    return updated;
+  const updateOrder = async (orderId: string, updates: Partial<RegionalTruckOrder> & StatusChangeOptions) => {
+    try {
+      const updated = await ordersApi.update(orderId, updates);
+      setOrders(prev => prev.map(order => order.id === updated.id ? { ...order, ...updated } : order));
+      return updated;
+    } catch (error) {
+      if ((error as { status?: number }).status === 409) {
+        // Keep the form's draft, but refresh the list so reopening it uses the
+        // current Firebase status instead of repeatedly submitting a stale one.
+        try {
+          const current = await ordersApi.getById(orderId);
+          setOrders(prev => prev.map(order => order.id === current.id ? { ...order, ...current } : order));
+        } catch { /* Preserve the original, actionable conflict message. */ }
+      }
+      throw error;
+    }
   };
+  const updateOrderStatus = (orderId: string, status: RegionalOrderStatus) => updateOrder(orderId, { status });
   const deleteOrder = async (id: string) => {
     await ordersApi.delete(id);
     setOrders(prev => prev.filter(order => order.id !== id));
   };
-  return { orders, loading, error: error || gpsError, retry, addOrder, updateOrderStatus, deleteOrder,
+  return { orders, loading, error: error || gpsError, retry, addOrder, updateOrder, updateOrderStatus, deleteOrder,
     lastNewOrderAlert, dismissAlert: () => setLastNewOrderAlert(null) };
 };
