@@ -29,6 +29,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { playNotificationSound } from '../../hooks/useRegionalOrders';
 import { useSavedDeliveryContacts } from '../../hooks/useSavedDeliveryContacts';
 import { InvoiceItem, DeliveryPoint } from '../../types';
+import { POPULAR_CITIES } from '../../../shared/route-destinations';
 
 interface NewRegionalOrderModalProps {
   isOpen: boolean;
@@ -56,23 +57,6 @@ interface NewRegionalOrderModalProps {
     createdByName?: string;
   }) => Promise<any> | void;
 }
-
-const POPULAR_CITIES = [
-  'Астана',
-  'Шымкент',
-  'Караганда',
-  'Актобе',
-  'Тараз',
-  'Павлодар',
-  'Усть-Каменогорск',
-  'Семей',
-  'Атырау',
-  'Костанай',
-  'Кызылорда',
-  'Актау',
-  'Бишкек',
-  'Ташкент',
-];
 
 export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
   isOpen,

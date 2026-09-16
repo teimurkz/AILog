@@ -170,3 +170,33 @@ test('a concurrent order with the same ID cannot be overwritten during creation'
   assert.deepEqual(cloud.data.regional_orders['new-id'], concurrent);
   assert.equal(cloud.writes, 0);
 });
+
+test('Firebase builds the Atyrau route from saved GPS without changing the order or its history', async () => {
+  const { prepareTripRoadRoute } = await import('../server/services/trip-route.service.js');
+  const cloud = database();
+  Object.assign(cloud.data.regional_orders['firebase-existing-order'], {
+    destinationCity: 'Атырау', hasRealGps: true, driverConsent: true,
+    currentLat: 43.39, currentLng: 76.9, lastGpsUpdate: new Date().toISOString(),
+    locationHistory: [{ lat: 43.3, lng: 76.85, timestamp: '2026-09-11T10:00:00Z' }],
+  });
+  const original = structuredClone(cloud.data.regional_orders);
+  const fetcher = (async (input: any) => {
+    assert.ok(String(input).includes('/76.85,43.3;51.88427,47.1048?'));
+    return new Response(JSON.stringify({ code: 'Ok', routes: [{ distance: 2700000,
+      geometry: { coordinates: [[76.85, 43.3], [65, 44.9], [51.88427, 47.1048]] } }] }));
+  }) as typeof fetch;
+  try {
+    process.env.GPS_ROUTE_PROVIDER_DISABLED = 'false';
+    const route = await withFirebaseTracking(async () => {
+      const start = tracking.getDriverLocation('firebase-existing-order');
+      await prepareTripRoadRoute('firebase-existing-order', start.routeWaypoints[0], start.routeWaypoints[1], fetcher);
+      return tracking.getDriverLocation('firebase-existing-order');
+    }, { store: cloud });
+    assert.equal(route.destinationCity, 'Атырау');
+    assert.equal(route.routeStatus, 'road');
+    assert.deepEqual(route.detailedRoadPolyline[0], { lat: 43.3, lng: 76.85 });
+    assert.deepEqual(route.detailedRoadPolyline.at(-1), { lat: 47.1048, lng: 51.88427 });
+    assert.deepEqual(cloud.data.regional_orders, original);
+    assert.equal(fs.existsSync(path.join(fixture, 'server/data/gps_routes.json')), false);
+  } finally { process.env.GPS_ROUTE_PROVIDER_DISABLED = 'true'; }
+});

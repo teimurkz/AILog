@@ -65,7 +65,7 @@ interface RouteData {
   isTrackingActive?: boolean;
   driverConsent?: boolean;
   liveLocationExpiresAt?: string;
-  routeStatus?: 'waiting' | 'building' | 'road' | 'approximate';
+  routeStatus?: 'waiting' | 'building' | 'road' | 'approximate' | 'destination_unknown';
 }
 
 export const RouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, order }) => {
@@ -151,11 +151,11 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
       stopGps();
       window.removeEventListener('online', refresh);
     };
-  }, [isOpen, order?.id, order?.orderNumber, fetchLocationData]);
+  }, [isOpen, order?.id, order?.orderNumber, order?.destinationCity, fetchLocationData]);
 
   if (!isOpen || !order) return null;
 
-  const destCity = order.destinationCity || 'Астана';
+  const destCity = order.destinationCity || 'Не указан';
   const lastPingAge = routeData?.updatedAt ? Math.max(0, Math.round((now - Date.parse(routeData.updatedAt)) / 1000)) : undefined;
   const isFreshGps = !gpsError && routeData?.isTrackingActive && lastPingAge !== undefined && lastPingAge <= 120;
   const driverName = order.assignedDriver || 'Не назначен';
@@ -293,7 +293,8 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
                   </p>
                   <p className="text-xs text-blue-200 mt-1 flex items-center gap-1">
                     <Clock className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Осталось {routeData?.remainingDistanceKm ?? '—'} км (из {routeData?.totalDistanceKm ?? '—'} км)</span>
+                    <span>{routeData?.routeStatus === 'destination_unknown' ? 'Расстояние и время в пути недоступны' :
+                      <>Осталось {routeData?.remainingDistanceKm ?? '—'} км (из {routeData?.totalDistanceKm ?? '—'} км)</>}</span>
                   </p>
                 </div>
 
@@ -414,7 +415,8 @@ const AdminRouteMapModal: React.FC<RouteMapModalProps> = ({ isOpen, onClose, ord
                 />
 
                 <p className="text-xs text-slate-500" role="status">
-                  {routeData?.routeStatus === 'building' ? 'Строится путь по дорогам от первой GPS-точки машины до города назначения…' :
+                  {routeData?.routeStatus === 'destination_unknown' ? `Не удалось определить город «${destCity}». Уточните город назначения в заявке. Положение машины и история GPS доступны.` :
+                    routeData?.routeStatus === 'building' ? 'Строится путь по дорогам от первой GPS-точки машины до города назначения…' :
                     routeData?.routeStatus === 'approximate' ? 'Путь по дорогам временно недоступен. Пунктир показывает ориентировочное направление от старта GPS.' :
                     routeData?.routeStatus === 'road' ? 'Старт маршрута — первая GPS-точка рейса. Синий пунктир — маршрут до города назначения.' :
                     'Маршрут появится после первой геопозиции машины.'}

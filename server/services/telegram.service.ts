@@ -2,6 +2,8 @@ import { storageService, type LocationPoint } from './storage.service.js';
 import { getSavedDriverLocation, getTrackingStartLocation, validCoordinates } from './driver-tracking.service.js';
 import { getTripRoadRoute } from './trip-route.service.js';
 import { calculateRouteProgressTurf } from './gps-tracking-framework.service.js';
+import { resolveRouteDestination } from '../../shared/route-destinations.js';
+export { HIGHWAY_NODES } from '../../shared/route-destinations.js';
 export * from './driver-tracking.service.js';
 export * from './telegram-bot.service.js';
 export type { LocationPoint };
@@ -32,7 +34,7 @@ export interface RouteProgress {
   driverConsent?: boolean;
   trackingSource?: string;
   liveLocationExpiresAt?: string;
-  routeStatus: 'waiting' | 'building' | 'road' | 'approximate';
+  routeStatus: 'waiting' | 'building' | 'road' | 'approximate' | 'destination_unknown';
   trackingStartLocation?: LocationPoint;
 }
 
@@ -40,16 +42,6 @@ import { KAZAKHSTAN_ROADS } from "../config/kazakhstanRoads.js";
 
 // High-resolution Kazakhstan Highway Road Polylines (OSRM real asphalt road geometry)
 export const DETAILED_HIGHWAYS: Record<string, LocationPoint[]> = KAZAKHSTAN_ROADS;
-
-// Major Kazakhstan Highway Nodes
-export const HIGHWAY_NODES: Record<string, { lat: number; lng: number; name: string }> = {
-  almaty: { lat: 43.2389, lng: 76.8897, name: 'Алматы' },
-  balkhash: { lat: 46.8481, lng: 74.9804, name: 'Балхаш' },
-  karaganda: { lat: 49.8019, lng: 73.1021, name: 'Караганда' },
-  astana: { lat: 51.1694, lng: 71.4491, name: 'Астана' },
-  shymkent: { lat: 42.3417, lng: 69.5901, name: 'Шымкент' },
-  taraz: { lat: 42.9000, lng: 71.3667, name: 'Тараз' },
-};
 
 // Haversine formula for distance between 2 coordinates in km
 export function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -68,7 +60,7 @@ export function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lo
 
 export function getDriverLocation(
   orderId: string, 
-  destinationCity: string = 'Астана',
+  destinationCity: string = '',
   orderNumber?: string,
   orderStatus?: string,
   dispatchedAt?: string
@@ -93,20 +85,17 @@ export function getDriverLocation(
     });
   }
 
-  const effectiveDestCity = storedOrder?.destinationCity || destinationCity || 'Астана';
-  
-  // Resolve destination coordinates
-  const destKey = Object.keys(HIGHWAY_NODES).find(k => 
-    effectiveDestCity.toLowerCase().includes(k) || HIGHWAY_NODES[k].name.toLowerCase() === effectiveDestCity.toLowerCase()
-  ) || 'astana';
-  
-  const destNode = HIGHWAY_NODES[destKey] || HIGHWAY_NODES.astana;
+  // The persisted order is authoritative, including an empty/unknown destination.
+  const effectiveDestCity = storedOrder ? storedOrder.destinationCity || '' : destinationCity;
+  const destNode = resolveRouteDestination(effectiveDestCity);
   const trackingStartLocation = getTrackingStartLocation(storedOrder?.id || orderId);
-  const origin = trackingStartLocation || destNode;
-  const highway = DETAILED_HIGHWAYS[destKey] || (destKey === 'taraz' ? DETAILED_HIGHWAYS.shymkent : DETAILED_HIGHWAYS.astana);
-  const roadRoute = trackingStartLocation ? getTripRoadRoute(storedOrder?.id || orderId, origin, destNode, highway) : undefined;
+  // Default map centre only; never presented as a truck position without GPS.
+  const origin = trackingStartLocation || destNode || { lat: 43.2389, lng: 76.8897 };
+  const highway = destNode ? DETAILED_HIGHWAYS[destNode.key] ||
+    (destNode.key === 'taraz' ? DETAILED_HIGHWAYS.shymkent : []) : [];
+  const roadRoute = trackingStartLocation && destNode ? getTripRoadRoute(storedOrder?.id || orderId, origin, destNode, highway) : undefined;
   const detailedRoadPolyline = roadRoute?.points || [];
-  const waypoints = trackingStartLocation ? [
+  const waypoints = trackingStartLocation && destNode ? [
     { name: 'Старт GPS', lat: origin.lat, lng: origin.lng, reached: true },
     { name: destNode.name, lat: destNode.lat, lng: destNode.lng, reached: storedOrder?.status === 'delivered' }
   ] : [];
@@ -194,12 +183,12 @@ export function getDriverLocation(
   }
 
   // Progress and ETA via Turf.js framework
-  let totalDistance = trackingStartLocation ? calculateDistanceKm(origin.lat, origin.lng, destNode.lat, destNode.lng) : 0;
+  let totalDistance = trackingStartLocation && destNode ? calculateDistanceKm(origin.lat, origin.lng, destNode.lat, destNode.lng) : 0;
   let remainingDistance = isDelivered ? 0 : totalDistance;
   let progressPercent = isDelivered ? 100 : 0;
   let etaTotalMinutes = isDelivered ? 0 : Math.round((totalDistance / 70) * 60);
 
-  if (hasRealGps && trackingStartLocation) {
+  if (hasRealGps && trackingStartLocation && destNode) {
     const turfProgress = calculateRouteProgressTurf(
       origin,
       destNode,
@@ -216,7 +205,9 @@ export function getDriverLocation(
   const mins = etaTotalMinutes % 60;
   const etaFormatted = isDelivered 
     ? "Груз доставлен" 
-    : !hasRealGps
+    : !destNode
+      ? 'Город назначения не определён'
+      : !hasRealGps
       ? "Ожидает отправки" 
       : speed >= 30
         ? (hours > 0 ? `~${hours} ч ${mins} мин` : `~${mins} мин`)
@@ -230,7 +221,7 @@ export function getDriverLocation(
     speed: isDelivered || !hasRealGps ? 0 : speed,
     heading: hasRealGps ? heading : 0,
     originCity: trackingStartLocation ? 'Старт GPS' : 'Ожидание GPS',
-    destinationCity: destNode.name,
+    destinationCity: destNode?.name || effectiveDestCity,
     totalDistanceKm: totalDistance,
     remainingDistanceKm: remainingDistance,
     progressPercent,
@@ -248,7 +239,7 @@ export function getDriverLocation(
     driverConsent,
     trackingSource: storedOrder?.trackingSource,
     liveLocationExpiresAt: storedOrder?.liveLocationExpiresAt,
-    routeStatus: roadRoute?.status || 'waiting',
+    routeStatus: !destNode ? 'destination_unknown' : roadRoute?.status || 'waiting',
     trackingStartLocation
   };
 }

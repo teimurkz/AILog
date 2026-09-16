@@ -372,6 +372,92 @@ test('Firebase verified owner alone gets GPS; existing staff/guest profiles are 
   assert.equal((await requestAs('', '/api/auth/login', { email: 'ti07kz@gmail.com', accessKey: 'obsolete' })).status, 404);
 });
 
+test('Atyrau uses the order destination and replaces an already cached Astana road', async () => {
+  const { prepareTripRoadRoute } = await import('../server/services/trip-route.service.js');
+  const o = order();
+  await callback(802, `consent_trip:${o.orderNumber}`);
+  await gps(locationMessage(802, 81, now(), true, undefined, 43.39, 76.9));
+  const first = tracking.getDriverLocation(o.id);
+  const requested: string[] = [];
+  const fakeRoad = (async (url: any) => {
+    requested.push(String(url));
+    const coordinates = new URL(String(url)).pathname.split('/').at(-1)!.split(';')
+      .map(pair => pair.split(',').map(Number));
+    return new Response(JSON.stringify({ code: 'Ok', routes: [{ distance: 2000000,
+      geometry: { coordinates } }] }));
+  }) as typeof fetch;
+  try {
+    process.env.GPS_ROUTE_PROVIDER_DISABLED = 'false';
+    await prepareTripRoadRoute(o.id, first.routeWaypoints[0], first.routeWaypoints[1], fakeRoad);
+    process.env.GPS_ROUTE_PROVIDER_DISABLED = 'true';
+    assert.equal(tracking.getDriverLocation(o.id).routeStatus, 'road');
+    store.saveOrder({ ...store.getOrder(o.id)!, destinationCity: 'Атырау' });
+    const changed = tracking.getDriverLocation(o.id, 'Астана');
+    assert.equal(changed.destinationCity, 'Атырау');
+    assert.notEqual(changed.routeStatus, 'road', 'old Astana geometry must be discarded');
+    assert.deepEqual(changed.trackingStartLocation, first.trackingStartLocation);
+    assert.deepEqual(changed.detailedRoadPolyline.at(-1), { lat: 47.1048, lng: 51.88427 });
+    process.env.GPS_ROUTE_PROVIDER_DISABLED = 'false';
+    await prepareTripRoadRoute(o.id, changed.routeWaypoints[0], changed.routeWaypoints[1], fakeRoad);
+    process.env.GPS_ROUTE_PROVIDER_DISABLED = 'true';
+    const response = await request('/api/driver/location/' + o.id);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.destinationCity, 'Атырау');
+    assert.equal(response.body.routeWaypoints[1].name, 'Атырау');
+    assert.equal(response.body.routeStatus, 'road');
+    assert.deepEqual(response.body.detailedRoadPolyline[0], { lat: 43.39, lng: 76.9 });
+    assert.deepEqual(response.body.detailedRoadPolyline.at(-1), { lat: 47.1048, lng: 51.88427 });
+    assert.ok(requested.at(-1)!.includes('/76.9,43.39;51.88427,47.1048?'));
+  } finally {
+    process.env.GPS_ROUTE_PROVIDER_DISABLED = 'true';
+  }
+});
+
+test('every city offered in regional orders has its own GPS destination; aliases match exactly', async () => {
+  const { POPULAR_CITIES, resolveRouteDestination } = await import('../shared/route-destinations.js');
+  const o = order();
+  store.saveOrder({ ...o, driverConsent: true, hasRealGps: true, currentLat: 43.39, currentLng: 76.9,
+    lastGpsUpdate: new Date().toISOString(), isTrackingActive: true });
+  const endpoints = new Set<string>();
+  for (const name of POPULAR_CITIES) {
+    store.saveOrder({ ...store.getOrder(o.id)!, destinationCity: name });
+    const route = tracking.getDriverLocation(o.id);
+    assert.equal(route.destinationCity, name);
+    assert.equal(route.routeWaypoints.at(-1)?.name, name);
+    endpoints.add(JSON.stringify(route.detailedRoadPolyline.at(-1)));
+  }
+  assert.equal(endpoints.size, POPULAR_CITIES.length, 'cities must not share a fallback endpoint');
+  for (const alias of ['  АТЫРАУ  ', 'г. Атырау', 'город Атырау', 'Atyrau']) {
+    assert.equal(resolveRouteDestination(alias)?.name, 'Атырау');
+  }
+  assert.equal(resolveRouteDestination('Өскемен')?.name, 'Усть-Каменогорск');
+  assert.equal(resolveRouteDestination('г. Нур–Султан')?.name, 'Астана');
+  for (const name of ['', 'Неизвестный город', 'near Astana', 'Astana warehouse', 'Кара']) {
+    assert.equal(resolveRouteDestination(name), undefined);
+  }
+});
+
+test('unknown or missing destination preserves real GPS without substituting a route or ETA', async () => {
+  const o = order();
+  await callback(803, `consent_trip:${o.orderNumber}`);
+  await gps(locationMessage(803, 82, now(), true, undefined, 43.39, 76.9));
+  const known = tracking.getDriverLocation(o.id);
+  for (const destinationCity of ['Неизвестный город', '']) {
+    store.saveOrder({ ...store.getOrder(o.id)!, destinationCity });
+    const route = tracking.getDriverLocation(o.id, 'Астана');
+    assert.equal(route.destinationCity, destinationCity);
+    assert.equal(route.routeStatus, 'destination_unknown');
+    assert.deepEqual(route.routeWaypoints, []);
+    assert.deepEqual(route.detailedRoadPolyline, []);
+    assert.equal(route.etaFormatted, 'Город назначения не определён');
+    assert.equal(route.hasRealGps, true);
+    assert.equal(route.isTrackingActive, true);
+    assert.deepEqual([route.currentLat, route.currentLng], [43.39, 76.9]);
+    assert.deepEqual(route.trackingStartLocation, known.trackingStartLocation);
+    assert.deepEqual(route.locationHistory, known.locationHistory);
+  }
+});
+
 async function watchSse(token: string) {
   const controller = new AbortController();
   const response = await fetch(base + '/api/realtime/stream', { headers: { Authorization: 'Bearer ' + token }, signal: controller.signal });
