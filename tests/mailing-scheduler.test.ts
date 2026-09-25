@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { dueMailingRun, runMailingTick, SCHEDULER_STATE, type MailingJobStore, type MailingTransaction } from '../server/services/mailing-job-runner.js';
 import { smtpFailure, smtpSecure, describeSmtpError } from '../server/services/smtp-policy.js';
+import { generateWarehouseExcelBufferAsync } from '../server/services/excel.service.js';
 
 const settings = { enabled: true, scheduleType: 'daily', sendTime: '09:00', timezone: 'Asia/Almaty' };
 const activation = '2026-09-13T00:00:00Z';
@@ -37,6 +38,26 @@ function fixture() {
   };
   return { store, deps, sends: () => sends, advance: (minutes: number) => { time = new Date(time.getTime() + minutes * 60_000); } };
 }
+
+test('scheduled dispatch prepares reports with additional Kusto tabs and completes once', async () => {
+  const f = fixture();
+  let prepared = 0;
+  const originalDispatch = f.deps.dispatch;
+  f.deps.dispatch = async options => {
+    const buffer = await generateWarehouseExcelBufferAsync({ warehouses: [
+      { sheetName: 'инв_Кусто', name: 'Архив авто (СВХ Кусто)', isArchive: true, items: [{ invNumber: 'OLD' }] },
+      { sheetName: 'СВХ Кусто', name: 'Архив авто (СВХ Кусто)', isArchive: true, items: [{ invNumber: 'NEW' }] },
+    ] });
+    assert.ok(buffer.length > 1000);
+    prepared++;
+    return originalDispatch(options); // In-memory receipt; never opens SMTP.
+  };
+  await runMailingTick(f.deps);
+  await runMailingTick(f.deps);
+  assert.equal(prepared, 1);
+  assert.equal(f.sends(), 1);
+  assert.equal(f.store.jobs()[0].status, 'sent');
+});
 
 test('09:00 Almaty is 04:00 UTC; short late starts catch up, old reports do not', () => {
   assert.equal(dueMailingRun(settings, new Date('2026-09-14T03:59Z'), activation), null);

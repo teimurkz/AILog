@@ -1,7 +1,27 @@
 import ExcelJS from "exceljs";
 
+function createWorksheetNameAllocator() {
+  // Reserve the generated summary; Excel compares names without case.
+  const used = new Set(['сводка по складам', 'history']);
+  const shorten = (value: string, length: number) => value.slice(0, length)
+    .replace(/[\uD800-\uDBFF]$/, '').replace(/'+$/, '').trim();
+  return (sourceName: unknown) => {
+    const base = String(sourceName || 'Склад')
+      .replace(/[\x00-\x1F\x7F:\\\/?*\[\]]/g, '_').trim().replace(/^'+|'+$/g, '').trim() || 'Склад';
+    let name = shorten(base, 31);
+    let index = 2;
+    while (used.has(name.toLowerCase())) {
+      const suffix = ` (${index++})`;
+      name = shorten(base, 31 - suffix.length) + suffix;
+    }
+    used.add(name.toLowerCase());
+    return name;
+  };
+}
+
 export async function generateWarehouseExcelBufferAsync(warehouseData: any): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
+  const worksheetName = createWorksheetNameAllocator();
   workbook.creator = "Система Учета Silk Road Logistics";
   workbook.lastModifiedBy = "Автоматическая Ежедневная Рассылка";
   workbook.created = new Date();
@@ -48,12 +68,12 @@ export async function generateWarehouseExcelBufferAsync(warehouseData: any): Pro
   };
 
   const allWhList = warehouseData.warehouses || [];
-  const trucksWh = allWhList.find((w: any) => w.isTrucksReport || w.id === 'trucks_report');
+  const trucksWhList = allWhList.filter((w: any) => w.isTrucksReport || w.id === 'trucks_report');
   const stockWhList = allWhList.filter((w: any) => !w.isTrucksReport && w.id !== 'trucks_report');
 
   // ================= 1. TAB: ОТЧЕТ ПО МАШИНАМ (ИЗ ОНЛАЙН GOOGLE ТАБЛИЦЫ) =================
-  if (trucksWh) {
-    const trucksSheet = workbook.addWorksheet('Отчет по машинам', {
+  for (const trucksWh of trucksWhList) {
+    const trucksSheet = workbook.addWorksheet(worksheetName(trucksWh.sheetName || trucksWh.name || 'Отчет по машинам'), {
       views: [{ showGridLines: true }]
     });
 
@@ -69,7 +89,7 @@ export async function generateWarehouseExcelBufferAsync(warehouseData: any): Pro
     // Metadata
     trucksSheet.mergeCells('A2:E2');
     const trMetaCell = trucksSheet.getCell('A2');
-    trMetaCell.value = `Дата в таблице: ${trucksWh.reportDate || 'Актуально'} | Источник: Google Sheets (Онлайн таблица) | Сформировано: ${new Date().toLocaleString('ru-RU')}`;
+    trMetaCell.value = `Лист: ${trucksWh.sheetName || trucksWh.name || 'Отчет по машинам'} | Дата в таблице: ${trucksWh.reportDate || 'Актуально'} | Сформировано: ${new Date().toLocaleString('ru-RU')}`;
     trMetaCell.font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF475569' } };
     trMetaCell.alignment = { horizontal: 'center', vertical: 'middle' };
     trucksSheet.getRow(2).height = 20;
@@ -202,7 +222,7 @@ export async function generateWarehouseExcelBufferAsync(warehouseData: any): Pro
     const row = summarySheet.addRow([
       idx + 1,
       wh.name,
-      wh.isArchive ? 'Архив выгрузок (Кусто)' : 'Активный склад',
+      wh.isArchive ? 'Выгрузки / архив' : 'Активный склад',
       itemCount,
       palletCount
     ]);
@@ -249,7 +269,7 @@ export async function generateWarehouseExcelBufferAsync(warehouseData: any): Pro
 
   // ================= 3. TABS: INDIVIDUAL WAREHOUSES FROM GOOGLE SHEETS =================
   stockWhList.forEach((wh: any) => {
-    const safeSheetName = String(wh.name || 'Склад').substring(0, 30).replace(/[:\\\/?*\[\]]/g, '_');
+    const safeSheetName = worksheetName(wh.sheetName || wh.name);
     const ws = workbook.addWorksheet(safeSheetName, {
       views: [{ showGridLines: true }]
     });
@@ -274,7 +294,7 @@ export async function generateWarehouseExcelBufferAsync(warehouseData: any): Pro
 
     // Table Headers
     const headers = wh.isArchive 
-      ? ["№ п/п", "№ Инвойса / Авто", "Наименование груза", "Заезд", "Выезд", "Примечания / СВХ"]
+      ? ["№ п/п", "№ Инвойса / Авто", wh.cols?.[2] || "Наименование груза", wh.cols?.[3] || "Заезд", wh.cols?.[4] || "Выезд", "Примечания / СВХ"]
       : ["№ п/п", "№ Инвойса / Накладной", "Наименование продукции", "Кол-во паллет", "Даты движения", "СВХ / Примечания"];
 
     const headerRow = ws.addRow(headers);
