@@ -369,7 +369,7 @@ export const RegionalOrders: React.FC = () => {
                 Заказ машин в регионы
               </h2>
               {newCount > 0 && (
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-white animate-pulse">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-white">
                   {newCount} новых
                 </span>
               )}
@@ -652,7 +652,7 @@ export const RegionalOrders: React.FC = () => {
                           <FileText className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                           <span>{order.orderNumber}</span>
                           {order.status === 'new' && (
-                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" title="Новая заявка" />
+                            <span className="w-2 h-2 shrink-0 rounded-full bg-amber-500" title="Новая заявка" />
                           )}
                         </div>
                       </td>
