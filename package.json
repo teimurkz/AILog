@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:regional-report": "node --import tsx --test tests/regional-orders-report.test.ts",
     "test:layout": "node --import tsx --test tests/responsive-table.test.tsx",
     "test:outlook": "node --import tsx --test tests/outlook-import.test.ts",
     "test:mailing": "node --import tsx --test tests/mailing-scheduler.test.ts tests/mailing-storage.test.ts tests/mailing-diagnostics.test.tsx tests/warehouse-report.test.ts",

@@ -38,6 +38,7 @@
 .crm-kanban { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 16px; align-items: start; }
 .crm-bulk-actions { max-width: calc(100vw - 24px); width: max-content; }
 .crm-dialog-overlay { overflow-y: auto; }
+.regional-report-dialog::backdrop { background: rgb(15 23 42 / .55); }
 .crm-dialog { max-height: 100%; margin-block: 0; overflow-y: auto; overscroll-behavior: contain; }
 .crm-dialog:has(> form) { display: flex; flex-direction: column; }
 .crm-dialog > form { min-height: 0; overflow-y: auto; }

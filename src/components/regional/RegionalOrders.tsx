@@ -43,6 +43,7 @@ import { DataLoadNotice } from '../common/DataLoadNotice';
 import { RegionalTruckOrder, RegionalOrderStatus, InvoiceItem, DeliveryPoint } from '../../types';
 import { NewRegionalOrderModal } from './NewRegionalOrderModal';
 import { RouteMapModal } from './RouteMapModal';
+import { RegionalOrdersReport } from './RegionalOrdersReport';
 import { generateWhatsAppLink, buildWhatsAppStatusMessage } from '../../utils/whatsapp';
 import { buildRegionalOrderEdit } from '../../utils/regional-order-edit';
 import { isClosedRegionalOrder } from '../../../shared/regional-order-status';
@@ -114,6 +115,7 @@ export const RegionalOrders: React.FC = () => {
 
   const { showSuccess, showError } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>('all');
@@ -413,6 +415,10 @@ export const RegionalOrders: React.FC = () => {
             </div>
           )}
 
+          <button type="button" onClick={() => setReportOpen(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+            <FileSpreadsheet className="h-4 w-4 text-blue-600" />Отчёт по отправкам
+          </button>
           {/* New Order Button */}
           <button
             onClick={() => setIsModalOpen(true)}
@@ -1525,6 +1531,8 @@ export const RegionalOrders: React.FC = () => {
         )}
       </AnimatePresence>
 
+      {reportOpen && <RegionalOrdersReport orders={orders} loading={loading} error={loadError}
+        onRetry={retryOrders} onClose={() => setReportOpen(false)} />}
       {/* Modal 4: Interactive Route Map & Driver GPS Tracking */}
       {isAdmin && <RouteMapModal
         isOpen={!!selectedMapOrder}
