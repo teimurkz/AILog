@@ -4,7 +4,7 @@ import { isOwnerIdentity } from '../../shared/access-policy';
 import { normalizeDocument, watchCollection, type CollectionState } from './collection-state';
 
 // GPS collections are deliberately excluded from this ordinary CRM reader.
-export type CrmCollection = 'shipments' | 'users' | 'saved_trucks' | 'saved_delivery_contacts';
+export type CrmCollection = 'shipments' | 'users' | 'saved_trucks' | 'saved_delivery_contacts' | 'truck_tracking' | 'truck_tracking_stages';
 export function subscribeToOwnerOrders<T>(publish: (state: CollectionState<T>) => void) {
   return watchCollection<T>((next, fail) => {
     if (!auth.currentUser || !isOwnerIdentity(auth.currentUser)) {

@@ -16,7 +16,8 @@ import {
   Mail,
   BarChart3,
   X,
-  Shield
+  Shield,
+  ScanEye
 } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -37,6 +38,7 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
   let menuItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard') },
     { id: 'shipments', icon: Package, label: t('shipments') },
+    { id: 'truck-tracking', icon: ScanEye, label: t('truckTracking') || 'Слежка авто' },
     { id: 'regional-orders', icon: Send, label: t('regionalOrders') },
     { id: 'directories', icon: BookOpen, label: t('directories') },
     { id: 'warehouses', icon: Warehouse, label: t('warehouses') },

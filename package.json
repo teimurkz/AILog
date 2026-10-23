@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:truck-tracking": "node --import tsx --test tests/truck-tracking.test.ts",
     "test:regional-report": "node --import tsx --test tests/regional-orders-report.test.ts",
     "test:layout": "node --import tsx --test tests/responsive-table.test.tsx",
     "test:outlook": "node --import tsx --test tests/outlook-import.test.ts",
