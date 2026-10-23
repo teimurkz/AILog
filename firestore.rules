@@ -111,6 +111,22 @@ service cloud.firestore {
       allow delete: if isAuthenticated();
     }
 
+    // "Слежка авто": trucks at our SVH. Stages (tabs) are configured by the team.
+    match /truck_tracking/{entryId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isLogistics() &&
+        request.resource.data.status is string &&
+        request.resource.data.invoice is string && request.resource.data.productName is string;
+      allow delete: if isLogistics();
+    }
+
+    match /truck_tracking_stages/{stageId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isLogistics() &&
+        request.resource.data.label is string && request.resource.data.label.size() > 0;
+      allow delete: if isLogistics();
+    }
+
     match /trucks/{truckId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();

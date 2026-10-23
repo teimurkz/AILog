@@ -42,6 +42,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
   const navItems = [
     { id: 'regional-orders', title: 'Региональные рейсы (Астана, Шымкент)', icon: Truck, category: 'Навигация' },
     { id: 'shipments', title: 'Складской учет и статусы авто', icon: Building2, category: 'Навигация' },
+    { id: 'truck-tracking', title: 'Слежка авто (инвойсы, прибытие, СВХ)', icon: Truck, category: 'Навигация' },
     { id: 'stamp-scans', title: 'Печать и штампы на PDF / Сканы', icon: Stamp, category: 'Инструменты' },
     { id: 'auto-mailing', title: 'Авто-рассылка отчетов Excel', icon: Mail, category: 'Инструменты' },
     { id: 'analytics-reports', title: 'Аналитика и сводные отчеты', icon: FileSpreadsheet, category: 'Аналитика' },

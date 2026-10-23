@@ -21,6 +21,7 @@ import { KustoExpiryStock } from './kusto/KustoExpiryStock';
 import { StampOnScans } from './stamps/StampOnScans';
 import { WarehouseAutoMailing } from './warehouses/WarehouseAutoMailing';
 import { AnalyticsReports } from './analytics/AnalyticsReports';
+import { TruckTracking } from './truck-tracking/TruckTracking';
 import { CommandPalette } from './common/CommandPalette';
 import { ToastProvider } from '../contexts/ToastContext';
 
@@ -48,7 +49,7 @@ export const MainAppContent = () => {
   const pageTitle = t((({
     'regional-orders': 'regionalOrders', 'auto-mailing': 'autoMailing',
     'analytics-reports': 'analyticsReports', 'kusto-stock-expiry': 'kustoStockExpiry',
-    'stamp-scans': 'stampOnScans', 'admin-tools': 'adminPanel',
+    'stamp-scans': 'stampOnScans', 'admin-tools': 'adminPanel', 'truck-tracking': 'truckTracking',
   } as Record<string, string>)[currentTab] || currentTab) as any);
 
   React.useEffect(() => {
@@ -175,6 +176,8 @@ export const MainAppContent = () => {
                   onSelect={setSelectedShipment} 
                   onNew={() => setIsNewModalOpen(true)} 
                 />
+              ) : currentTab === 'truck-tracking' ? (
+                <TruckTracking />
               ) : currentTab === 'warehouses' ? (
                 <WarehouseInventory />
               ) : currentTab === 'auto-mailing' ? (
