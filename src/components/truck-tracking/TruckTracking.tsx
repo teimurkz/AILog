@@ -62,6 +62,40 @@ const StatusSelect = ({ value, stages, disabled, onChange, className }: {
   );
 };
 
+const DEPLOY_RULES_COMMAND = '(test -d AILog || git clone https://github.com/teimurkz/AILog.git) && cd AILog && git pull --ff-only origin main && npx -y firebase-tools deploy --only firestore:rules --project logisticsapp-216d5';
+
+const RulesNotice = ({ onRetry }: { onRetry: () => void }) => {
+  const [copied, setCopied] = React.useState(false);
+  return (
+    <div role="alert" className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+        <div className="space-y-1">
+          <p className="font-semibold">Вкладке нужен доступ к своим данным в Firestore</p>
+          <p>
+            Правила доступа для «Слежки авто» ещё не опубликованы. Это делается один раз: администратор открывает
+            Google Cloud Shell под рабочим аккаунтом и выполняет команду:
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <code className="min-w-0 flex-1 rounded-lg bg-white px-3 py-2 font-mono text-xs text-slate-800 ring-1 ring-amber-200">{DEPLOY_RULES_COMMAND}</code>
+        <button
+          type="button"
+          onClick={() => { void navigator.clipboard?.writeText(DEPLOY_RULES_COMMAND).then(() => setCopied(true)).catch(() => {}); }}
+          className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold hover:bg-amber-100"
+        >
+          {copied ? 'Скопировано' : 'Скопировать'}
+        </button>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-amber-800">Подробности — в файле TRUCK-TRACKING.md в репозитории.</p>
+        <button type="button" onClick={onRetry} className="rounded-lg border border-amber-300 px-3 py-2 text-xs font-semibold hover:bg-amber-100">Повторить</button>
+      </div>
+    </div>
+  );
+};
+
 export const TruckTracking = () => {
   const { isLogistics } = useAuth();
   const { showToast, showError, showInfo } = useToast();
@@ -269,6 +303,12 @@ export const TruckTracking = () => {
       {...extra}
     />
   );
+
+  // Every signed-in user may read these collections, so "no access" means the rules
+  // from firestore.rules have not been published yet (see TRUCK-TRACKING.md).
+  if (!entries.length && error?.startsWith('Нет доступа')) {
+    return <RulesNotice onRetry={retry} />;
+  }
 
   if (stagesLoading || (!entries.length && (loading || (error && !confirmed)))) {
     return <DataLoadNotice loading={loading || stagesLoading} error={error} onRetry={retry} />;
