@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import * as XLSX from 'xlsx';
 import {
   DEFAULT_STAGES, daysInStage, isTruckIdle, normalizeEntry, parseStageStatus, parseTrackingDate, parseTruckTrackingPaste,
-  stagePatch, statusAfterDateEdit, type TruckStage,
+  stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, type TruckStage,
 } from '../shared/truck-tracking';
 import { truckTrackingFullWorkbook, truckTrackingWorkbook } from '../src/utils/truck-tracking-excel';
+import { TRACKING_TEXT } from '../shared/truck-tracking-i18n';
 
 const today = new Date(2026, 9, 23);
 const stages = DEFAULT_STAGES;
@@ -94,4 +95,34 @@ test('"Экспорт всё" puts every status into one workbook', () => {
   assert.deepEqual(summary.slice(4), [['Прибыла на СВХ', 1], ['Выгружена на СВХ', 2], ['Перемещена на склад', 0], ['Выгружена на СВХ', 0], ['ИТОГО', 3]]);
   assert.equal(XLSX.utils.sheet_to_json(book.Sheets['Все фуры']).length, 3);
   assert.equal(XLSX.utils.sheet_to_json(book.Sheets['Выгружена на СВХ']).length, 2);
+});
+
+test('stage names follow the CRM language and fall back to any name the stage has', () => {
+  assert.deepEqual(['ru', 'en', 'fa'].map(language => stageLabel(stages[1], language as 'ru')), ['Выгружена на СВХ', 'Unloaded at TSW', 'تخلیه در انبار موقت']);
+  const englishOnly: TruckStage = { id: 's', label: 'Customs', dateLabel: 'Cleared', labels: { en: 'Customs' }, color: 'rose', order: 3 };
+  assert.equal(stageLabel(englishOnly, 'fa'), 'Customs');
+  assert.equal(stageDateLabel(stages[0], 'fa'), 'تاریخ ورود');
+});
+
+test('English and Farsi sheets are recognised on paste', () => {
+  const [en] = parseTruckTrackingPaste('Invoice\tProduct name\tArrival date\tUnloaded at TSW\tStatus\nE-1\tMilk\t20.10.2026\t21.10.2026\t', stages);
+  assert.deepEqual([en.invoice, en.productName, en.stageDates, en.status], ['E-1', 'Milk', { arrived: '2026-10-20', unloaded: '2026-10-21' }, 'unloaded']);
+  const [fa] = parseTruckTrackingPaste('فاکتور\tنام کالا\tتاریخ ورود\tوضعیت\nF-1\tشیر\t22.10.2026\tتخلیه در انبار موقت', stages);
+  assert.deepEqual([fa.invoice, fa.productName, fa.stageDates, fa.status], ['F-1', 'شیر', { arrived: '2026-10-22' }, 'unloaded']);
+});
+
+test('export uses the CRM language; Farsi workbooks open right-to-left', () => {
+  const rows = [{ id: '1', invoice: 'INV-1', productName: 'Milk', stageDates: { arrived: '2026-10-20' }, status: 'arrived' }];
+  const en = truckTrackingFullWorkbook(rows, stages, 'en');
+  assert.deepEqual(en.SheetNames, ['Summary', 'All trucks', 'Arrived at TSW', 'Unloaded at TSW', 'Moved to warehouse']);
+  const fa = truckTrackingFullWorkbook(rows, stages, 'fa');
+  assert.equal(fa.SheetNames[0], 'خلاصه');
+  assert.equal(fa.Workbook?.Views?.[0]?.RTL, true);
+  const header = XLSX.utils.sheet_to_json<string[]>(fa.Sheets['همه کامیون‌ها'], { header: 1 })[0];
+  assert.deepEqual(header.slice(0, 3), ['فاکتور', 'نام کالا', 'تاریخ ورود']);
+});
+
+test('every language has every text', () => {
+  const keys = Object.keys(TRACKING_TEXT.ru).sort();
+  for (const language of ['en', 'fa'] as const) assert.deepEqual(Object.keys(TRACKING_TEXT[language]).sort(), keys);
 });

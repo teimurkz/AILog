@@ -3,15 +3,23 @@
 // Firestore; by default they are: arrived at the SVH → unloaded at the SVH → moved to the
 // commercial warehouse. Every stage has its own date column. Dates are stored as YYYY-MM-DD.
 
+import { TRACKING_LANGUAGES, type TrackingLanguage } from './truck-tracking-i18n';
+
 export const STAGE_COLORS = ['blue', 'amber', 'emerald', 'violet', 'rose', 'cyan', 'orange', 'slate'] as const;
 export type StageColor = typeof STAGE_COLORS[number];
 
+export type StageNames = Partial<Record<TrackingLanguage, string>>;
+
 export interface TruckStage {
   id: string;
-  /** Tab name, e.g. "Выгружена на СВХ". */
+  /** Tab name; the fallback when there is no name in the viewer's language. */
   label: string;
-  /** Header of the stage's date column, e.g. "Разгрузили на СВХ". */
+  /** Header of the stage's date column; fallback like `label`. */
   dateLabel: string;
+  /** Tab name per CRM language. */
+  labels?: StageNames;
+  /** Date column header per CRM language. */
+  dateLabels?: StageNames;
   color: StageColor;
   order: number;
   /** Days a truck may stay in this stage before it is flagged as idle; empty = not tracked. */
@@ -19,10 +27,35 @@ export interface TruckStage {
 }
 
 export const DEFAULT_STAGES: TruckStage[] = [
-  { id: 'arrived', label: 'Прибыла на СВХ', dateLabel: 'Дата прибытия', color: 'blue', order: 0, idleDays: 2 },
-  { id: 'unloaded', label: 'Выгружена на СВХ', dateLabel: 'Разгрузили на СВХ', color: 'amber', order: 1, idleDays: 3 },
-  { id: 'moved', label: 'Перемещена на склад', dateLabel: 'Перемещено на склад', color: 'emerald', order: 2, idleDays: null },
+  {
+    id: 'arrived', label: 'Прибыла на СВХ', dateLabel: 'Дата прибытия', color: 'blue', order: 0, idleDays: 2,
+    labels: { ru: 'Прибыла на СВХ', en: 'Arrived at TSW', fa: 'رسیده به انبار موقت گمرکی' },
+    dateLabels: { ru: 'Дата прибытия', en: 'Arrival date', fa: 'تاریخ ورود' },
+  },
+  {
+    id: 'unloaded', label: 'Выгружена на СВХ', dateLabel: 'Разгрузили на СВХ', color: 'amber', order: 1, idleDays: 3,
+    labels: { ru: 'Выгружена на СВХ', en: 'Unloaded at TSW', fa: 'تخلیه در انبار موقت' },
+    dateLabels: { ru: 'Разгрузили на СВХ', en: 'Unloaded at TSW', fa: 'تاریخ تخلیه در انبار موقت' },
+  },
+  {
+    id: 'moved', label: 'Перемещена на склад', dateLabel: 'Перемещено на склад', color: 'emerald', order: 2, idleDays: null,
+    labels: { ru: 'Перемещена на склад', en: 'Moved to warehouse', fa: 'منتقل‌شده به انبار تجاری' },
+    dateLabels: { ru: 'Перемещено на склад', en: 'Moved to commercial warehouse', fa: 'تاریخ انتقال به انبار تجاری' },
+  },
 ];
+
+const pickName = (names: StageNames | undefined, fallback: string, language: TrackingLanguage) =>
+  names?.[language]?.trim() || fallback || TRACKING_LANGUAGES.map(other => names?.[other]?.trim()).find(Boolean) || '';
+
+/** The stage's tab name in the viewer's language, falling back to any name it has. */
+export const stageLabel = (stage: TruckStage, language: TrackingLanguage) => pickName(stage.labels, stage.label, language);
+export const stageDateLabel = (stage: TruckStage, language: TrackingLanguage) => pickName(stage.dateLabels, stage.dateLabel, language);
+
+/** Every name of the stage in every language, used to recognise pasted headers and statuses. */
+const allNames = (stage: TruckStage, field: 'label' | 'dateLabel') => {
+  const names = field === 'label' ? stage.labels : stage.dateLabels;
+  return [stage[field], ...TRACKING_LANGUAGES.map(language => names?.[language] || '')].filter(Boolean);
+};
 
 export interface TruckTrackingEntry {
   id: string;
@@ -148,11 +181,11 @@ export function stagePatch(entry: Pick<TruckTrackingEntry, 'stageDates'>, stageI
 
 const normalizeText = (value: string) => value.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
 
-// Recognises headers and statuses of the default stages written in other words.
+// Recognises headers and statuses of the default stages written in other words (RU / EN / FA).
 const DEFAULT_STAGE_ALIASES: [RegExp, string][] = [
-  [/перемещ|коммерч|склад|moved|move/i, 'moved'],
-  [/разгру|выгру|unload/i, 'unloaded'],
-  [/прибы|приех|arriv/i, 'arrived'],
+  [/перемещ|коммерч|склад|moved|move|warehouse|انتقال|انبار تجاری/i, 'moved'],
+  [/разгру|выгру|unload|تخلیه/i, 'unloaded'],
+  [/прибы|приех|arriv|رسید|ورود/i, 'arrived'],
 ];
 
 function findStage(text: string, stages: TruckStage[], fields: ('label' | 'dateLabel')[]): TruckStage | undefined {
@@ -160,12 +193,12 @@ function findStage(text: string, stages: TruckStage[], fields: ('label' | 'dateL
   if (!value) return undefined;
   const byId = stages.find(stage => stage.id === text.trim());
   if (byId) return byId;
-  const exact = stages.find(stage => fields.some(field => normalizeText(stage[field]) === value));
+  const exact = stages.find(stage => fields.some(field => allNames(stage, field).some(name => normalizeText(name) === value)));
   if (exact) return exact;
-  const partial = stages.find(stage => fields.some(field => {
-    const name = normalizeText(stage[field]);
+  const partial = stages.find(stage => fields.some(field => allNames(stage, field).some(raw => {
+    const name = normalizeText(raw);
     return name.length > 3 && (value.includes(name) || name.includes(value));
-  }));
+  })));
   if (partial) return partial;
   const alias = DEFAULT_STAGE_ALIASES.find(([pattern, id]) => pattern.test(value) && stages.some(stage => stage.id === id));
   return alias ? stages.find(stage => stage.id === alias[1]) : undefined;
@@ -176,16 +209,16 @@ export const parseStageStatus = (value: unknown, stages: TruckStage[]) =>
 
 type Column = 'invoice' | 'productName' | 'status' | 'comment' | `date:${string}` | undefined;
 const FIXED_HEADERS: [RegExp, Column][] = [
-  [/инвойс|invoice|счет|счёт/i, 'invoice'],
-  [/наимен|продукт|товар|product/i, 'productName'],
-  [/статус|status/i, 'status'],
-  [/коммент|примеч|comment|note/i, 'comment'],
+  [/инвойс|invoice|счет|счёт|فاکتور|اینویس/i, 'invoice'],
+  [/наимен|продукт|товар|product|کالا|محصول/i, 'productName'],
+  [/статус|status|وضعیت/i, 'status'],
+  [/коммент|примеч|comment|note|توضیح/i, 'comment'],
 ];
-const YES = /^(да|yes|\+|✓|v)$/i;
+const YES = /^(да|yes|\+|✓|v|بله)$/i;
 
 /** Column order used when the pasted rows have no header (the team's original sheet). */
-export function defaultPasteColumns(stages: TruckStage[]): string[] {
-  return ['Инвойс', 'Наименование продукта', ...stages.slice(0, 2).map(stage => stage.dateLabel), 'Статус'];
+export function defaultPasteColumns(stages: TruckStage[], text: { invoice: string; productName: string; status: string }, language: TrackingLanguage): string[] {
+  return [text.invoice, text.productName, ...stages.slice(0, 2).map(stage => stageDateLabel(stage, language)), text.status];
 }
 
 /** Parses rows copied from Excel (tab-separated); a header row is optional. */

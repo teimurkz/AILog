@@ -1,10 +1,11 @@
 import React from 'react';
 import { ClipboardPaste, FileSpreadsheet, Loader2, X } from 'lucide-react';
 import {
-  defaultPasteColumns, formatTrackingDate, parseTruckTrackingPaste, type TruckStage, type TruckTrackingImportRow,
+  defaultPasteColumns, formatTrackingDate, parseTruckTrackingPaste, stageDateLabel, stageLabel, type TruckStage, type TruckTrackingImportRow,
 } from '../../../shared/truck-tracking';
 import { readWorkbookAsTsv } from '../../utils/truck-tracking-excel';
 import { COLOR_STYLES } from './statusStyles';
+import { useTrackingText } from './useTrackingText';
 import { cn } from '../../lib/utils';
 
 interface PasteImportModalProps {
@@ -16,6 +17,7 @@ interface PasteImportModalProps {
 }
 
 export const PasteImportModal = ({ initialText, stages, existingInvoices, onClose, onImport }: PasteImportModalProps) => {
+  const { text: t, language } = useTrackingText();
   const [text, setText] = React.useState(initialText);
   const [skipDuplicates, setSkipDuplicates] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
@@ -24,7 +26,7 @@ export const PasteImportModal = ({ initialText, stages, existingInvoices, onClos
 
   const parsed = React.useMemo(() => parseTruckTrackingPaste(text, stages), [text, stages]);
   const stageById = Object.fromEntries(stages.map(stage => [stage.id, stage]));
-  const columns = defaultPasteColumns(stages);
+  const columns = defaultPasteColumns(stages, t, language);
   const isDuplicate = (invoice: string) => Boolean(invoice) && existingInvoices.has(invoice.trim().toLowerCase());
   const rows = skipDuplicates ? parsed.filter(row => !isDuplicate(row.invoice)) : parsed;
   const duplicates = parsed.length - parsed.filter(row => !isDuplicate(row.invoice)).length;
@@ -39,84 +41,87 @@ export const PasteImportModal = ({ initialText, stages, existingInvoices, onClos
     if (!file) return;
     setFileError('');
     try { setText(await readWorkbookAsTsv(file)); }
-    catch { setFileError('Не удалось прочитать файл. Сохраните его как .xlsx и попробуйте снова.'); }
+    catch { setFileError(t.fileError); }
   };
 
   return (
     <div className="crm-dialog-overlay fixed inset-0 z-50 flex items-start justify-center bg-slate-950/50 p-3 backdrop-blur-sm sm:items-center" onMouseDown={() => !busy && onClose()}>
-      <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl" onMouseDown={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Импорт из Excel">
+      <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl" onMouseDown={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label={t.importTitle}>
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-4 sm:p-5">
           <div>
-            <h3 className="font-semibold text-slate-900">Перенос из Excel</h3>
-            <p className="mt-0.5 text-sm text-slate-500">
-              Скопируйте строки в Excel (можно вместе с заголовком) и вставьте сюда, или загрузите файл .xlsx.
-              Порядок без заголовка: {columns.join(', ')}. Остальные столбцы этапов распознаются по заголовку.
-            </p>
+            <h3 className="font-semibold text-slate-900">{t.importTitle}</h3>
+            <p className="mt-0.5 text-sm text-slate-500">{t.importDescription(columns.join(', '))}</p>
           </div>
-          <button onClick={onClose} disabled={busy} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Закрыть"><X className="h-5 w-5" /></button>
+          <button onClick={onClose} disabled={busy} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label={t.close}><X className="h-5 w-5" /></button>
         </div>
 
         <div className="space-y-4 p-4 sm:p-5">
           <div className="flex flex-wrap items-center gap-2">
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={event => { void loadFile(event.target.files?.[0]); event.target.value = ''; }} />
             <button onClick={() => fileRef.current?.click()} className="crm-button-secondary flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold">
-              <FileSpreadsheet className="h-4 w-4" /> Загрузить файл Excel
+              <FileSpreadsheet className="h-4 w-4" /> {t.uploadFile}
             </button>
             {fileError && <span className="text-xs text-red-600">{fileError}</span>}
           </div>
           <textarea
             autoFocus
+            dir="auto"
             value={text}
             onChange={event => setText(event.target.value)}
-            placeholder={`${columns.join('\t')}\nINV-1024\tМолоко 3.2%\t23.10.2026\t\t${stages[0]?.label ?? ''}`}
+            placeholder={`${columns.join('\t')}\nINV-1024\t${t.sampleProduct}\t23.10.2026\t\t${stages[0] ? stageLabel(stages[0], language) : ''}`}
             className="h-36 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-800 outline-none focus:border-blue-400 focus:bg-white"
           />
 
           {parsed.length > 0 && (
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                <span className="font-semibold text-slate-700">Распознано строк: {parsed.length}</span>
+                <span className="font-semibold text-slate-700">{t.recognized(parsed.length)}</span>
                 {duplicates > 0 && (
                   <label className="flex items-center gap-2 text-xs text-slate-600">
                     <input type="checkbox" checked={skipDuplicates} onChange={event => setSkipDuplicates(event.target.checked)} className="h-4 w-4 accent-blue-600" />
-                    Пропустить {duplicates} уже существующих инвойсов
+                    {t.skipDuplicates(duplicates)}
                   </label>
                 )}
               </div>
               <div className="max-h-64 overflow-auto rounded-xl border border-slate-200">
                 <table className="w-full min-w-[640px] text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-left text-slate-500">
-                    <tr>{['Инвойс', 'Наименование продукта', ...stages.map(stage => stage.dateLabel), 'Статус'].map((title, index) => <th key={index} className="px-3 py-2 font-semibold">{title}</th>)}</tr>
+                  <thead className="sticky top-0 bg-slate-50 text-start text-slate-500">
+                    <tr>
+                      {[t.invoice, t.productName, ...stages.map(stage => stageDateLabel(stage, language)), t.status].map((title, index) =>
+                        <th key={index} className="px-3 py-2 text-start font-semibold">{title}</th>)}
+                    </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {parsed.slice(0, 100).map((row, index) => (
                       <tr key={index} className={cn(skipDuplicates && isDuplicate(row.invoice) && 'opacity-40 line-through')}>
                         <td className="px-3 py-1.5 font-semibold text-slate-800">{row.invoice || '—'}</td>
                         <td className="px-3 py-1.5 text-slate-700">{row.productName || '—'}</td>
-                        {stages.map(stage => <td key={stage.id} className="px-3 py-1.5">{formatTrackingDate(row.stageDates[stage.id]) || '—'}</td>)}
+                        {stages.map(stage => <td key={stage.id} className="px-3 py-1.5" dir="ltr">{formatTrackingDate(row.stageDates[stage.id]) || '—'}</td>)}
                         <td className="px-3 py-1.5">
-                          <span className={cn('whitespace-nowrap rounded-full px-2 py-0.5 font-semibold', COLOR_STYLES[stageById[row.status]?.color ?? 'slate'].pill)}>{stageById[row.status]?.label}</span>
+                          <span className={cn('whitespace-nowrap rounded-full px-2 py-0.5 font-semibold', COLOR_STYLES[stageById[row.status]?.color ?? 'slate'].pill)}>
+                            {stageById[row.status] ? stageLabel(stageById[row.status], language) : ''}
+                          </span>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {parsed.length > 100 && <p className="text-xs text-slate-500">Показаны первые 100 строк, импортированы будут все.</p>}
+              {parsed.length > 100 && <p className="text-xs text-slate-500">{t.first100}</p>}
             </div>
           )}
-          {text.trim() && !parsed.length && <p className="text-sm text-amber-700">Строки не распознаны. Убедитесь, что копируете ячейки прямо из Excel (столбцы разделены табуляцией).</p>}
+          {text.trim() && !parsed.length && <p className="text-sm text-amber-700">{t.notRecognized}</p>}
         </div>
 
         <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 p-4 sm:p-5">
-          <button onClick={onClose} disabled={busy} className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">Отмена</button>
+          <button onClick={onClose} disabled={busy} className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">{t.cancel}</button>
           <button
             disabled={!rows.length || busy}
             onClick={async () => { setBusy(true); try { await onImport(rows); } finally { setBusy(false); } }}
             className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardPaste className="h-4 w-4" />}
-            Добавить в таблицу{rows.length ? `: ${rows.length}` : ''}
+            {t.addToTable(rows.length)}
           </button>
         </div>
       </div>

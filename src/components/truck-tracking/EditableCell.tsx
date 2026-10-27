@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pencil } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useTrackingText } from './useTrackingText';
 
 export type CellMove = 'next' | 'prev';
 
@@ -64,6 +65,7 @@ const CellInput = ({ value, type = 'text', label, inputClassName, onCommit, onCa
 export const EditableCell = ({
   value, type = 'text', editing, disabled, placeholder = '—', display, className, inputClassName, label, onStart, onCommit, onCancel,
 }: EditableCellProps) => {
+  const { text } = useTrackingText();
   if (editing) {
     return <CellInput value={value} type={type} label={label} inputClassName={inputClassName} onCommit={onCommit} onCancel={onCancel} />;
   }
@@ -72,13 +74,13 @@ export const EditableCell = ({
     <div
       role={disabled ? undefined : 'button'}
       tabIndex={disabled ? -1 : 0}
-      title={disabled ? undefined : `${label}: нажмите, чтобы изменить`}
+      title={disabled ? undefined : text.editCellTitle(label)}
       onClick={() => !disabled && onStart()}
       onKeyDown={event => {
         if (!disabled && (event.key === 'Enter' || event.key === 'F2')) { event.preventDefault(); onStart(); }
       }}
       className={cn(
-        'group/cell relative flex min-h-[30px] w-full items-center gap-1 rounded-md px-2 py-1 text-left text-sm',
+        'group/cell relative flex min-h-[30px] w-full items-center gap-1 rounded-md px-2 py-1 text-start text-sm',
         !disabled && 'cursor-text hover:bg-blue-50/70 hover:ring-1 hover:ring-blue-200 focus-visible:bg-blue-50',
         className,
       )}
