@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
 import { createOutlookImportService } from '../server/services/outlook-import.service.js';
-import { parseInvoiceWorkbook, mergeMailShipment, ImportReview, mailInvoiceNumbers, shipmentMatchesNumber } from '../server/services/outlook-invoice.js';
+import { parseInvoiceWorkbook, mergeMailShipment, ImportReview, invoiceName, mailInvoiceNumbers, shipmentMatchesNumber } from '../server/services/outlook-invoice.js';
 import { OutlookGraph, OutlookError, graphUrl, microsoftTokenRequest, outlookScopes } from '../server/services/outlook-graph.js';
 import { invoiceKey, senderAllowed, senderRules, singleSender, validateMailImportSettings, validateOutlookSettings } from '../shared/outlook-import.js';
 import { shipmentDaysPassed } from '../src/utils/shipmentUtils.js';
@@ -547,7 +547,7 @@ test('a no-Excel email without a unique shipment waits for review and can be lin
   const shipment = (await f.db.collection('shipments').doc('b').get()).data() as any;
   assert.equal(shipment.mail_documents.length, 3); assert.equal(shipment.invoice_id, 'Solico 478');
   assert.equal((await f.service.status()).logs[0].linkable, undefined);
-  await assert.rejects(f.service.link(log.id, 'a', 'admin'), /не ожидает привязки/);
+  await assert.rejects(f.service.link(log.id, 'a', 'admin'), /не ожидает проверки/);
   await assert.rejects(f.service.link(log.id, '../shipments', 'admin'), /Выберите отправление/);
 });
 
@@ -570,4 +570,39 @@ test('Graph import with domain rules reads by date and lets the CRM filter sende
   g.fake.page[0].from.emailAddress.address = 'someone@elsewhere.test';
   await g.service.run();
   assert.equal((await g.db.collection('shipments').get()).docs.length, 0);
+});
+
+test('revision marks in Excel names do not create another invoice', async () => {
+  assert.equal(invoiceName('Mehkaz 475 .edit.xlsx'), 'Mehkaz 475');
+  assert.equal(invoiceName('Mehkaz 475 (2).xlsx'), 'Mehkaz 475');
+  assert.equal(invoiceName('Mehkaz 475 final edited.xlsx'), 'Mehkaz 475');
+  assert.equal(invoiceName('Customer 001.30.xlsx'), 'Customer 001.30');
+  const draft = await parseInvoiceWorkbook(await invoice({ name: 'Customer 001.30 .edit' }), 'Customer 001.30 .edit.xlsx');
+  assert.equal(draft.invoice_id, 'Customer 001.30');
+});
+
+test('"Проверить повторно" re-imports a stored Power Automate email without a Microsoft connection', async () => {
+  const f = await fixture();
+  f.db.data.set('outlook_private/state', { watermark: settings.importFrom }); // no direct Outlook connection
+  const { key } = await f.service.savePowerSettings(solico, 'admin', true);
+  await assert.rejects(f.service.receivePower(key!, await scanEmail(), receipt), statusError(422));
+  const log = (await f.service.status()).logs[0];
+  assert.equal(log.status, 'review'); assert.equal(log.linkable, true);
+  assert.match(log.reason!, /отправления с номером 478 в CRM нет/);
+
+  await f.db.collection('shipments').doc('ship-478').set({ id: 'ship-478', invoice_id: 'Mehkaz 478' });
+  const result = await f.service.retry(log.id) as any;
+  assert.equal(result.status, 'updated'); assert.equal(result.shipmentId, 'ship-478');
+  assert.equal(((await f.db.collection('shipments').doc('ship-478').get()).data() as any).mail_documents.length, 3);
+  assert.equal(f.db.data.get('outlook_private/state').leaseUntil, 0);
+});
+
+test('an old review record without a stored email explains how to resend it from Power Automate', async () => {
+  const f = await fixture();
+  f.db.data.set('outlook_private/state', { watermark: settings.importFrom });
+  const id = 'a'.repeat(64);
+  f.db.data.set(`outlook_imports/${id}`, { status: 'review', subject: 'FW: 475-kz', receivedAt: receipt, mailbox: settings.mailbox, reason: 'В письме нет Excel с номером инвойса.' });
+  assert.equal((await f.service.status()).logs[0].linkable, undefined);
+  await assert.rejects(f.service.retry(id), /Resubmit/);
+  assert.equal(f.db.data.get(`outlook_imports/${id}`).status, 'review');
 });

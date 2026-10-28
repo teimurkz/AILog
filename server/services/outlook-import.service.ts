@@ -253,33 +253,29 @@ export function createOutlookImportService(deps: Dependencies) {
     return (await record.get()).data();
   }
 
-  /** Resolves a "needs review" email by attaching its documents to a shipment chosen by an admin. */
-  async function link(id: string, shipmentId: string, uid: string) {
+  /**
+   * Runs work on a stored review email under the import lease. Settings combine the
+   * direct Outlook and Power Automate senders, so either transport's emails qualify.
+   */
+  async function withStoredMail<T>(id: string, work: (args: { item: any; state: State; leaseOwner: string;
+    mail: Awaited<ReturnType<typeof parseMail>>['mail']; source: MailSource }) => Promise<T>) {
     if (!/^[a-f0-9]{64}$/.test(id)) throw new ImportReview('Не найдена запись импорта.');
-    if (typeof shipmentId !== 'string' || !/^[\w-]{1,128}$/.test(shipmentId)) throw new ImportReview('Выберите отправление.');
     if (!deps.readFile) throw new ImportReview('Хранилище исходных писем недоступно.');
     const leaseOwner = random();
     const state = await db.runTransaction(async tx => {
       const [control, power] = await Promise.all([tx.get(stateRef), tx.get(powerRef)]);
-      const saved = (control.data() || {}) as State;
+      const saved = (control.data() || {}) as State, powerSettings = power.data()?.settings;
       ensureIdle(saved);
       tx.set(stateRef, { leaseOwner, leaseUntil: now() + 360000 }, { merge: true });
-      const settings = saved.settings || power.data()?.settings || emptySettings();
-      return { ...saved, settings: { ...emptySettings(), ...settings }, leaseOwner } as State;
+      const sender = [saved.settings?.sender, powerSettings?.sender].filter(Boolean).join(', ');
+      return { ...saved, ownerUid: saved.ownerUid || power.data()?.ownerUid,
+        settings: { ...emptySettings(), ...(powerSettings || {}), ...(saved.settings || {}), sender }, leaseOwner } as State;
     });
     try {
       const item = (await ledger.doc(id).get()).data();
-      if (!item || item.status !== 'review' || !item.sourcePath) throw new ImportReview('Эта запись не ожидает привязки.');
+      if (!item || item.status !== 'review' || !item.sourcePath) throw new ImportReview('Эта запись не ожидает проверки.');
       const { mail, source } = await parseMail(await deps.readFile(item.sourcePath));
-      const graphId = mail.messageId || id;
-      const attachments = (await source.attachments(graphId)).filter(file => !file.isInline);
-      if (!attachments.length) throw new ImportReview('В сохранённом письме нет вложений.');
-      checkAttachments(attachments);
-      await attachToShipment({ source, graphId, attachments, shipmentId, messageId: id, receivedAt: item.receivedAt,
-        base: { subject: item.subject, receivedAt: item.receivedAt, checkedAt: iso(), graphMessageId: item.graphMessageId, mailbox: item.mailbox },
-        state: { ...state, settings: { ...state.settings!, mailbox: item.mailbox || state.settings!.mailbox } }, leaseOwner, retryReview: true,
-        note: 'Документы письма привязаны вручную', linkedBy: uid });
-      return (await ledger.doc(id).get()).data();
+      return await work({ item, state: { ...state, settings: { ...state.settings!, mailbox: item.mailbox || state.settings!.mailbox } }, leaseOwner, mail, source });
     } finally {
       await db.runTransaction(async tx => {
         const saved = (await tx.get(stateRef)).data();
@@ -287,6 +283,35 @@ export function createOutlookImportService(deps: Dependencies) {
       });
     }
   }
+
+  /** Resolves a "needs review" email by attaching its documents to a shipment chosen by an admin. */
+  async function link(id: string, shipmentId: string, uid: string) {
+    if (typeof shipmentId !== 'string' || !/^[\w-]{1,128}$/.test(shipmentId)) throw new ImportReview('Выберите отправление.');
+    return withStoredMail(id, async ({ item, state, leaseOwner, mail, source }) => {
+      const graphId = mail.messageId || id;
+      const attachments = (await source.attachments(graphId)).filter(file => !file.isInline);
+      if (!attachments.length) throw new ImportReview('В сохранённом письме нет вложений.');
+      checkAttachments(attachments);
+      await attachToShipment({ source, graphId, attachments, shipmentId, messageId: id, receivedAt: item.receivedAt,
+        base: { subject: item.subject, receivedAt: item.receivedAt, checkedAt: iso(), graphMessageId: item.graphMessageId, mailbox: item.mailbox },
+        state, leaseOwner, retryReview: true, note: 'Документы письма привязаны вручную', linkedBy: uid });
+      return (await ledger.doc(id).get()).data();
+    });
+  }
+
+  /** Runs the normal import again on the stored original, e.g. after the shipment was created. */
+  async function recheckStored(id: string) {
+    return withStoredMail(id, async ({ item, state, leaseOwner, mail, source }) => {
+      const address = mail.from?.value?.[0]?.address || '';
+      const message: GraphMessage = { id: mail.messageId || id, internetMessageId: mail.messageId || undefined,
+        receivedDateTime: item.receivedAt, subject: mail.subject || item.subject, from: { emailAddress: { address } } };
+      if (hash(state.settings!.mailbox + '\0' + (message.internetMessageId || message.id)) !== id) throw new ImportReview('Сохранённое письмо не совпадает с записью журнала.');
+      if (!senderAllowed(address, state.settings!.sender)) throw new ImportReview(`Отправитель ${address.slice(0, 254)} не входит в список «Письма от». Добавьте его адрес или домен и повторите.`);
+      if (Date.parse(item.receivedAt) < Date.parse(state.settings!.importFrom)) throw new ImportReview('Дата письма раньше выбранного периода импорта.');
+      return importMessage(source, state, message, leaseOwner, true);
+    });
+  }
+
   async function powerStatus(): Promise<PowerAutomateStatus> {
     const saved = (await powerRef.get()).data() || {};
     const { mailbox, sender, importFrom, travelDays, enabled } = saved.settings || emptySettings();
@@ -387,11 +412,17 @@ export function createOutlookImportService(deps: Dependencies) {
   }
   async function retry(id: string) {
     if (!/^[a-f0-9]{64}$/.test(id)) throw new ImportReview('Не найдена запись импорта.');
+    const saved = (await ledger.doc(id).get()).data();
+    if (saved?.status === 'review' && saved.sourcePath) return recheckStored(id);
     await db.runTransaction(async tx => {
       const [stateSnap, record] = await Promise.all([tx.get(stateRef), tx.get(ledger.doc(id))]);
       const state = (stateSnap.data() || {}) as State, item = record.data();
       ensureIdle(state);
-      if (!item || item.status !== 'review' || item.mailbox !== state.settings?.mailbox) throw new ImportReview('Эта запись не ожидает повторной проверки.');
+      if (!item || item.status !== 'review') throw new ImportReview('Эта запись не ожидает повторной проверки.');
+      // Emails received before originals were kept can only be re-read from the mailbox.
+      if (!state.connectionId || item.mailbox !== state.settings?.mailbox) {
+        throw new ImportReview('Исходное письмо этой записи не сохранено. Откройте этот запуск в истории потока Power Automate и нажмите Resubmit.');
+      }
       tx.delete(record.ref);
       tx.update(stateRef, { nextLink: null, watermark: state.settings!.importFrom });
     });

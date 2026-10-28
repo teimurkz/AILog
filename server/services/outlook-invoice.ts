@@ -9,8 +9,17 @@ export interface InvoiceDraft {
   invoice_id: string; commercial_invoice_number: string; invoice_date?: string;
   route: Shipment['route']; plate_number?: string; loading_date?: string; goods?: string; items: string[];
 }
+// Revision marks people add to a file name: "Mehkaz 475 .edit", "Mehkaz 475 (2)", "Mehkaz 475 final".
+const revisionMark = /[\s._-]*(?:\(\d+\)|edit(?:ed)?|new|final|copy|corrected|rev\.?\s*\d*|v\d+|испр\S*|копия|нов\S*|اصلاح\S*|جدید)\s*$/i;
+
+/** The invoice name without revision marks; "Mehkaz 475 .edit" and "Mehkaz 475" are the same invoice. */
+export function cleanInvoiceName(text: string) {
+  let name = text.normalize('NFC').trim();
+  for (let previous = ''; previous !== name;) { previous = name; name = name.replace(revisionMark, '').trim(); }
+  return name || text.trim();
+}
 export function invoiceName(fileName: string) {
-  const name = fileName.replace(/\.(xlsx|xls)$/i, '').trim();
+  const name = cleanInvoiceName(fileName.replace(/\.(xlsx|xls)$/i, ''));
   if (!/\.(xlsx|xls)$/i.test(fileName) || !name || name.length > 160 || !/\d/.test(name) || /[\x00-\x1f/\\]/.test(name)) {
     throw new ImportReview('Не удалось определить номер инвойса по имени Excel-файла.');
   }
@@ -117,7 +126,7 @@ export async function parseInvoiceWorkbook(bytes: Buffer, fileName: string): Pro
   const sheet = (name: string) => sheets.get(name.toLowerCase());
   const order = sheet('Order Form'), cmr = sheet('D CMR');
   const orderName = cellText(order, 'I2');
-  if (!orderName || invoiceKey(orderName) !== invoiceKey(name)) throw new ImportReview('Название Excel не совпадает с Order Name внутри файла или формат таблицы отличается.');
+  if (!orderName || invoiceKey(cleanInvoiceName(orderName)) !== invoiceKey(name)) throw new ImportReview('Название Excel не совпадает с Order Name внутри файла или формат таблицы отличается.');
   const fullInvoice = cellText(cmr, 'A15').match(/INVOICE\s*:\s*#?\s*([\w.\/-]+)/i)?.[1];
   if (!fullInvoice) throw new ImportReview('В Excel не найден полный номер инвойса в CMR.');
   const shortNumber = name.match(/(\d+(?:[.-]\d+)*)$/)?.[1];

@@ -105,6 +105,7 @@ export function OutlookImport({ onOpenShipment, shipments = [] }: { onOpenShipme
     {error && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800 break-words"><AlertCircle className="inline h-4 w-4 mr-2" />{error}</div>}
     {notice && <p role="status" className="rounded-xl bg-blue-50 p-3 text-sm text-blue-800">{notice}</p>}
     {!status && !error && <p className="text-sm text-slate-500">Загружаю состояние подключения…</p>}
+    {(busy || status?.busy) && <p role="status" className="rounded-xl bg-blue-50 p-3 text-sm text-blue-800">Идёт обработка письма. Кнопки журнала станут доступны после её завершения (обычно до минуты)…</p>}
     {status && form && <>
       <details className="space-y-4 rounded-xl border border-slate-200 p-3">
       <summary className="cursor-pointer text-sm font-semibold text-slate-700">Прямое подключение через Microsoft Entra</summary>
@@ -161,7 +162,12 @@ export function OutlookImport({ onOpenShipment, shipments = [] }: { onOpenShipme
           <div className="text-right"><p className={log.status === 'review' ? 'text-amber-700' : 'text-emerald-700'}>{log.status === 'created' ? 'Отправление создано' : log.status === 'updated' ? 'Документы дополнены' : 'Нужна проверка'}</p>
             {log.documents !== undefined && <p className="text-xs text-slate-500">Файлов в письме: {log.documents}</p>}
             {log.shipmentId && <button className="mt-1 text-blue-600 underline" onClick={() => onOpenShipment(log.shipmentId!)}>Открыть отправление</button>}
-            {log.status === 'review' && status.connected && <button disabled={busy || status.busy} className="mt-1 block text-blue-600 underline disabled:opacity-50" onClick={() => action(async () => { await request(`/retry/${log.id}`, 'POST'); await load(); })}>Проверить повторно</button>}
+            {log.status === 'review' && (log.linkable || status.connected) && <button disabled={busy || status.busy} title={status.busy ? 'Идёт импорт письма, подождите минуту' : undefined}
+              className="mt-1 block text-blue-600 underline disabled:opacity-50" onClick={() => action(async () => {
+                const result = await request<{ status?: string; reason?: string } | { state: string }>(`/retry/${log.id}`, 'POST'); await load();
+                setNotice('status' in result && result.status === 'review' ? `Письмо всё ещё требует проверки: ${result.reason || ''}` : 'Повторная проверка выполнена. Результат показан в журнале.');
+              })}>Проверить повторно</button>}
+            {log.status === 'review' && !log.linkable && !status.connected && <p className="mt-1 max-w-56 text-xs text-slate-500">Исходное письмо не сохранено: в Power Automate откройте этот запуск в истории потока и нажмите Resubmit.</p>}
             {log.linkable && linking?.id !== log.id && <button disabled={busy || status.busy} className="mt-1 block text-blue-600 underline disabled:opacity-50"
               onClick={() => setLinking({ id: log.id, shipmentId: '', filter: log.invoice || '' })}>Привязать к отправлению</button>}
           </div>
