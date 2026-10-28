@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
 import type { Firestore } from 'firebase-admin/firestore';
-import { emailKey, invoiceKey, validateOutlookSettings, validateMailImportSettings, type PowerAutomateStatus, type MailDocument, type OutlookSettings, type OutlookStatus, type OutlookLogin, type OutlookImportLog } from '../../shared/outlook-import.js';
-import { OutlookGraph, OutlookError, microsoftTokenRequest, outlookScopes, type GraphMessage } from './outlook-graph.js';
-import { ImportReview, invoiceName, parseInvoiceWorkbook, mergeMailShipment } from './outlook-invoice.js';
+import { emailKey, invoiceKey, senderAllowed, singleSender, validateOutlookSettings, validateMailImportSettings, type PowerAutomateStatus, type MailDocument, type OutlookSettings, type OutlookStatus, type OutlookLogin, type OutlookImportLog } from '../../shared/outlook-import.js';
+import { OutlookGraph, OutlookError, microsoftTokenRequest, outlookScopes, type GraphAttachment, type GraphMessage } from './outlook-graph.js';
+import { ImportReview, invoiceName, parseInvoiceWorkbook, mergeMailShipment, mailInvoiceNumbers, shipmentMatchesNumber } from './outlook-invoice.js';
 import type { Shipment } from '../../src/types/index.js';
-import { MailIngressError, readPowerAutomateMail, type MailSource } from './power-automate-mail.js';
+import { MailIngressError, parseMail, readPowerAutomateMail, type MailSource } from './power-automate-mail.js';
 
 const hash = (text: string | Buffer) => crypto.createHash('sha256').update(text).digest('hex');
 const random = () => crypto.randomUUID();
@@ -19,6 +19,8 @@ type State = { settings?: OutlookSettings; connectionId?: string; connectedMailb
 interface Dependencies {
   db: Firestore;
   saveFile: (path: string, bytes: Buffer, name: string, type: string) => Promise<string>;
+  /** Reads back a file saved with saveFile (the kept original of a review email). */
+  readFile?: (path: string) => Promise<Buffer>;
   graph?: (token: string) => OutlookGraph;
   oauth?: typeof microsoftTokenRequest;
   now?: () => number;
@@ -43,6 +45,7 @@ export function createOutlookImportService(deps: Dependencies) {
         id: doc.id, subject: item.subject, receivedAt: item.receivedAt, checkedAt: item.checkedAt, status: item.status,
         ...(item.invoice ? { invoice: item.invoice } : {}), ...(item.shipmentId ? { shipmentId: item.shipmentId } : {}),
         ...(item.documents !== undefined ? { documents: item.documents } : {}), ...(item.reason ? { reason: item.reason } : {}),
+        ...(item.status === 'review' && item.sourcePath ? { linkable: true } : {}),
       } as OutlookImportLog; }) };
   }
   async function saveSettings(input: unknown) {
@@ -122,23 +125,84 @@ export function createOutlookImportService(deps: Dependencies) {
       tx.delete(credentialsRef);
     });
   }
+  // Saves every regular attachment once (by content hash) under the shipment's folder.
+  async function saveDocuments(source: MailSource, graphId: string, attachments: GraphAttachment[], key: string, receivedAt: string,
+    preloaded?: { id: string; bytes: Buffer }) {
+    const documents: MailDocument[] = [];
+    let size = 0;
+    for (const attachment of attachments) {
+      const bytes = attachment.id === preloaded?.id ? preloaded.bytes : await source.attachment(graphId, attachment.id);
+      size += bytes.length;
+      if (size > 40 * 1024 * 1024) throw new ImportReview('Пакет документов превышает 40 МБ.');
+      const sha256 = hash(bytes), type = attachment.contentType || 'application/octet-stream';
+      const url = await deps.saveFile(`mail-documents/${key}/${sha256}`, bytes, attachment.name, type);
+      documents.push({ id: sha256, sha256, fileName: attachment.name.slice(0, 250), size: bytes.length, contentType: type, url, receivedAt });
+    }
+    return documents;
+  }
+  function checkAttachments(attachments: GraphAttachment[]) {
+    if (attachments.some(item => item['@odata.type'] !== '#microsoft.graph.fileAttachment')) throw new ImportReview('Письмо содержит ссылку или вложенное письмо вместо обычного файла. Нужна проверка документов.');
+    if (attachments.some(item => item.size > 25 * 1024 * 1024) || attachments.reduce((sum, item) => sum + item.size, 0) > 40 * 1024 * 1024) throw new ImportReview('Пакет документов превышает лимит импорта: 25 МБ на файл, 40 МБ на письмо.');
+  }
+  const leaseValid = (current: State | undefined, state: State, leaseOwner: string) =>
+    Boolean(current) && current!.connectionId === state.connectionId && current!.leaseOwner === leaseOwner && current!.leaseUntil! > now();
+
+  /** Adds the email's documents to an existing shipment without an Excel invoice (number match or manual link). */
+  async function attachToShipment(args: { source: MailSource; graphId: string; attachments: GraphAttachment[]; shipmentId: string;
+    messageId: string; receivedAt: string; base: Record<string, unknown>; state: State; leaseOwner: string; retryReview: boolean; note: string; linkedBy?: string }) {
+    const { source, graphId, attachments, shipmentId, messageId, receivedAt, state, leaseOwner } = args;
+    const shipmentRef = db.collection('shipments').doc(shipmentId), record = ledger.doc(messageId);
+    const found = await shipmentRef.get();
+    if (!found.exists) throw new ImportReview('Выбранное отправление не найдено.');
+    const name = String(found.data()?.invoice_id || shipmentId);
+    const key = hash(state.settings!.mailbox + '\0' + invoiceKey(name));
+    const documents = await saveDocuments(source, graphId, attachments, key, receivedAt);
+    const original = await source.original(graphId);
+    const sourceUrl = await deps.saveFile(`mail-documents/${key}/email-${messageId}`, original, `${name}.eml`, 'message/rfc822');
+    await db.runTransaction(async tx => {
+      const [control, done, existing] = await Promise.all([tx.get(stateRef), tx.get(record), tx.get(shipmentRef)]);
+      if (!leaseValid(control.data() as State, state, leaseOwner)) throw new ImportReview('Сеанс импорта изменился. Повторите проверку.');
+      if (done.exists && !(args.retryReview && done.data()?.status === 'review')) return;
+      if (!existing.exists) throw new ImportReview('Выбранное отправление было удалено.');
+      const patch = mergeMailShipment(existing.data() as Shipment, null, documents, receivedAt, sourceUrl, state.settings!.travelDays, state.ownerUid || '', iso());
+      if ((patch.mail_documents?.length || 0) > 200 || (patch.source_email_urls?.length || 0) > 100) throw new ImportReview('У отправления слишком много версий документов. Нужна ручная проверка.');
+      tx.set(shipmentRef, patch, { merge: true });
+      tx.set(record, { ...args.base, status: 'updated', invoice: name, shipmentId, documents: documents.length, ...(args.linkedBy ? { linkedBy: args.linkedBy } : {}) });
+      tx.create(shipmentRef.collection('logs').doc(messageId), { timestamp: iso(), shipmentId, location: 'Outlook',
+        message: `${args.note}: ${documents.length} файлов. Дата письма: ${receivedAt}.`, updatedBy: 'Импорт из Outlook' });
+    });
+  }
+
   async function importMessage(client: MailSource, state: State, message: GraphMessage, leaseOwner: string, retryReview = false) {
     const settings = state.settings!, receivedAt = new Date(message.receivedDateTime).toISOString();
-    if (emailKey(message.from?.emailAddress?.address || '') !== settings.sender || message.isDraft || Date.parse(receivedAt) < Date.parse(settings.importFrom)) return;
+    if (!senderAllowed(message.from?.emailAddress?.address || '', settings.sender) || message.isDraft || Date.parse(receivedAt) < Date.parse(settings.importFrom)) return;
     const messageId = hash(settings.mailbox + '\0' + (message.internetMessageId || message.id)), record = ledger.doc(messageId);
     const previous = await record.get();
     if (previous.exists && !(retryReview && previous.data()?.status === 'review')) return previous.data();
-    let name: string | undefined;
+    let name: string | undefined, hasDocuments = false;
     const base = { subject: (message.subject || '(Без темы)').slice(0, 500), receivedAt, checkedAt: iso(),
       graphMessageId: message.id, mailbox: settings.mailbox };
     try {
       const attachments = (await client.attachments(message.id)).filter(item => !item.isInline);
       if (!attachments.length) return;
+      hasDocuments = true;
       const invoices = attachments.filter(item => /\.(xlsx|xls)$/i.test(item.name));
-      if (invoices.length !== 1) throw new ImportReview(invoices.length ? 'В письме несколько Excel-файлов. Нужна проверка принадлежности документов.' : 'В письме нет Excel с номером инвойса.');
+      if (invoices.length > 1) throw new ImportReview('В письме несколько Excel-файлов. Нужна проверка принадлежности документов.');
+      checkAttachments(attachments);
+      if (!invoices.length) {
+        // No Excel invoice: attach to the one shipment whose number is in the subject or PDF name.
+        const numbers = mailInvoiceNumbers(message.subject || '', attachments.map(item => item.name));
+        if (!numbers.length) throw new ImportReview('В письме нет Excel, а номер инвойса не найден ни в теме, ни в имени PDF. Привяжите письмо к отправлению вручную.');
+        if (numbers.length > 1) throw new ImportReview(`Номер инвойса неоднозначен: ${numbers.slice(0, 5).join(', ')}. Привяжите письмо к отправлению вручную.`);
+        name = numbers[0];
+        const matches = (await db.collection('shipments').get()).docs.filter(doc => shipmentMatchesNumber(doc.data() as Shipment, numbers[0]));
+        if (!matches.length) throw new ImportReview(`В письме нет Excel, а отправления с номером ${numbers[0]} в CRM нет. Создайте отправление и привяжите к нему письмо.`);
+        if (matches.length > 1) throw new ImportReview(`Номеру ${numbers[0]} соответствуют несколько отправлений: ${matches.slice(0, 5).map(doc => doc.data().invoice_id).join(', ')}. Привяжите письмо вручную.`);
+        await attachToShipment({ source: client, graphId: message.id, attachments, shipmentId: matches[0].id, messageId, receivedAt, base,
+          state, leaseOwner, retryReview, note: `Получены документы по номеру ${numbers[0]} из письма без Excel` });
+        return (await record.get()).data();
+      }
       name = invoiceName(invoices[0].name);
-      if (attachments.some(item => item['@odata.type'] !== '#microsoft.graph.fileAttachment')) throw new ImportReview('Письмо содержит ссылку или вложенное письмо вместо обычного файла. Нужна проверка документов.');
-      if (attachments.some(item => item.size > 25 * 1024 * 1024) || attachments.reduce((sum, item) => sum + item.size, 0) > 40 * 1024 * 1024) throw new ImportReview('Пакет документов превышает лимит импорта: 25 МБ на файл, 40 МБ на письмо.');
       const excel = await client.attachment(message.id, invoices[0].id);
       const draft = await parseInvoiceWorkbook(excel, invoices[0].name);
       const key = hash(settings.mailbox + '\0' + invoiceKey(name)), indexRef = db.collection('outlook_invoice_index').doc(key);
@@ -151,23 +215,13 @@ export function createOutlookImportService(deps: Dependencies) {
         if (legacy.length > 1) throw new ImportReview('В CRM уже несколько отправлений с этим инвойсом. Нужно выбрать правильное вручную.');
         shipmentId = legacy[0]?.id || 'mail-' + key;
       }
-      const documents: MailDocument[] = [];
-      let size = 0;
-      for (const attachment of attachments) {
-        const bytes = attachment.id === invoices[0].id ? excel : await client.attachment(message.id, attachment.id);
-        size += bytes.length;
-        if (size > 40 * 1024 * 1024) throw new ImportReview('Пакет документов превышает 40 МБ.');
-        const sha256 = hash(bytes), type = attachment.contentType || 'application/octet-stream';
-        const url = await deps.saveFile(`mail-documents/${key}/${sha256}`, bytes, attachment.name, type);
-        documents.push({ id: sha256, sha256, fileName: attachment.name.slice(0, 250), size: bytes.length, contentType: type, url, receivedAt });
-      }
+      const documents = await saveDocuments(client, message.id, attachments, key, receivedAt, { id: invoices[0].id, bytes: excel });
       const original = await client.original(message.id);
       const sourceUrl = await deps.saveFile(`mail-documents/${key}/email-${messageId}`, original, `${name}.eml`, 'message/rfc822');
       const shipmentRef = db.collection('shipments').doc(shipmentId);
       await db.runTransaction(async tx => {
         const [control, done, index, existing] = await Promise.all([tx.get(stateRef), tx.get(record), tx.get(indexRef), tx.get(shipmentRef)]);
-        const current = control.data() as State;
-        if (current.connectionId !== state.connectionId || current.leaseOwner !== leaseOwner || current.leaseUntil! <= now()) throw new ImportReview('Сеанс импорта изменился. Повторите проверку.');
+        if (!leaseValid(control.data() as State, state, leaseOwner)) throw new ImportReview('Сеанс импорта изменился. Повторите проверку.');
         if (done.exists && !(retryReview && done.data()?.status === 'review')) return;
         if (index.exists && index.data()?.shipmentId !== shipmentId) throw new ImportReview('Инвойс уже связан с другим отправлением.');
         if (index.data()?.fullInvoice && index.data()?.fullInvoice !== draft.commercial_invoice_number) throw new ImportReview('Короткое имя инвойса уже связано с другим полным номером инвойса.');
@@ -186,9 +240,52 @@ export function createOutlookImportService(deps: Dependencies) {
       if (!(error instanceof ImportReview) && !(error instanceof OutlookError && !error.retryable)) throw error;
       // Auth errors are global connection failures, not failures of this email.
       if (error instanceof OutlookError && ['graph_401', 'graph_403'].includes(error.code)) throw error;
-      await record.set({ ...base, status: 'review', ...(name ? { invoice: name } : {}), reason: safeError(error) });
+      // Keep the original email so an admin can attach it to the right shipment by hand.
+      let sourcePath: string | undefined;
+      if (hasDocuments) {
+        try {
+          sourcePath = `mail-review/${messageId}.eml`;
+          await deps.saveFile(sourcePath, await client.original(message.id), 'email.eml', 'message/rfc822');
+        } catch { sourcePath = undefined; }
+      }
+      await record.set({ ...base, status: 'review', ...(name ? { invoice: name } : {}), ...(sourcePath ? { sourcePath } : {}), reason: safeError(error) });
     }
     return (await record.get()).data();
+  }
+
+  /** Resolves a "needs review" email by attaching its documents to a shipment chosen by an admin. */
+  async function link(id: string, shipmentId: string, uid: string) {
+    if (!/^[a-f0-9]{64}$/.test(id)) throw new ImportReview('Не найдена запись импорта.');
+    if (typeof shipmentId !== 'string' || !/^[\w-]{1,128}$/.test(shipmentId)) throw new ImportReview('Выберите отправление.');
+    if (!deps.readFile) throw new ImportReview('Хранилище исходных писем недоступно.');
+    const leaseOwner = random();
+    const state = await db.runTransaction(async tx => {
+      const [control, power] = await Promise.all([tx.get(stateRef), tx.get(powerRef)]);
+      const saved = (control.data() || {}) as State;
+      ensureIdle(saved);
+      tx.set(stateRef, { leaseOwner, leaseUntil: now() + 360000 }, { merge: true });
+      const settings = saved.settings || power.data()?.settings || emptySettings();
+      return { ...saved, settings: { ...emptySettings(), ...settings }, leaseOwner } as State;
+    });
+    try {
+      const item = (await ledger.doc(id).get()).data();
+      if (!item || item.status !== 'review' || !item.sourcePath) throw new ImportReview('Эта запись не ожидает привязки.');
+      const { mail, source } = await parseMail(await deps.readFile(item.sourcePath));
+      const graphId = mail.messageId || id;
+      const attachments = (await source.attachments(graphId)).filter(file => !file.isInline);
+      if (!attachments.length) throw new ImportReview('В сохранённом письме нет вложений.');
+      checkAttachments(attachments);
+      await attachToShipment({ source, graphId, attachments, shipmentId, messageId: id, receivedAt: item.receivedAt,
+        base: { subject: item.subject, receivedAt: item.receivedAt, checkedAt: iso(), graphMessageId: item.graphMessageId, mailbox: item.mailbox },
+        state: { ...state, settings: { ...state.settings!, mailbox: item.mailbox || state.settings!.mailbox } }, leaseOwner, retryReview: true,
+        note: 'Документы письма привязаны вручную', linkedBy: uid });
+      return (await ledger.doc(id).get()).data();
+    } finally {
+      await db.runTransaction(async tx => {
+        const saved = (await tx.get(stateRef)).data();
+        if (saved?.leaseOwner === leaseOwner) tx.update(stateRef, { leaseOwner: '', leaseUntil: 0 });
+      });
+    }
   }
   async function powerStatus(): Promise<PowerAutomateStatus> {
     const saved = (await powerRef.get()).data() || {};
@@ -267,7 +364,7 @@ export function createOutlookImportService(deps: Dependencies) {
       const client = graph(tokens.access_token), excluded = await client.excludedFolders();
       const lower = new Date(Math.max(Date.parse(state.settings!.importFrom), Date.parse(state.watermark || state.settings!.importFrom) - 86400000)).toISOString();
       const upper = state.nextLink && state.windowEnd ? state.windowEnd : iso();
-      const page = await client.messages(lower, upper, state.settings!.sender, state.nextLink || undefined);
+      const page = await client.messages(lower, upper, singleSender(state.settings!.sender), state.nextLink || undefined);
       const started = now();
       for (const message of page.value) {
         // A timed-out page is safely replayed using the durable email ledger.
@@ -300,7 +397,7 @@ export function createOutlookImportService(deps: Dependencies) {
     });
     return run(true);
   }
-  return { status, saveSettings, beginLogin, pollLogin, disconnect, run, retry, powerStatus, savePowerSettings, authorizePower, receivePower };
+  return { status, saveSettings, beginLogin, pollLogin, disconnect, run, retry, link, powerStatus, savePowerSettings, authorizePower, receivePower };
 }
 
 let runtime: ReturnType<typeof createOutlookImportService> | undefined;
@@ -320,6 +417,6 @@ export async function getOutlookImportService() {
       } });
     }
     return `https://firebasestorage.googleapis.com/v0/b/${file.bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
-  } });
+  }, readFile: async path => (await admin.storage().bucket().file(path).download())[0] });
   return runtime;
 }

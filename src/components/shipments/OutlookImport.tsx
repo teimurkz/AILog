@@ -16,16 +16,44 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
 const dateText = (value?: string | null) => value && Number.isFinite(Date.parse(value)) ?
   new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Almaty' }).format(new Date(value)) : 'Ещё не было';
 const dateInput = (value: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value));
+// Choose the shipment a "needs review" email belongs to. Typing narrows the list by invoice name.
+function LinkPicker({ shipments, value, busy, onChange, onCancel, onSubmit }: {
+  shipments: ShipmentOption[]; value: { shipmentId: string; filter: string }; busy: boolean;
+  onChange: (next: Partial<{ shipmentId: string; filter: string }>) => void; onCancel: () => void; onSubmit: () => void;
+}) {
+  const query = value.filter.trim().toLowerCase();
+  const options = shipments
+    .filter(item => !query || item.invoice_id.toLowerCase().includes(query))
+    .sort((a, b) => (b.last_updated || '').localeCompare(a.last_updated || ''))
+    .slice(0, 200);
+  return <div className="basis-full space-y-2 rounded-lg bg-blue-50 p-3">
+    <div className="grid gap-2 sm:grid-cols-[1fr_2fr]">
+      <input className={field.replace('mt-1 ', '')} value={value.filter} onChange={e => onChange({ filter: e.target.value, shipmentId: '' })} placeholder="Поиск по инвойсу" aria-label="Поиск отправления" />
+      <select className={field.replace('mt-1 ', '')} value={value.shipmentId} onChange={e => onChange({ shipmentId: e.target.value })} aria-label="Отправление">
+        <option value="">{options.length ? 'Выберите отправление' : 'Ничего не найдено'}</option>
+        {options.map(item => <option key={item.id} value={item.id}>{item.invoice_id}</option>)}
+      </select>
+    </div>
+    <div className="flex flex-wrap gap-2">
+      <button className={`${button} bg-blue-600 text-white`} disabled={busy || !value.shipmentId} onClick={onSubmit}>Добавить документы в отправление</button>
+      <button className={`${button} bg-white text-slate-700`} disabled={busy} onClick={onCancel}>Отмена</button>
+    </div>
+    <p className="text-xs text-slate-500">Все вложения и исходное письмо добавятся к выбранному отправлению. Его название, статус и даты не меняются.</p>
+  </div>;
+}
 const field = 'mt-1 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100';
 const button = 'rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 disabled:cursor-wait';
 
-export function OutlookImport({ onOpenShipment }: { onOpenShipment: (id: string) => void }) {
+type ShipmentOption = { id: string; invoice_id: string; last_updated?: string };
+
+export function OutlookImport({ onOpenShipment, shipments = [] }: { onOpenShipment: (id: string) => void; shipments?: ShipmentOption[] }) {
   const [status, setStatus] = useState<OutlookStatus>();
   const [form, setForm] = useState<OutlookSettings>();
   const [login, setLogin] = useState<OutlookLogin>();
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [linking, setLinking] = useState<{ id: string; shipmentId: string; filter: string } | null>(null);
   const load = useCallback(async (resetForm = false) => {
     const next = await request<OutlookStatus>('/status');
     setStatus(next);
@@ -97,7 +125,8 @@ export function OutlookImport({ onOpenShipment }: { onOpenShipment: (id: string)
         </details>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-sm text-slate-700">Рабочая почта Outlook<input type="email" className={field} value={form.mailbox} disabled={status.connected} onChange={e => change('mailbox', e.target.value)} placeholder="Ваш рабочий адрес" /></label>
-          <label className="text-sm text-slate-700">Принимать документы от<input type="email" className={field} value={form.sender} onChange={e => change('sender', e.target.value)} placeholder="Адрес логиста" /></label>
+          <label className="text-sm text-slate-700">Принимать документы от<input className={field} value={form.sender} onChange={e => change('sender', e.target.value)} placeholder="@solico-group.ir, @solico-group.com" autoComplete="off" />
+            <span className="text-xs text-slate-500">Через запятую: адреса или целые домены, например al.babaei@solico-group.ir, @solico-group.ir. Домен принимает письма любого сотрудника компании.</span></label>
           <label className="text-sm text-slate-700">Импортировать письма начиная с<input type="date" className={field} value={dateInput(form.importFrom)} max={dateInput(new Date().toISOString())} onChange={e => { if (e.target.value) change('importFrom', new Date(e.target.value + 'T00:00:00+05:00').toISOString()); }} /><span className="text-xs text-slate-500">Дата получения письма, время Алматы</span></label>
           <label className="text-sm text-slate-700">Ожидаемый срок перевозки, дней<input type="number" min="1" max="180" className={field} value={form.travelDays} onChange={e => change('travelDays', Number(e.target.value))} /></label>
         </div>
@@ -120,7 +149,7 @@ export function OutlookImport({ onOpenShipment }: { onOpenShipment: (id: string)
         <a href={login.verificationUri} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Открыть Microsoft<ExternalLink className="h-4 w-4" /></a>
         <p className="text-sm text-blue-800">Код действует до {dateText(login.expiresAt)}. После входа подключение появится здесь автоматически.</p>
       </div>}
-      <p className="text-xs leading-relaxed text-slate-500">Читаются письма выбранного отправителя, кроме удалённых и спама. Исходное письмо и документы сохраняются в отправлении. Дата первого письма запускает отсчёт; повторная отправка его не обнуляет. Microsoft запрашивает разрешение на чтение почты, отбор по отправителю выполняет CRM.</p>
+      <p className="text-xs leading-relaxed text-slate-500">Читаются письма выбранных отправителей, кроме удалённых и спама. Исходное письмо и документы сохраняются в отправлении. Дата первого письма запускает отсчёт; повторная отправка его не обнуляет. Microsoft запрашивает разрешение на чтение почты, отбор по отправителю выполняет CRM.</p>
       </details>
       <div className="space-y-2">
         <h4 className="text-sm font-bold text-slate-800">Последние результаты</h4>
@@ -132,8 +161,16 @@ export function OutlookImport({ onOpenShipment }: { onOpenShipment: (id: string)
           <div className="text-right"><p className={log.status === 'review' ? 'text-amber-700' : 'text-emerald-700'}>{log.status === 'created' ? 'Отправление создано' : log.status === 'updated' ? 'Документы дополнены' : 'Нужна проверка'}</p>
             {log.documents !== undefined && <p className="text-xs text-slate-500">Файлов в письме: {log.documents}</p>}
             {log.shipmentId && <button className="mt-1 text-blue-600 underline" onClick={() => onOpenShipment(log.shipmentId!)}>Открыть отправление</button>}
-            {log.status === 'review' && <button disabled={busy || status.busy || !status.connected} className="mt-1 text-blue-600 underline disabled:opacity-50" onClick={() => action(async () => { await request(`/retry/${log.id}`, 'POST'); await load(); })}>Проверить повторно</button>}
+            {log.status === 'review' && status.connected && <button disabled={busy || status.busy} className="mt-1 block text-blue-600 underline disabled:opacity-50" onClick={() => action(async () => { await request(`/retry/${log.id}`, 'POST'); await load(); })}>Проверить повторно</button>}
+            {log.linkable && linking?.id !== log.id && <button disabled={busy || status.busy} className="mt-1 block text-blue-600 underline disabled:opacity-50"
+              onClick={() => setLinking({ id: log.id, shipmentId: '', filter: log.invoice || '' })}>Привязать к отправлению</button>}
           </div>
+          {linking?.id === log.id && <LinkPicker shipments={shipments} value={linking} busy={busy || Boolean(status.busy)}
+            onChange={next => setLinking({ ...linking, ...next })} onCancel={() => setLinking(null)}
+            onSubmit={() => action(async () => {
+              await request(`/link/${log.id}`, 'POST', { shipmentId: linking.shipmentId });
+              setLinking(null); await load(); setNotice('Документы письма добавлены в выбранное отправление.');
+            })} />}
         </div>)}
       </div>
     </>}

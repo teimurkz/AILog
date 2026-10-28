@@ -1,5 +1,5 @@
 import { simpleParser } from 'mailparser';
-import { emailKey } from '../../shared/outlook-import.js';
+import { senderAllowed } from '../../shared/outlook-import.js';
 import type { OutlookGraph, GraphMessage } from './outlook-graph.js';
 
 export class MailIngressError extends Error {
@@ -7,6 +7,19 @@ export class MailIngressError extends Error {
 }
 export type MailSource = Pick<OutlookGraph, 'attachments' | 'attachment' | 'original'>;
 export const maxMailBytes = 25 * 1024 * 1024;
+
+/** Parses a stored or received EML into the same attachment source the Graph import uses. */
+export async function parseMail(bytes: Buffer) {
+  const mail = await simpleParser(bytes, { skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true, skipTextLinks: true });
+  const source: MailSource = {
+    attachments: async () => mail.attachments.map((file, index) => ({ id: String(index), name: file.filename || 'attachment', size: file.content.length,
+      contentType: file.contentType, isInline: file.contentDisposition === 'inline' || file.related === true,
+      '@odata.type': file.contentType === 'message/rfc822' ? '#microsoft.graph.itemAttachment' : '#microsoft.graph.fileAttachment' })),
+    attachment: async (_messageId, id) => mail.attachments[Number(id)].content,
+    original: async () => bytes,
+  };
+  return { mail, source };
+}
 
 export async function readPowerAutomateMail(bytes: Buffer, receivedAt: string, sender: string, now: number) {
   if (!Buffer.isBuffer(bytes) || !bytes.length || bytes.length > maxMailBytes) {
@@ -17,18 +30,19 @@ export async function readPowerAutomateMail(bytes: Buffer, receivedAt: string, s
     throw new MailIngressError(400, 'В X-CRM-Received-At нужна дата получения письма с часовым поясом.');
   }
   // Work on raw MIME bytes only. No links, scripts, formulas or HTML are opened.
-  let mail: Awaited<ReturnType<typeof simpleParser>>;
-  try { mail = await simpleParser(bytes, { skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true, skipTextLinks: true }); }
+  let mail: Awaited<ReturnType<typeof simpleParser>>, source: MailSource;
+  try { ({ mail, source } = await parseMail(bytes)); }
   catch { throw new MailIngressError(422, 'Не удалось прочитать EML. В HTTP Body выберите Body действия Export email (V2).'); }
   const from = mail.from?.value || [];
   if (!from.length || !from.some(item => item.address)) {
     throw new MailIngressError(422, 'В переданных данных не найден адрес отправителя From. В HTTP Body выберите Body действия Export email (V2), а не текст письма из триггера.');
   }
-  if (from.length !== 1 || emailKey(from[0].address || '') !== emailKey(sender)) {
+  if (from.length !== 1 || !senderAllowed(from[0].address || '', sender)) {
     // Show only bounded addresses, never the message body, names or attachments.
     const addressLabel = (value: string) => value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 254);
     const actual = from.slice(0, 3).map(item => addressLabel(item.address || '(адрес отсутствует)')).join(', ') + (from.length > 3 ? ', …' : '');
-    throw new MailIngressError(422, `Отправитель исходного письма не совпадает с настройкой CRM. В письме From: ${actual}. Ожидается: ${addressLabel(sender)}. Проверьте, что Export email (V2) использует Message Id из триггера и выбран запуск нужного письма, а не прежнего теста.`);
+    throw new MailIngressError(422, `Отправитель исходного письма не входит в список отправителей CRM. В письме From: ${actual}. Ожидается: ${addressLabel(sender)}. Добавьте адрес или весь домен в настройку «Письма от» в CRM.`
+      + ` Если адрес уже в списке, проверьте, что Export email (V2) использует Message Id из триггера и выбран запуск нужного письма, а не прежнего теста.`);
   }
   if (!mail.messageId || mail.messageId.length > 1000 || /[\r\n]/.test(mail.messageId)) {
     throw new MailIngressError(422, 'В письме отсутствует корректный Message-ID. Передайте оригинал через Export email (V2).');
@@ -36,13 +50,6 @@ export async function readPowerAutomateMail(bytes: Buffer, receivedAt: string, s
   if (!mail.attachments.length) throw new MailIngressError(503, 'В письме пока нет вложений. Повторите передачу после их появления в Outlook.');
   if (mail.attachments.length > 100) throw new MailIngressError(422, 'В письме больше 100 вложений. Нужна ручная проверка.');
   const message: GraphMessage = { id: mail.messageId, internetMessageId: mail.messageId,
-    receivedDateTime: new Date(receivedTime).toISOString(), subject: mail.subject || '(Без темы)', from: { emailAddress: { address: sender } } };
-  const source: MailSource = {
-    attachments: async () => mail.attachments.map((file, index) => ({ id: String(index), name: file.filename || 'attachment', size: file.content.length,
-      contentType: file.contentType, isInline: file.contentDisposition === 'inline' || file.related === true,
-      '@odata.type': file.contentType === 'message/rfc822' ? '#microsoft.graph.itemAttachment' : '#microsoft.graph.fileAttachment' })),
-    attachment: async (_messageId, id) => mail.attachments[Number(id)].content,
-    original: async () => bytes,
-  };
+    receivedDateTime: new Date(receivedTime).toISOString(), subject: mail.subject || '(Без темы)', from: { emailAddress: { address: from[0].address! } } };
   return { message, source };
 }

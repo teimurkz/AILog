@@ -142,7 +142,37 @@ export async function parseInvoiceWorkbook(bytes: Buffer, fileName: string): Pro
     ...(plate || qualityPlate ? { plate_number: plate || qualityPlate } : {}),
     ...(items.size ? { goods: [...items].join(', ') } : {}), items: [...items] };
 }
-export function mergeMailShipment(existing: Partial<Shipment> | undefined, draft: InvoiceDraft,
+const replyPrefix = /^(?:\s*(?:re|fw|fwd|aw|wg|sv|ответ|пересл)\s*:\s*)+/i;
+const numberToken = /\d+(?:[.-]\d+)*/g;
+const dateToken = /^\d{1,2}[.-]\d{1,2}[.-]\d{2,4}$/;
+// Scanner and phone file names carry counters, not invoice numbers.
+const genericFile = /^(?:scan|img|image|photo|pic|doc|document|file|cmr|whatsapp|screenshot|снимок|скан|изображение)/i;
+const numbersIn = (text: string) => [...new Set((text.match(numberToken) || [] as string[]).filter(token => !dateToken.test(token) && token.replace(/\D/g, '').length <= 20))];
+
+/**
+ * Invoice numbers of an email without an Excel invoice: from the subject ("478", "RE: 478"),
+ * otherwise from PDF names ("478 قزاقستان.pdf"). Returns every distinct candidate;
+ * the caller only proceeds with exactly one.
+ */
+export function mailInvoiceNumbers(subject: string, fileNames: string[]): string[] {
+  const fromSubject = subject.length <= 120 ? numbersIn(subject.replace(replyPrefix, '')) : [];
+  if (fromSubject.length) return fromSubject;
+  return [...new Set(fileNames
+    .filter(name => /\.pdf$/i.test(name))
+    .map(name => name.replace(/\.pdf$/i, '').trim())
+    .filter(name => !genericFile.test(name))
+    .flatMap(numbersIn))];
+}
+
+/** A shipment named "478", "Mehkaz 478" or with commercial invoice "...-478" matches number 478. */
+export function shipmentMatchesNumber(shipment: Partial<Shipment>, number: string): boolean {
+  const name = String(shipment.invoice_id || '').trim(), full = String(shipment.commercial_invoice_number || '').trim();
+  return invoiceKey(name) === invoiceKey(number) || name.match(/(\d+(?:[.-]\d+)*)$/)?.[1] === number
+    || full === number || full.endsWith('-' + number);
+}
+
+/** Adds an email's documents to a shipment; a new shipment additionally needs the Excel draft. */
+export function mergeMailShipment(existing: Partial<Shipment> | undefined, draft: InvoiceDraft | null,
   documents: MailDocument[], receivedAt: string, originalUrl: string, travelDays: number, actor: string, now: string): Partial<Shipment> {
   const oldDate = existing?.documents_received_at;
   const firstReceived = oldDate && Date.parse(oldDate) <= Date.parse(receivedAt) ? oldDate : receivedAt;
@@ -157,6 +187,7 @@ export function mergeMailShipment(existing: Partial<Shipment> | undefined, draft
     last_updated: now,
   };
   if (!existing) {
+    if (!draft) throw new ImportReview('Без Excel-инвойса можно только дополнить существующее отправление.');
     Object.assign(merged, draft, { departure_date: firstReceived, transit_start_source: 'email',
       est_travel_time: travelDays, arrival_deadline: new Date(Date.parse(firstReceived) + travelDays * 86400000).toISOString(),
       status: 'In Transit', createdBy: actor });

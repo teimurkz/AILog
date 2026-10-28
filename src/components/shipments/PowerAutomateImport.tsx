@@ -58,11 +58,12 @@ export function PowerAutomateImport() {
       <fieldset disabled={busy} className="space-y-4 min-w-0">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">Рабочий почтовый адрес<input className={field} type="email" value={form.mailbox} onChange={e => change('mailbox', e.target.value)} /></label>
-          <label className="text-sm">Письма от логиста<input className={field} type="email" value={form.sender} onChange={e => change('sender', e.target.value)} /></label>
+          <label className="text-sm">Письма от<input className={field} value={form.sender} onChange={e => change('sender', e.target.value)} placeholder="@solico-group.ir, @solico-group.com" autoComplete="off" />
+            <span className="mt-1 block text-xs text-slate-500">Через запятую: адреса или целые домены, например al.babaei@solico-group.ir, @solico-group.ir. Домен принимает письма любого сотрудника компании.</span></label>
           <label className="text-sm">Принимать письма начиная с<input className={field} type="date" value={dateInput(form.importFrom)} max={dateInput(new Date().toISOString())} onChange={e => { if (e.target.value) change('importFrom', new Date(e.target.value + 'T00:00:00+05:00').toISOString()); }} /></label>
           <label className="text-sm">Ожидаемый срок перевозки, дней<input className={field} type="number" min="1" max="180" value={form.travelDays} onChange={e => change('travelDays', Number(e.target.value))} /></label>
         </div>
-        <p className="text-xs text-slate-500">Если у ящика несколько адресов, используйте один и тот же адрес во всех настройках импорта CRM.</p>
+        <p className="text-xs text-slate-500">Если у ящика несколько адресов, используйте один и тот же адрес во всех настройках импорта CRM. В потоке Power Automate поле From в триггере оставьте пустым: отправителей отбирает CRM по списку выше.</p>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.enabled} onChange={e => change('enabled', e.target.checked)} />Принимать письма от Power Automate</label>
         <div className="flex flex-wrap gap-2">
           <button className={`${button} bg-blue-600 text-white`} onClick={() => save()}>Сохранить настройки</button>

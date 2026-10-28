@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
 import { createOutlookImportService } from '../server/services/outlook-import.service.js';
-import { parseInvoiceWorkbook, mergeMailShipment, ImportReview } from '../server/services/outlook-invoice.js';
+import { parseInvoiceWorkbook, mergeMailShipment, ImportReview, mailInvoiceNumbers, shipmentMatchesNumber } from '../server/services/outlook-invoice.js';
 import { OutlookGraph, OutlookError, graphUrl, microsoftTokenRequest, outlookScopes } from '../server/services/outlook-graph.js';
-import { invoiceKey, validateOutlookSettings } from '../shared/outlook-import.js';
+import { invoiceKey, senderAllowed, senderRules, singleSender, validateMailImportSettings, validateOutlookSettings } from '../shared/outlook-import.js';
 import { shipmentDaysPassed } from '../src/utils/shipmentUtils.js';
 import express from 'express';
 import http from 'node:http';
@@ -85,7 +85,8 @@ async function fixture() {
   let failFile = false, clock = tickTime;
   const service = createOutlookImportService({ db: db as any, graph: () => fake as any,
     now: () => clock, oauth: async () => ({ access_token: 'PRIVATE_ACCESS_TOKEN', refresh_token: 'NEW_PRIVATE_REFRESH_TOKEN' }),
-    saveFile: async (path, bytes) => { if (failFile) throw new Error('network'); savedFiles.set(path, bytes); return 'https://storage.example.test/' + path; } });
+    saveFile: async (path, bytes) => { if (failFile) throw new Error('network'); savedFiles.set(path, bytes); return 'https://storage.example.test/' + path; },
+    readFile: async path => { const bytes = savedFiles.get(path); assert.ok(bytes); return bytes; } });
   return { db, service, fake, files, savedFiles, setFail: (value: boolean) => { failFile = value; }, setTime: (value: number) => { clock = value; } };
 }
 
@@ -478,3 +479,95 @@ for (const contentType of ['application/octet-stream', 'text/plain; charset=utf-
     });
   }
 }
+
+// Emails like the partner's current format: scans and a PDF, the invoice number only in the subject.
+function scanEmail(options: { sender?: string; id?: string; subject?: string; pdf?: string } = {}) {
+  const compiled = new MailComposer({ from: options.sender || 'al.babaei@solico-group.ir', to: settings.mailbox,
+    messageId: options.id || '<scan-478@example.test>', date: new Date('2026-09-07T00:00:00Z'), subject: options.subject ?? '478',
+    text: 'Hello dear, 478. Thanks a lot',
+    attachments: [
+      { filename: 'Scan_0002.jpg', content: Buffer.from('scan 2') },
+      { filename: options.pdf ?? '478 قزاقستان.pdf', content: Buffer.from('pdf 478') },
+      { filename: 'cmr.jfif', content: Buffer.from('cmr photo') },
+    ] }).compile();
+  return new Promise<Buffer>((resolve, reject) => compiled.build((error: Error, bytes: Buffer) => error ? reject(error) : resolve(bytes)));
+}
+const solico = { ...settings, sender: 'partner@example.test, @solico-group.ir' };
+
+test('sender list accepts addresses and whole domains, normalises them and rejects anything else', () => {
+  assert.deepEqual(senderRules(' Partner@Example.test; solico-group.ir\n@SOLICO-GROUP.com '), ['partner@example.test', '@solico-group.ir', '@solico-group.com']);
+  assert.equal(validateMailImportSettings({ ...settings, sender: 'solico-group.ir, partner@example.test' }).sender, '@solico-group.ir, partner@example.test');
+  assert.throws(() => senderRules('not a sender'), /не адрес и не домен/);
+  assert.throws(() => senderRules('  '), /от 1 до 50/);
+  assert.equal(senderAllowed('Al.Babaei@solico-group.ir', '@solico-group.ir'), true);
+  assert.equal(senderAllowed('x@mail.solico-group.ir', '@solico-group.ir'), false); // no subdomains
+  assert.equal(senderAllowed('x@solico-group.ir.evil.test', '@solico-group.ir'), false);
+  assert.equal(singleSender('partner@example.test'), 'partner@example.test');
+  assert.equal(singleSender('@solico-group.ir'), undefined);
+});
+
+test('invoice number of an email without Excel comes from the subject, otherwise from a PDF name', () => {
+  assert.deepEqual(mailInvoiceNumbers('478', ['Scan_0002.jpg']), ['478']);
+  assert.deepEqual(mailInvoiceNumbers('RE: FW: 481', []), ['481']);
+  assert.deepEqual(mailInvoiceNumbers('', ['Scan_0001.pdf', '478 قزاقستان.pdf', 'cmr.jfif']), ['478']);
+  assert.deepEqual(mailInvoiceNumbers('Documents 26.10.2026', ['Scan_0005.pdf']), []);
+  assert.deepEqual(mailInvoiceNumbers('478 and 479', []), ['478', '479']);
+  assert.equal(shipmentMatchesNumber({ invoice_id: 'Mehkaz 478' }, '478'), true);
+  assert.equal(shipmentMatchesNumber({ invoice_id: 'X', commercial_invoice_number: '20260907-478' }, '478'), true);
+  assert.equal(shipmentMatchesNumber({ invoice_id: 'Mehkaz 1478' }, '478'), false);
+});
+
+test('Power Automate accepts any address of an allowed domain and attaches a no-Excel email to the matching shipment', async () => {
+  const f = await fixture();
+  await f.db.collection('shipments').doc('ship-478').set({ id: 'ship-478', invoice_id: 'Mehkaz 478', status: 'In Transit', route: 'Amol - Almaty' });
+  const { key } = await f.service.savePowerSettings(solico, 'admin', true);
+  const result = await f.service.receivePower(key!, await scanEmail(), receipt);
+  assert.equal(result.status, 'updated'); assert.equal(result.shipmentId, 'ship-478');
+  const shipments = (await f.db.collection('shipments').get()).docs;
+  assert.equal(shipments.length, 1);
+  const shipment = shipments[0].data();
+  assert.equal(shipment.invoice_id, 'Mehkaz 478'); assert.equal(shipment.status, 'In Transit'); assert.equal(shipment.route, 'Amol - Almaty');
+  assert.deepEqual(shipment.mail_documents.map((doc: any) => doc.fileName), ['Scan_0002.jpg', '478 قزاقستان.pdf', 'cmr.jfif']);
+  assert.equal(shipment.source_email_urls.length, 1);
+  await assert.rejects(f.service.receivePower(key!, await scanEmail({ sender: 'someone@other.test', id: '<x@example.test>' }), receipt), statusError(422));
+});
+
+test('a no-Excel email without a unique shipment waits for review and can be linked by hand once', async () => {
+  const f = await fixture();
+  for (const [id, name] of [['a', 'Mehkaz 478'], ['b', 'Solico 478']]) await f.db.collection('shipments').doc(id).set({ id, invoice_id: name });
+  const { key } = await f.service.savePowerSettings(solico, 'admin', true);
+  await assert.rejects(f.service.receivePower(key!, await scanEmail(), receipt), (error: unknown) =>
+    error instanceof MailIngressError && error.status === 422 && /несколько отправлений: Mehkaz 478, Solico 478/.test(error.message));
+  const log = (await f.service.status()).logs[0];
+  assert.equal(log.status, 'review'); assert.equal(log.linkable, true);
+  assert.equal(((await f.db.collection('shipments').doc('b').get()).data() as any).mail_documents, undefined);
+
+  const linked = await f.service.link(log.id, 'b', 'admin');
+  assert.equal(linked?.status, 'updated'); assert.equal(linked?.shipmentId, 'b');
+  const shipment = (await f.db.collection('shipments').doc('b').get()).data() as any;
+  assert.equal(shipment.mail_documents.length, 3); assert.equal(shipment.invoice_id, 'Solico 478');
+  assert.equal((await f.service.status()).logs[0].linkable, undefined);
+  await assert.rejects(f.service.link(log.id, 'a', 'admin'), /не ожидает привязки/);
+  await assert.rejects(f.service.link(log.id, '../shipments', 'admin'), /Выберите отправление/);
+});
+
+test('a no-Excel email without any number in the subject or PDF names asks for manual linking', async () => {
+  const f = await fixture(), { key } = await f.service.savePowerSettings(solico, 'admin', true);
+  await assert.rejects(f.service.receivePower(key!, await scanEmail({ subject: 'Hello', pdf: 'Scan_0007.pdf' }), receipt), (error: unknown) =>
+    error instanceof MailIngressError && /номер инвойса не найден/.test(error.message));
+  assert.equal((await f.db.collection('shipments').get()).docs.length, 0);
+});
+
+test('Graph import with domain rules reads by date and lets the CRM filter senders', async () => {
+  const f = await fixture();
+  await f.db.data.set('outlook_private/state', { ...f.db.data.get('outlook_private/state'), settings: { ...settings, sender: '@example.test' } });
+  f.fake.page[0].from.emailAddress.address = 'colleague@example.test';
+  await f.service.run();
+  assert.equal(f.fake.requests[0][2], undefined);
+  assert.equal((await f.db.collection('shipments').get()).docs.length, 1);
+  const g = await fixture();
+  await g.db.data.set('outlook_private/state', { ...g.db.data.get('outlook_private/state'), settings: { ...settings, sender: '@example.test' } });
+  g.fake.page[0].from.emailAddress.address = 'someone@elsewhere.test';
+  await g.service.run();
+  assert.equal((await g.db.collection('shipments').get()).docs.length, 0);
+});

@@ -71,9 +71,10 @@ export class OutlookGraph {
   async json<T>(path: string): Promise<T> { return JSON.parse((await readBytes(await this.response(path), 2 * 1024 * 1024)).toString('utf8')); }
   async bytes(path: string, limit = 25 * 1024 * 1024) { return readBytes(await this.response(path), limit); }
   profile() { return this.json<{ id: string; mail?: string; userPrincipalName?: string }>('/me?$select=id,mail,userPrincipalName'); }
-  messages(from: string, to: string, sender: string, nextLink?: string) {
+  // With one exact sender Graph pre-filters; domain rules are checked by the CRM for every message.
+  messages(from: string, to: string, sender: string | undefined, nextLink?: string) {
     const query = new URLSearchParams({ '$select': 'id,internetMessageId,subject,receivedDateTime,from,isDraft,parentFolderId',
-      '$filter': `receivedDateTime ge ${from} and receivedDateTime le ${to} and from/emailAddress/address eq '${sender.replace(/'/g, "''")}'`,
+      '$filter': `receivedDateTime ge ${from} and receivedDateTime le ${to}` + (sender ? ` and from/emailAddress/address eq '${sender.replace(/'/g, "''")}'` : ''),
       '$orderby': 'receivedDateTime asc', '$top': '10' });
     return this.json<{ value: GraphMessage[]; '@odata.nextLink'?: string }>(nextLink || `/me/messages?${query}`);
   }

@@ -39,4 +39,5 @@ router.post('/connect/:id/poll', requireSameOrigin, route((service, req) => serv
 router.delete('/connection', requireSameOrigin, route(service => service.disconnect()));
 router.post('/run', requireSameOrigin, route(service => service.run(true)));
 router.post('/retry/:id', requireSameOrigin, route((service, req) => service.retry(req.params.id)));
+router.post('/link/:id', requireSameOrigin, route((service, req) => service.link(req.params.id, req.body?.shipmentId, getCrmUser(req)!.uid)));
 export default router;

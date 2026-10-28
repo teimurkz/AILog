@@ -283,7 +283,7 @@ export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: Shipm
         </div>
       </div>
 
-      {showOutlookImport && isAdmin && <OutlookImport onOpenShipment={id => { const shipment = shipments.find(item => item.id === id); if (shipment) onSelect(shipment); }} />}
+      {showOutlookImport && isAdmin && <OutlookImport shipments={shipments} onOpenShipment={id => { const shipment = shipments.find(item => item.id === id); if (shipment) onSelect(shipment); }} />}
       <AnimatePresence>
         {showExcelImport && (
           <motion.div
