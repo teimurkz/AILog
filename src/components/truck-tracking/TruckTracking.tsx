@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  AlertTriangle, ArrowDown, ArrowUp, ClipboardPaste, Columns3, Download, FileSpreadsheet, GripVertical, Loader2, Plus, Search, Settings2, Table2, Trash2, X,
+  AlertTriangle, ArrowDown, ArrowUp, ClipboardPaste, Columns3, Download, FileSpreadsheet, GripVertical, Link2, Loader2, Plus, Search, Settings2, Table2, Trash2, X,
 } from 'lucide-react';
 import {
   daysInStage, formatTrackingDate, isTruckIdle, stageDate, stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, todayIso,
@@ -8,6 +8,8 @@ import {
 } from '../../../shared/truck-tracking';
 import type { TrackingLanguage, TrackingText } from '../../../shared/truck-tracking-i18n';
 import { useTruckTracking, useTruckTrackingStages } from '../../hooks/useTruckTracking';
+import { useShipments } from '../../hooks/useShipments';
+import { useShipmentSync } from '../../hooks/useShipmentSync';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { downloadTruckTracking, downloadTruckTrackingAll } from '../../utils/truck-tracking-excel';
@@ -62,6 +64,14 @@ const StatusSelect = ({ value, stages, language, label, disabled, onChange, clas
   );
 };
 
+/** Shows that the truck's invoice matches a shipment, so its stage dates reach "Отправления". */
+const LinkBadge = ({ name, text }: { name?: string; text: TrackingText }) => name === undefined ? null : (
+  <span title={text.linkedTo(name || '')} aria-label={text.linkedTo(name || '')}
+    className="inline-flex shrink-0 items-center rounded-full bg-blue-50 p-1 text-blue-600 ring-1 ring-blue-200">
+    <Link2 className="h-3 w-3" />
+  </span>
+);
+
 const DEPLOY_RULES_COMMAND = '(test -d AILog || git clone https://github.com/teimurkz/AILog.git) && cd AILog && git pull --ff-only origin main && npx -y firebase-tools deploy --only firestore:rules --project logisticsapp-216d5';
 
 const RulesNotice = ({ onRetry, text }: { onRetry: () => void; text: TrackingText }) => {
@@ -100,6 +110,9 @@ export const TruckTracking = () => {
   const { stages, loading: stagesLoading, saveStages } = useTruckTrackingStages();
   const { entries, loading, error, confirmed, retry, create, createMany, update, updateEach, removeMany, restore } = useTruckTracking(stages);
   const canEdit = isLogistics;
+  const { shipments, confirmed: shipmentsConfirmed } = useShipments();
+  // Stage dates of matching invoices flow into "Отправления" (SVH arrival, unload date, status).
+  const shipmentLinks = useShipmentSync(entries, stages, shipments, canEdit && confirmed && shipmentsConfirmed);
 
   const [tab, setTab] = React.useState<string>(() => readPrefs().tab || 'all');
   const [view, setView] = React.useState<'table' | 'board'>(() => readPrefs().view === 'board' ? 'board' : 'table');
@@ -560,7 +573,12 @@ export const TruckTracking = () => {
                           {canEdit && <input type="checkbox" checked={selected.has(entry.id)} onChange={() => toggle(entry.id)} className="h-4 w-4 accent-blue-600" aria-label={text.selectRow(truckName(entry))} />}
                         </div>
                       </td>
-                      <td className="px-1 py-1">{cell(entry, 'invoice', visibleIds, { className: 'font-semibold text-slate-900' })}</td>
+                      <td className="px-1 py-1">
+                        <div className="flex items-center gap-1">
+                          <div className="min-w-0 flex-1">{cell(entry, 'invoice', visibleIds, { className: 'font-semibold text-slate-900' })}</div>
+                          <LinkBadge name={shipmentLinks.get(entry.id)?.invoice_id} text={text} />
+                        </div>
+                      </td>
                       <td className="px-1 py-1">{cell(entry, 'productName', visibleIds)}</td>
                       {stages.map(stage => <td key={stage.id} className="px-1 py-1">{cell(entry, `date:${stage.id}`, visibleIds)}</td>)}
                       <td className="px-2 py-1">
@@ -617,7 +635,10 @@ export const TruckTracking = () => {
                         onDragEnd={endDrag}
                         className={cn('rounded-lg border border-slate-200 bg-white p-2 shadow-2xs', canEdit && 'cursor-grab active:cursor-grabbing', isTruckIdle(entry, stages) && 'border-s-4 border-s-red-500')}
                       >
-                        {cell(entry, 'invoice', ids, { className: 'font-semibold text-slate-900', placeholder: text.invoice })}
+                        <div className="flex items-center gap-1">
+                          <div className="min-w-0 flex-1">{cell(entry, 'invoice', ids, { className: 'font-semibold text-slate-900', placeholder: text.invoice })}</div>
+                          <LinkBadge name={shipmentLinks.get(entry.id)?.invoice_id} text={text} />
+                        </div>
                         {cell(entry, 'productName', ids, { className: 'text-xs text-slate-600', placeholder: text.productName })}
                         <div className="mt-1 grid grid-cols-2 gap-1 text-[11px] text-slate-500">
                           {stages.map(dateStage => (

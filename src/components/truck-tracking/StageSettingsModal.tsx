@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Loader2, Plus, Trash2, X } from 'lucide-react';
 import {
   STAGE_COLORS, newStageId, stageDateLabel, stageLabel, type StageColor, type StageNames, type TruckStage,
 } from '../../../shared/truck-tracking';
+import { SHIPMENT_SYNC_OPTIONS, stageShipmentSync, type ShipmentSync } from '../../../shared/shipment-link';
 import type { TrackingLanguage } from '../../../shared/truck-tracking-i18n';
 import { COLOR_STYLES } from './statusStyles';
 import { useTrackingText } from './useTrackingText';
@@ -27,10 +28,11 @@ const ownName = (names: StageNames | undefined, legacy: string, language: Tracki
   names ? names[language] ?? '' : legacy;
 
 const toDraft = (stage: TruckStage, language: TrackingLanguage): DraftStage =>
-  ({ ...stage, name: ownName(stage.labels, stage.label, language), dateName: ownName(stage.dateLabels, stage.dateLabel, language) });
+  ({ ...stage, name: ownName(stage.labels, stage.label, language), dateName: ownName(stage.dateLabels, stage.dateLabel, language),
+    shipmentSync: stageShipmentSync(stage) });
 
 const blankStage = (stages: TruckStage[]): DraftStage =>
-  ({ id: newStageId(), label: '', dateLabel: '', color: unusedColor(stages), order: stages.length, idleDays: null, name: '', dateName: '' });
+  ({ id: newStageId(), label: '', dateLabel: '', color: unusedColor(stages), order: stages.length, idleDays: null, shipmentSync: null, name: '', dateName: '' });
 
 const withName = (names: StageNames | undefined, language: TrackingLanguage, name: string): StageNames => {
   const next: StageNames = { ...(names || {}) };
@@ -194,6 +196,17 @@ export const StageSettingsModal = ({ stages, counts, startWithNew, onClose, onSa
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
+              <label className="mt-2 flex flex-wrap items-center gap-2 ps-1 text-xs text-slate-500" title={t.shipmentSyncTitle}>
+                {t.shipmentSync}:
+                <select
+                  value={stage.shipmentSync ?? ''}
+                  onChange={event => patch(stage.id, { shipmentSync: (event.target.value || null) as ShipmentSync | null })}
+                  className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+                >
+                  <option value="">{t.syncNone}</option>
+                  {SHIPMENT_SYNC_OPTIONS.map(option => <option key={option} value={option}>{option === 'customs' ? t.syncCustoms : t.syncUnloaded}</option>)}
+                </select>
+              </label>
               {deleting?.id === stage.id && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
                   <span>{t.trucksInStage(trucksIn(stage.id))}</span>

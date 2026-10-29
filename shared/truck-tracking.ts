@@ -24,6 +24,8 @@ export interface TruckStage {
   order: number;
   /** Days a truck may stay in this stage before it is flagged as idle; empty = not tracked. */
   idleDays?: number | null;
+  /** What this stage's date sets on the linked shipment (see shipment-link.ts); empty = nothing. */
+  shipmentSync?: 'customs' | 'unloaded' | null;
 }
 
 export const DEFAULT_STAGES: TruckStage[] = [

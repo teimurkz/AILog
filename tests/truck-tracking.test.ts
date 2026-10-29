@@ -7,6 +7,7 @@ import {
 } from '../shared/truck-tracking';
 import { truckTrackingFullWorkbook, truckTrackingWorkbook } from '../src/utils/truck-tracking-excel';
 import { TRACKING_TEXT } from '../shared/truck-tracking-i18n';
+import { findLinkedShipment, shipmentPatchFor, stageShipmentSync } from '../shared/shipment-link';
 
 const today = new Date(2026, 9, 23);
 const stages = DEFAULT_STAGES;
@@ -125,4 +126,37 @@ test('export uses the CRM language; Farsi workbooks open right-to-left', () => {
 test('every language has every text', () => {
   const keys = Object.keys(TRACKING_TEXT.ru).sort();
   for (const language of ['en', 'fa'] as const) assert.deepEqual(Object.keys(TRACKING_TEXT[language]).sort(), keys);
+});
+
+test('a tracking invoice links to exactly one shipment by name or by number', () => {
+  const shipments = [
+    { id: 'a', invoice_id: 'Mehkaz 475' },
+    { id: 'b', invoice_id: '504' },
+    { id: 'c', invoice_id: 'X', commercial_invoice_number: '20260907-511' },
+    { id: 'd', invoice_id: 'Mehkaz 600' }, { id: 'e', invoice_id: 'Solico 600' },
+  ];
+  assert.equal(findLinkedShipment('Mehkaz 475', shipments)?.id, 'a');
+  assert.equal(findLinkedShipment('475', shipments)?.id, 'a');
+  assert.equal(findLinkedShipment('mehkaz504', shipments)?.id, 'b');
+  assert.equal(findLinkedShipment('Mehkaz 504', shipments)?.id, 'b');
+  assert.equal(findLinkedShipment('511', shipments)?.id, 'c');
+  assert.equal(findLinkedShipment('600', shipments), null); // two candidates: no guessing
+  assert.equal(findLinkedShipment('1475', shipments), null);
+  assert.equal(findLinkedShipment('', shipments), null);
+});
+
+test('SVH stage dates set arrival, unload date and status on the linked shipment', () => {
+  const shipment = { id: 's', invoice_id: '475', status: 'In Transit' };
+  assert.deepEqual(shipmentPatchFor(entry('arrived', { arrived: '2026-10-28' }), stages, shipment),
+    { customs_arrival_date: '28.10.2026', status: 'Customs' });
+  assert.deepEqual(shipmentPatchFor(entry('unloaded', { arrived: '2026-10-28', unloaded: '2026-10-29' }), stages, shipment),
+    { customs_arrival_date: '28.10.2026', unl_date: '29.10.2026', status: 'Delivered' });
+  // Already in step: nothing to write. A delivered shipment never goes back to "Customs".
+  assert.equal(shipmentPatchFor(entry('arrived', { arrived: '2026-10-28' }), stages, { ...shipment, status: 'Customs', customs_arrival_date: '28.10.2026' }), null);
+  assert.equal(shipmentPatchFor(entry('arrived', { arrived: '2026-10-28' }), stages, { ...shipment, status: 'Delivered', customs_arrival_date: '28.10.2026' }), null);
+  // The "moved to warehouse" stage changes nothing by default; a custom stage can be linked.
+  assert.equal(shipmentPatchFor(entry('moved', { moved: '2026-10-30' }), stages, shipment), null);
+  const custom: TruckStage[] = [{ id: 'svh', label: 'СВХ', dateLabel: 'Разгрузка', color: 'blue', order: 0, shipmentSync: 'unloaded' }];
+  assert.deepEqual(shipmentPatchFor(entry('svh', { svh: '2026-10-29' }), custom, shipment), { unl_date: '29.10.2026', status: 'Delivered' });
+  assert.equal(stageShipmentSync({ id: 'arrived', shipmentSync: null }), null);
 });
