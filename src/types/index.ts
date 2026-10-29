@@ -36,6 +36,10 @@ export interface Shipment {
   createdBy: string;
   items: string[];
   isArchived?: boolean;
+  /** Created from an email without an Excel invoice; the first Excel for this number fills the details. */
+  auto_from_email?: boolean;
+  /** Invoice number taken from such an email ("478"). */
+  mail_number?: string;
 }
 
 export type TruckStatus = 'Available' | 'On Route' | 'Maintenance';

@@ -30,6 +30,8 @@ router.post('/power-automate/key', requireSameOrigin, (req, res, next) => {
   try { req.body = validateMailImportSettings(req.body); next(); }
   catch (error) { res.status(400).json({ error: (error as Error).message }); }
 }, route((service, req) => service.savePowerSettings(req.body, getCrmUser(req)!.uid, true)));
+router.put('/power-automate/refresh-url', requireSameOrigin, route((service, req) => service.savePowerRefreshUrl(req.body?.url ?? null)));
+router.post('/power-automate/refresh', requireSameOrigin, route((service, req) => service.refreshPeriod(String(req.body?.from || ''), String(req.body?.to || ''))));
 router.put('/settings', requireSameOrigin, (req, res, next) => {
   try { req.body = validateOutlookSettings(req.body); next(); }
   catch (error) { res.status(400).json({ error: (error as Error).message }); }

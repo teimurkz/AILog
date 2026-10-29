@@ -585,12 +585,14 @@ test('"Проверить повторно" re-imports a stored Power Automate e
   const f = await fixture();
   f.db.data.set('outlook_private/state', { watermark: settings.importFrom }); // no direct Outlook connection
   const { key } = await f.service.savePowerSettings(solico, 'admin', true);
+  await f.db.collection('shipments').doc('ship-478').set({ id: 'ship-478', invoice_id: 'Mehkaz 478' });
+  await f.db.collection('shipments').doc('old-478').set({ id: 'old-478', invoice_id: 'Old 478' });
   await assert.rejects(f.service.receivePower(key!, await scanEmail(), receipt), statusError(422));
   const log = (await f.service.status()).logs[0];
   assert.equal(log.status, 'review'); assert.equal(log.linkable, true);
-  assert.match(log.reason!, /отправления с номером 478 в CRM нет/);
+  assert.match(log.reason!, /несколько отправлений/);
 
-  await f.db.collection('shipments').doc('ship-478').set({ id: 'ship-478', invoice_id: 'Mehkaz 478' });
+  await f.db.collection('shipments').doc('old-478').delete(); // the duplicate is cleaned up by hand
   const result = await f.service.retry(log.id) as any;
   assert.equal(result.status, 'updated'); assert.equal(result.shipmentId, 'ship-478');
   assert.equal(((await f.db.collection('shipments').doc('ship-478').get()).data() as any).mail_documents.length, 3);
@@ -605,4 +607,76 @@ test('an old review record without a stored email explains how to resend it from
   assert.equal((await f.service.status()).logs[0].linkable, undefined);
   await assert.rejects(f.service.retry(id), /Resubmit/);
   assert.equal(f.db.data.get(`outlook_imports/${id}`).status, 'review');
+});
+
+test('a scan-only email with a new number creates the shipment itself; the later Excel fills in its details', async () => {
+  const f = await fixture();
+  const { key } = await f.service.savePowerSettings({ ...solico, namePrefix: 'Mehkaz', defaultRoute: 'Tehran - Almaty' }, 'admin', true);
+  const created = await f.service.receivePower(key!, await scanEmail(), receipt);
+  assert.equal(created.status, 'created'); assert.equal(created.invoice, 'Mehkaz 478');
+  let shipments = (await f.db.collection('shipments').get()).docs;
+  assert.equal(shipments.length, 1);
+  let shipment = shipments[0].data();
+  assert.equal(shipment.invoice_id, 'Mehkaz 478'); assert.equal(shipment.route, 'Tehran - Almaty');
+  assert.equal(shipment.status, 'In Transit'); assert.equal(shipment.departure_date, receipt);
+  assert.equal(shipment.auto_from_email, true); assert.equal(shipment.mail_number, '478');
+  assert.equal(shipment.mail_documents.length, 3);
+
+  // Replay and a second scan email of the same number add to the same shipment.
+  await f.service.receivePower(key!, await scanEmail(), receipt);
+  await f.service.receivePower(key!, await scanEmail({ id: '<scan-478-b@example.test>', subject: 'FW: 478-kz' }), receipt);
+  assert.equal((await f.db.collection('shipments').get()).docs.length, 1);
+
+  f.files.set('excel', await invoice({ name: 'Mehkaz 478', fullInvoice: '20260907-478' }));
+  const filled = await f.service.receivePower(key!, await exportedEmail(f, { fileName: 'Mehkaz 478.xlsx', id: '<excel-478@example.test>' }), receipt);
+  assert.equal(filled.status, 'updated');
+  shipments = (await f.db.collection('shipments').get()).docs;
+  assert.equal(shipments.length, 1);
+  shipment = shipments[0].data();
+  assert.equal(shipment.route, 'Amol - Almaty'); assert.equal(shipment.commercial_invoice_number, '20260907-478');
+  assert.deepEqual(shipment.items, ['Milk']); assert.equal(shipment.auto_from_email, false);
+  assert.equal(shipment.departure_date, receipt); assert.equal(shipment.status, 'In Transit');
+});
+
+test('without a name prefix the shipment is called by its number and takes the Excel name later', async () => {
+  const f = await fixture(), { key } = await f.service.savePowerSettings(solico, 'admin', true);
+  assert.equal((await f.service.receivePower(key!, await scanEmail(), receipt)).invoice, '478');
+  f.files.set('excel', await invoice({ name: 'Mehkaz 478', fullInvoice: '20260907-478' }));
+  await f.service.receivePower(key!, await exportedEmail(f, { fileName: 'Mehkaz 478.xlsx', id: '<excel-478@example.test>' }), receipt);
+  const shipments = (await f.db.collection('shipments').get()).docs;
+  assert.equal(shipments.length, 1); assert.equal(shipments[0].data().invoice_id, 'Mehkaz 478');
+});
+
+test('"Обновить отправления" asks the flow to resend a period and re-checks kept review emails', async () => {
+  const f = await fixture();
+  f.db.data.set('outlook_private/state', { watermark: settings.importFrom });
+  const calls: any[] = [];
+  const service = createOutlookImportService({ db: f.db as any, now: () => tickTime,
+    saveFile: async (path, bytes) => { f.savedFiles.set(path, bytes); return 'https://storage.example.test/' + path; },
+    readFile: async path => f.savedFiles.get(path)!,
+    fetch: (async (url: string, init: any) => { calls.push({ url, body: JSON.parse(init.body) }); return new Response(null, { status: 202 }); }) as any });
+  const { key } = await service.savePowerSettings(solico, 'admin', true);
+  await assert.rejects(service.refreshPeriod('2026-09-01', '2026-09-10'), /ссылку потока/);
+  await assert.rejects(service.savePowerRefreshUrl('https://evil.example.test/workflows/1'), /не ссылка триггера/);
+  const flowUrl = 'https://prod-01.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?api-version=2016-06-01&sig=SECRET';
+  await service.savePowerRefreshUrl(flowUrl);
+  const status = await service.powerStatus();
+  assert.equal(status.refreshConfigured, true); assert.equal(status.refreshHost, 'prod-01.westeurope.logic.azure.com');
+  assert.doesNotMatch(JSON.stringify(status), /SECRET/);
+
+  // A kept review email (two shipments share the number) resolves once the duplicate is gone.
+  for (const id of ['a', 'b']) await f.db.collection('shipments').doc(id).set({ id, invoice_id: `${id.toUpperCase()} 478` });
+  await assert.rejects(service.receivePower(key!, await scanEmail(), receipt), statusError(422));
+  await f.db.collection('shipments').doc('b').delete();
+
+  await assert.rejects(service.refreshPeriod('2026-09-10', '2026-09-01'), /позже/);
+  await assert.rejects(service.refreshPeriod('2026-01-01', '2026-09-10'), /92 дней/);
+  await assert.rejects(service.refreshPeriod('2026-09-01', '2026-12-31'), /будущем/);
+  const result = await service.refreshPeriod('2026-09-09', '2026-09-11');
+  assert.equal(calls.length, 1); assert.equal(calls[0].url, new URL(flowUrl).toString());
+  assert.deepEqual(calls[0].body.days, ['2026-09-09', '2026-09-10', '2026-09-11']);
+  assert.deepEqual(calls[0].body.searchQueries, ['received:2026-09-09', 'received:2026-09-10', 'received:2026-09-11']);
+  assert.equal(result.days, 3); assert.equal(result.rechecked, 1); assert.equal(result.resolved, 1);
+  assert.equal(((await f.db.collection('shipments').doc('a').get()).data() as any).mail_documents.length, 3);
+  assert.deepEqual((await service.powerStatus()).lastRefresh, result);
 });

@@ -114,18 +114,70 @@ before sending the actual email. Turn chunking off for this receiver.
 ## Письма без Excel
 
 Если в письме нет Excel-инвойса (например, только сканы, PDF и фото CMR), номер берётся из темы
-письма (`478`, `RE: 478`), а если в теме номера нет — из имени PDF (`478 قزاقستان.pdf`).
+письма (`478`, `RE: 478`, `FW: 475-kz`), а если в теме номера нет — из имени PDF (`478 قزاقستان.pdf`).
 Имена вроде `Scan_0002` и `cmr` не учитываются, даты в теме тоже.
 
 - Если в CRM ровно одно отправление с этим номером (`478`, `Mehkaz 478` или полный номер инвойса `…-478`),
   все вложения и исходное письмо добавляются к нему. Название, статус, маршрут и даты отправления не меняются.
-- Если такого отправления нет, их несколько или номер не найден, письмо попадает в **Нужна проверка**.
-  Исходное письмо сохраняется, и в журнале появляется кнопка **«Привязать к отправлению»**:
-  выберите отправление, и документы добавятся к нему. Новое отправление без Excel не создаётся —
-  при необходимости создайте его вручную, затем привяжите письмо.
+- Если отправления с этим номером ещё нет, **CRM создаёт его сама**: название из настройки
+  «Название для писем без Excel» (`Mehkaz` → «Mehkaz 478»), начало отсчёта — дата письма,
+  маршрут — из настройки «Маршрут для писем без Excel», статус «В пути», документы и исходное письмо.
+- Когда позже придёт Excel этого инвойса, CRM найдёт такое отправление и дополнит его: название из Excel,
+  маршрут, полный номер инвойса, товары, номер машины. Дата начала, статус и документы сохраняются.
+- Если номеру соответствует несколько отправлений или номер не найден, письмо попадает в **Нужна проверка**.
+  Исходное письмо сохраняется: кнопка **«Проверить повторно»** обрабатывает его снова (например, после
+  удаления дубля), **«Привязать к отправлению»** добавляет документы к выбранному отправлению.
 
-Письма с Excel в формате Solico обрабатываются как раньше: создаётся или дополняется отправление
-с маршрутом, товарами и номером машины.
+Excel-имена с приписками (`Mehkaz 475 .edit`, `Mehkaz 475 (2)`, `final`) считаются тем же инвойсом.
+
+## Поток «Обновить отправления» (за период)
+
+CRM без доступа к Azure не читает почту сама: письма ей передаёт Power Automate. Чтобы подтянуть письма,
+которые не дошли (поток был выключен, ошибка, старый период), создайте один раз второй поток. Тогда в CRM
+в разделе **Отправления → Почта Outlook → Обновить отправления за период** выбираете даты и нажимаете
+кнопку: CRM просит поток заново отправить письма за эти дни. Уже загруженные письма пропускаются
+(по Message-ID), новые создают или дополняют отправления с датами писем и документами.
+Действие HTTP-триггера требует той же лицензии Power Automate, что и действие HTTP основного потока.
+
+### Flow — English interface
+
+**When a HTTP request is received → Apply to each (day) → Get emails (V3) → Apply to each (email) → Export email (V2) → HTTP**
+
+1. **When a HTTP request is received** (Request). *Who can trigger the flow:* **Anyone**
+   (the URL contains a secret signature). *Request Body JSON Schema:*
+
+   ```json
+   {"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"},
+    "days":{"type":"array","items":{"type":"string"}},
+    "searchQueries":{"type":"array","items":{"type":"string"}},"mailbox":{"type":"string"}}}
+   ```
+
+   Save the flow, copy **HTTP POST URL** and paste it in CRM (**Обновить отправления за период**).
+2. **Apply to each** — *Select an output:* `searchQueries` from the trigger.
+   *Settings → Concurrency control:* **On**, *Degree of parallelism:* **1**.
+3. Inside it, **Get emails (V3)** — Office 365 Outlook:
+
+   | Parameter | Value |
+   |---|---|
+   | Folder | Inbox / Входящие (the same folder as the main flow) |
+   | From | Leave empty |
+   | Fetch Only With Attachments | Yes |
+   | Include Attachments | No |
+   | Search Query | **Current item** of the loop (expression `items('Apply_to_each')`) |
+   | Top | 25 |
+
+4. Inside the same loop, a second **Apply to each** — *Select an output:* `value` of **Get emails (V3)**.
+   Concurrency control **On**, degree **1**.
+5. Inside it, **Export email (V2)** — *Message Id:* `items('Apply_to_each_2')?['id']`. Enable **Secure outputs**.
+6. Then **HTTP** — exactly like the main flow (URI, POST, `Content-Type: message/rfc822`, the same
+   `X-CRM-Ingest-Key`, Body = **Body** of Export email (V2), Secure inputs/outputs, chunking Off,
+   retry Fixed interval 4 × PT1M), except **X-CRM-Received-At:** `items('Apply_to_each_2')?['receivedDateTime']`.
+
+CRM sends one search query per day: `received:2026-10-28`. **Get emails (V3)** returns at most 25 emails
+per query; if more than 25 emails with attachments arrive in one day, run the refresh for a shorter period
+or narrow the folder. If a test run returns no emails for a day that has them, open the run, check the
+Search Query value and try the same text in Outlook search. Emails rejected by CRM (for example, review)
+fail only their own loop iteration; the others continue.
 
 ## 4. Проверка работы
 

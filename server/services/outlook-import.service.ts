@@ -1,15 +1,16 @@
 import crypto from 'node:crypto';
 import type { Firestore } from 'firebase-admin/firestore';
-import { emailKey, invoiceKey, senderAllowed, singleSender, validateOutlookSettings, validateMailImportSettings, type PowerAutomateStatus, type MailDocument, type OutlookSettings, type OutlookStatus, type OutlookLogin, type OutlookImportLog } from '../../shared/outlook-import.js';
+import { autoShipmentName, emailKey, invoiceKey, refreshDays, senderAllowed, singleSender, validateOutlookSettings, validateRefreshUrl, type MailRefreshResult, validateMailImportSettings, type PowerAutomateStatus, type MailDocument, type OutlookSettings, type OutlookStatus, type OutlookLogin, type OutlookImportLog } from '../../shared/outlook-import.js';
 import { OutlookGraph, OutlookError, microsoftTokenRequest, outlookScopes, type GraphAttachment, type GraphMessage } from './outlook-graph.js';
-import { ImportReview, invoiceName, parseInvoiceWorkbook, mergeMailShipment, mailInvoiceNumbers, shipmentMatchesNumber } from './outlook-invoice.js';
+import { ImportReview, invoiceName, parseInvoiceWorkbook, mergeMailShipment, mailInvoiceNumbers, shipmentMatchesNumber, type InvoiceDraft } from './outlook-invoice.js';
 import type { Shipment } from '../../src/types/index.js';
 import { MailIngressError, parseMail, readPowerAutomateMail, type MailSource } from './power-automate-mail.js';
 
 const hash = (text: string | Buffer) => crypto.createHash('sha256').update(text).digest('hex');
 const random = () => crypto.randomUUID();
+const almatyDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty', year: 'numeric', month: '2-digit', day: '2-digit' });
 const emptySettings = (): OutlookSettings => ({ tenantId: '', clientId: '', mailbox: '', sender: '',
-  importFrom: new Date().toISOString(), travelDays: 12, enabled: false });
+  importFrom: new Date().toISOString(), travelDays: 12, enabled: false, defaultRoute: 'Amol - Almaty', namePrefix: '' });
 const safeError = (error: unknown) => error instanceof OutlookError || error instanceof ImportReview ? error.message :
   'Не удалось завершить импорт. Проверьте доступ Firebase к базе и хранилищу, затем повторите проверку.';
 type State = { settings?: OutlookSettings; connectionId?: string; connectedMailbox?: string; ownerUid?: string;
@@ -21,6 +22,8 @@ interface Dependencies {
   saveFile: (path: string, bytes: Buffer, name: string, type: string) => Promise<string>;
   /** Reads back a file saved with saveFile (the kept original of a review email). */
   readFile?: (path: string) => Promise<Buffer>;
+  /** Calls the Power Automate "resend emails for a period" flow. */
+  fetch?: typeof fetch;
   graph?: (token: string) => OutlookGraph;
   oauth?: typeof microsoftTokenRequest;
   now?: () => number;
@@ -147,14 +150,19 @@ export function createOutlookImportService(deps: Dependencies) {
   const leaseValid = (current: State | undefined, state: State, leaseOwner: string) =>
     Boolean(current) && current!.connectionId === state.connectionId && current!.leaseOwner === leaseOwner && current!.leaseUntil! > now();
 
-  /** Adds the email's documents to an existing shipment without an Excel invoice (number match or manual link). */
+  /**
+   * Adds the email's documents to a shipment without an Excel invoice (number match or manual link).
+   * With `create`, a shipment that does not exist yet is created from the email: its number, the
+   * received date as the start and the default route from the settings.
+   */
   async function attachToShipment(args: { source: MailSource; graphId: string; attachments: GraphAttachment[]; shipmentId: string;
-    messageId: string; receivedAt: string; base: Record<string, unknown>; state: State; leaseOwner: string; retryReview: boolean; note: string; linkedBy?: string }) {
+    messageId: string; receivedAt: string; base: Record<string, unknown>; state: State; leaseOwner: string; retryReview: boolean; note: string; linkedBy?: string;
+    create?: { name: string; number: string } }) {
     const { source, graphId, attachments, shipmentId, messageId, receivedAt, state, leaseOwner } = args;
     const shipmentRef = db.collection('shipments').doc(shipmentId), record = ledger.doc(messageId);
     const found = await shipmentRef.get();
-    if (!found.exists) throw new ImportReview('Выбранное отправление не найдено.');
-    const name = String(found.data()?.invoice_id || shipmentId);
+    if (!found.exists && !args.create) throw new ImportReview('Выбранное отправление не найдено.');
+    const name = found.exists ? String(found.data()?.invoice_id || shipmentId) : args.create!.name;
     const key = hash(state.settings!.mailbox + '\0' + invoiceKey(name));
     const documents = await saveDocuments(source, graphId, attachments, key, receivedAt);
     const original = await source.original(graphId);
@@ -163,11 +171,17 @@ export function createOutlookImportService(deps: Dependencies) {
       const [control, done, existing] = await Promise.all([tx.get(stateRef), tx.get(record), tx.get(shipmentRef)]);
       if (!leaseValid(control.data() as State, state, leaseOwner)) throw new ImportReview('Сеанс импорта изменился. Повторите проверку.');
       if (done.exists && !(args.retryReview && done.data()?.status === 'review')) return;
-      if (!existing.exists) throw new ImportReview('Выбранное отправление было удалено.');
-      const patch = mergeMailShipment(existing.data() as Shipment, null, documents, receivedAt, sourceUrl, state.settings!.travelDays, state.ownerUid || '', iso());
+      if (!existing.exists && !args.create) throw new ImportReview('Выбранное отправление было удалено.');
+      const settings = state.settings!;
+      const draft = { invoice_id: name, route: settings.defaultRoute || 'Amol - Almaty', items: [] } as unknown as InvoiceDraft;
+      const patch = existing.exists
+        ? mergeMailShipment(existing.data() as Shipment, null, documents, receivedAt, sourceUrl, settings.travelDays, state.ownerUid || '', iso())
+        : { ...mergeMailShipment(undefined, draft, documents, receivedAt, sourceUrl, settings.travelDays, state.ownerUid || '', iso()),
+          id: shipmentId, auto_from_email: true, mail_number: args.create!.number };
       if ((patch.mail_documents?.length || 0) > 200 || (patch.source_email_urls?.length || 0) > 100) throw new ImportReview('У отправления слишком много версий документов. Нужна ручная проверка.');
       tx.set(shipmentRef, patch, { merge: true });
-      tx.set(record, { ...args.base, status: 'updated', invoice: name, shipmentId, documents: documents.length, ...(args.linkedBy ? { linkedBy: args.linkedBy } : {}) });
+      if (!existing.exists) tx.set(db.collection('outlook_invoice_index').doc(key), { shipmentId, invoice: name });
+      tx.set(record, { ...args.base, status: existing.exists ? 'updated' : 'created', invoice: name, shipmentId, documents: documents.length, ...(args.linkedBy ? { linkedBy: args.linkedBy } : {}) });
       tx.create(shipmentRef.collection('logs').doc(messageId), { timestamp: iso(), shipmentId, location: 'Outlook',
         message: `${args.note}: ${documents.length} файлов. Дата письма: ${receivedAt}.`, updatedBy: 'Импорт из Outlook' });
     });
@@ -196,8 +210,15 @@ export function createOutlookImportService(deps: Dependencies) {
         if (numbers.length > 1) throw new ImportReview(`Номер инвойса неоднозначен: ${numbers.slice(0, 5).join(', ')}. Привяжите письмо к отправлению вручную.`);
         name = numbers[0];
         const matches = (await db.collection('shipments').get()).docs.filter(doc => shipmentMatchesNumber(doc.data() as Shipment, numbers[0]));
-        if (!matches.length) throw new ImportReview(`В письме нет Excel, а отправления с номером ${numbers[0]} в CRM нет. Создайте отправление и привяжите к нему письмо.`);
         if (matches.length > 1) throw new ImportReview(`Номеру ${numbers[0]} соответствуют несколько отправлений: ${matches.slice(0, 5).map(doc => doc.data().invoice_id).join(', ')}. Привяжите письмо вручную.`);
+        if (!matches.length) {
+          // No shipment yet: create it from the email. A later Excel for this number fills in the details.
+          const autoName = autoShipmentName(numbers[0], settings.namePrefix);
+          await attachToShipment({ source: client, graphId: message.id, attachments, shipmentId: 'mail-' + hash(settings.mailbox + '\0' + invoiceKey(autoName)),
+            messageId, receivedAt, base, state, leaseOwner, retryReview, create: { name: autoName, number: numbers[0] },
+            note: `Отправление создано из письма без Excel по номеру ${numbers[0]}` });
+          return (await record.get()).data();
+        }
         await attachToShipment({ source: client, graphId: message.id, attachments, shipmentId: matches[0].id, messageId, receivedAt, base,
           state, leaseOwner, retryReview, note: `Получены документы по номеру ${numbers[0]} из письма без Excel` });
         return (await record.get()).data();
@@ -211,9 +232,14 @@ export function createOutlookImportService(deps: Dependencies) {
       const existingIndex = await indexRef.get();
       let shipmentId = existingIndex.data()?.shipmentId as string | undefined;
       if (!shipmentId) {
-        const legacy = (await db.collection('shipments').get()).docs.filter(doc => invoiceKey(String(doc.data().invoice_id || '')) === invoiceKey(name!));
+        const all = (await db.collection('shipments').get()).docs;
+        const legacy = all.filter(doc => invoiceKey(String(doc.data().invoice_id || '')) === invoiceKey(name!));
         if (legacy.length > 1) throw new ImportReview('В CRM уже несколько отправлений с этим инвойсом. Нужно выбрать правильное вручную.');
-        shipmentId = legacy[0]?.id || 'mail-' + key;
+        // A shipment created earlier from scans of this number ("478") becomes this invoice ("Mehkaz 478").
+        const number = name.match(/(\d+(?:[.-]\d+)*)$/)?.[1];
+        const auto = legacy.length || !number ? [] : all.filter(doc => doc.data().auto_from_email === true && doc.data().mail_number === number);
+        if (auto.length > 1) throw new ImportReview(`Номеру ${number} соответствуют несколько отправлений, созданных из писем без Excel. Нужно выбрать правильное вручную.`);
+        shipmentId = (legacy[0] || auto[0])?.id || 'mail-' + key;
       }
       const documents = await saveDocuments(client, message.id, attachments, key, receivedAt, { id: invoices[0].id, bytes: excel });
       const original = await client.original(message.id);
@@ -226,9 +252,11 @@ export function createOutlookImportService(deps: Dependencies) {
         if (index.exists && index.data()?.shipmentId !== shipmentId) throw new ImportReview('Инвойс уже связан с другим отправлением.');
         if (index.data()?.fullInvoice && index.data()?.fullInvoice !== draft.commercial_invoice_number) throw new ImportReview('Короткое имя инвойса уже связано с другим полным номером инвойса.');
         const old = existing.exists ? existing.data() as Shipment : undefined;
-        if (old && invoiceKey(old.invoice_id) !== invoiceKey(name!)) throw new ImportReview('Название существующего отправления изменено. Нужна ручная проверка.');
+        // Shipments created from scan-only emails take their name and details from the first Excel.
+        const fillDetails = old?.auto_from_email === true;
+        if (old && !fillDetails && invoiceKey(old.invoice_id) !== invoiceKey(name!)) throw new ImportReview('Название существующего отправления изменено. Нужна ручная проверка.');
         if (old?.commercial_invoice_number && old.commercial_invoice_number !== draft.commercial_invoice_number) throw new ImportReview('Короткое имя инвойса совпало, но полный номер отличается. Нужна проверка.');
-        const patch = mergeMailShipment(old, draft, documents, receivedAt, sourceUrl, settings.travelDays, state.ownerUid!, iso());
+        const patch = mergeMailShipment(old, draft, documents, receivedAt, sourceUrl, settings.travelDays, state.ownerUid!, iso(), fillDetails);
         if ((patch.mail_documents?.length || 0) > 200 || (patch.source_email_urls?.length || 0) > 100) throw new ImportReview('У отправления слишком много версий документов. Нужна ручная проверка.');
         tx.set(shipmentRef, { ...patch, id: shipmentId }, { merge: true });
         tx.set(indexRef, { shipmentId, invoice: name, fullInvoice: draft.commercial_invoice_number });
@@ -314,8 +342,10 @@ export function createOutlookImportService(deps: Dependencies) {
 
   async function powerStatus(): Promise<PowerAutomateStatus> {
     const saved = (await powerRef.get()).data() || {};
-    const { mailbox, sender, importFrom, travelDays, enabled } = saved.settings || emptySettings();
-    return { settings: { mailbox, sender, importFrom, travelDays, enabled }, configured: Boolean(saved.keyHash),
+    const { mailbox, sender, importFrom, travelDays, enabled, defaultRoute, namePrefix } = { ...emptySettings(), ...(saved.settings || {}) };
+    return { settings: { mailbox, sender, importFrom, travelDays, enabled, defaultRoute, namePrefix }, configured: Boolean(saved.keyHash),
+      refreshConfigured: Boolean(saved.refreshUrl), refreshHost: saved.refreshUrl ? new URL(saved.refreshUrl).hostname : null,
+      lastRefresh: saved.lastRefresh || null,
       lastReceived: saved.lastReceived || null, lastError: saved.lastError || null, lastErrorAt: saved.lastErrorAt || null };
   }
   async function savePowerSettings(input: unknown, uid: string, rotate = false) {
@@ -410,6 +440,48 @@ export function createOutlookImportService(deps: Dependencies) {
       });
     }
   }
+  /** Stores the HTTP trigger URL of the "resend emails" flow; it contains a signature, so it stays server-side. */
+  async function savePowerRefreshUrl(input: unknown) {
+    let refreshUrl: string | null;
+    try { refreshUrl = input === null || input === '' ? null : validateRefreshUrl(input); }
+    catch (error) { throw new ImportReview((error as Error).message); }
+    await powerRef.set({ refreshUrl }, { merge: true });
+    return { saved: true };
+  }
+
+  /**
+   * "Обновить отправления": asks Power Automate to send the period's emails again (already imported
+   * ones are skipped by Message-ID) and re-checks kept review emails of that period.
+   */
+  async function refreshPeriod(from: string, to: string): Promise<MailRefreshResult> {
+    let days: string[];
+    try { days = refreshDays(from, to, now()); } catch (error) { throw new ImportReview((error as Error).message); }
+    const saved = (await powerRef.get()).data() || {};
+    if (!saved.settings?.enabled || !saved.keyHash) throw new ImportReview('Сначала включите приём писем от Power Automate.');
+    if (!saved.refreshUrl) throw new ImportReview('Сначала вставьте ссылку потока «Обновить отправления».');
+    const call = deps.fetch || fetch;
+    let response: Response;
+    try {
+      response = await call(saved.refreshUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(30000),
+        body: JSON.stringify({ from, to, days, searchQueries: days.map(day => `received:${day}`), mailbox: saved.settings.mailbox }) });
+    } catch { throw new ImportReview('Поток Power Automate не ответил. Проверьте, что он включён, и повторите.'); }
+    if (!response.ok) throw new ImportReview(`Поток Power Automate отклонил запрос (HTTP ${response.status}). Проверьте ссылку и что поток включён.`);
+    // Review emails whose original is kept may resolve now (e.g. after a shipment appeared).
+    const started = now(), dayOf = (time: string) => almatyDay.format(new Date(time));
+    const pending = (await ledger.get()).docs.map(doc => ({ id: doc.id, item: doc.data() }))
+      .filter(({ item }) => item.status === 'review' && item.sourcePath && dayOf(item.receivedAt) >= from && dayOf(item.receivedAt) <= to)
+      .slice(0, 50);
+    let rechecked = 0, resolved = 0;
+    for (const { id } of pending) {
+      if (now() - started > 180000) break;
+      try { const result = await recheckStored(id); rechecked++; if (result && result.status !== 'review') resolved++; }
+      catch { rechecked++; }
+    }
+    const result: MailRefreshResult = { requestedAt: iso(), from, to, days: days.length, rechecked, resolved };
+    await powerRef.set({ lastRefresh: result }, { merge: true });
+    return result;
+  }
+
   async function retry(id: string) {
     if (!/^[a-f0-9]{64}$/.test(id)) throw new ImportReview('Не найдена запись импорта.');
     const saved = (await ledger.doc(id).get()).data();
@@ -428,7 +500,7 @@ export function createOutlookImportService(deps: Dependencies) {
     });
     return run(true);
   }
-  return { status, saveSettings, beginLogin, pollLogin, disconnect, run, retry, link, powerStatus, savePowerSettings, authorizePower, receivePower };
+  return { status, saveSettings, beginLogin, pollLogin, disconnect, run, retry, link, savePowerRefreshUrl, refreshPeriod, powerStatus, savePowerSettings, authorizePower, receivePower };
 }
 
 let runtime: ReturnType<typeof createOutlookImportService> | undefined;

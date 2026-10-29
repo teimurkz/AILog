@@ -182,7 +182,8 @@ export function shipmentMatchesNumber(shipment: Partial<Shipment>, number: strin
 
 /** Adds an email's documents to a shipment; a new shipment additionally needs the Excel draft. */
 export function mergeMailShipment(existing: Partial<Shipment> | undefined, draft: InvoiceDraft | null,
-  documents: MailDocument[], receivedAt: string, originalUrl: string, travelDays: number, actor: string, now: string): Partial<Shipment> {
+  documents: MailDocument[], receivedAt: string, originalUrl: string, travelDays: number, actor: string, now: string,
+  fillDetails = false): Partial<Shipment> {
   const oldDate = existing?.documents_received_at;
   const firstReceived = oldDate && Date.parse(oldDate) <= Date.parse(receivedAt) ? oldDate : receivedAt;
   const oldDocuments = existing?.mail_documents || [];
@@ -200,7 +201,11 @@ export function mergeMailShipment(existing: Partial<Shipment> | undefined, draft
     Object.assign(merged, draft, { departure_date: firstReceived, transit_start_source: 'email',
       est_travel_time: travelDays, arrival_deadline: new Date(Date.parse(firstReceived) + travelDays * 86400000).toISOString(),
       status: 'In Transit', createdBy: actor });
-  } else if (existing.transit_start_source === 'email' && firstReceived !== oldDate) {
+  } else if (fillDetails && draft) {
+    // A shipment created from a scan-only email gets its name, route and goods from the first Excel invoice.
+    Object.assign(merged, draft, { auto_from_email: false });
+  }
+  if (existing && existing.transit_start_source === 'email' && firstReceived !== oldDate) {
     merged.arrival_deadline = new Date(Date.parse(firstReceived) + (existing.est_travel_time || travelDays) * 86400000).toISOString();
   }
   return merged;
