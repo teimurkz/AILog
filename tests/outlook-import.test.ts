@@ -680,3 +680,23 @@ test('"Обновить отправления" asks the flow to resend a period
   assert.equal(((await f.db.collection('shipments').doc('a').get()).data() as any).mail_documents.length, 3);
   assert.deepEqual((await service.powerStatus()).lastRefresh, result);
 });
+
+test('a shipment deleted in the CRM is created again when its email is sent again', async () => {
+  const f = await fixture(), { key } = await f.service.savePowerSettings(solico, 'admin', true);
+  const excelMail = await exportedEmail(f), scanMail = await scanEmail();
+  const first = await f.service.receivePower(key!, excelMail, receipt);
+  const scan = await f.service.receivePower(key!, scanMail, receipt);
+  assert.equal((await f.db.collection('shipments').get()).docs.length, 2);
+  // Replays while the shipments exist change nothing.
+  await f.service.receivePower(key!, excelMail, receipt);
+  assert.equal((await f.db.collection('shipments').get()).docs.length, 2);
+
+  await f.db.collection('shipments').doc(first.shipmentId!).delete();
+  await f.db.collection('shipments').doc(scan.shipmentId!).delete();
+  const again = await f.service.receivePower(key!, excelMail, receipt);
+  const scanAgain = await f.service.receivePower(key!, scanMail, receipt);
+  assert.equal(again.status, 'created'); assert.equal(scanAgain.status, 'created');
+  const shipments = (await f.db.collection('shipments').get()).docs.map(doc => doc.data());
+  assert.deepEqual(shipments.map(item => item.invoice_id).sort(), ['478', 'Customer 001.30']);
+  assert.ok(shipments.every(item => item.mail_documents.length > 0 && item.departure_date === receipt));
+});

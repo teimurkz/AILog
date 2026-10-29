@@ -147,6 +147,9 @@ export function createOutlookImportService(deps: Dependencies) {
     if (attachments.some(item => item['@odata.type'] !== '#microsoft.graph.fileAttachment')) throw new ImportReview('Письмо содержит ссылку или вложенное письмо вместо обычного файла. Нужна проверка документов.');
     if (attachments.some(item => item.size > 25 * 1024 * 1024) || attachments.reduce((sum, item) => sum + item.size, 0) > 40 * 1024 * 1024) throw new ImportReview('Пакет документов превышает лимит импорта: 25 МБ на файл, 40 МБ на письмо.');
   }
+  // An email whose shipment was deleted by hand is not "already imported" any more.
+  const shipmentDeleted = async (item: any) => Boolean(item?.shipmentId) && ['created', 'updated'].includes(item.status)
+    && !(await db.collection('shipments').doc(item.shipmentId).get()).exists;
   const leaseValid = (current: State | undefined, state: State, leaseOwner: string) =>
     Boolean(current) && current!.connectionId === state.connectionId && current!.leaseOwner === leaseOwner && current!.leaseUntil! > now();
 
@@ -170,7 +173,7 @@ export function createOutlookImportService(deps: Dependencies) {
     await db.runTransaction(async tx => {
       const [control, done, existing] = await Promise.all([tx.get(stateRef), tx.get(record), tx.get(shipmentRef)]);
       if (!leaseValid(control.data() as State, state, leaseOwner)) throw new ImportReview('Сеанс импорта изменился. Повторите проверку.');
-      if (done.exists && !(args.retryReview && done.data()?.status === 'review')) return;
+      if (done.exists && !(args.retryReview && done.data()?.status === 'review') && existing.exists) return;
       if (!existing.exists && !args.create) throw new ImportReview('Выбранное отправление было удалено.');
       const settings = state.settings!;
       const draft = { invoice_id: name, route: settings.defaultRoute || 'Amol - Almaty', items: [] } as unknown as InvoiceDraft;
@@ -182,7 +185,7 @@ export function createOutlookImportService(deps: Dependencies) {
       tx.set(shipmentRef, patch, { merge: true });
       if (!existing.exists) tx.set(db.collection('outlook_invoice_index').doc(key), { shipmentId, invoice: name });
       tx.set(record, { ...args.base, status: existing.exists ? 'updated' : 'created', invoice: name, shipmentId, documents: documents.length, ...(args.linkedBy ? { linkedBy: args.linkedBy } : {}) });
-      tx.create(shipmentRef.collection('logs').doc(messageId), { timestamp: iso(), shipmentId, location: 'Outlook',
+      tx.set(shipmentRef.collection('logs').doc(messageId), { timestamp: iso(), shipmentId, location: 'Outlook',
         message: `${args.note}: ${documents.length} файлов. Дата письма: ${receivedAt}.`, updatedBy: 'Импорт из Outlook' });
     });
   }
@@ -192,7 +195,8 @@ export function createOutlookImportService(deps: Dependencies) {
     if (!senderAllowed(message.from?.emailAddress?.address || '', settings.sender) || message.isDraft || Date.parse(receivedAt) < Date.parse(settings.importFrom)) return;
     const messageId = hash(settings.mailbox + '\0' + (message.internetMessageId || message.id)), record = ledger.doc(messageId);
     const previous = await record.get();
-    if (previous.exists && !(retryReview && previous.data()?.status === 'review')) return previous.data();
+    // A shipment deleted in the CRM may be imported again from the same email.
+    if (previous.exists && !(retryReview && previous.data()?.status === 'review') && !(await shipmentDeleted(previous.data()))) return previous.data();
     let name: string | undefined, hasDocuments = false;
     const base = { subject: (message.subject || '(Без темы)').slice(0, 500), receivedAt, checkedAt: iso(),
       graphMessageId: message.id, mailbox: settings.mailbox };
@@ -248,7 +252,7 @@ export function createOutlookImportService(deps: Dependencies) {
       await db.runTransaction(async tx => {
         const [control, done, index, existing] = await Promise.all([tx.get(stateRef), tx.get(record), tx.get(indexRef), tx.get(shipmentRef)]);
         if (!leaseValid(control.data() as State, state, leaseOwner)) throw new ImportReview('Сеанс импорта изменился. Повторите проверку.');
-        if (done.exists && !(retryReview && done.data()?.status === 'review')) return;
+        if (done.exists && !(retryReview && done.data()?.status === 'review') && existing.exists) return;
         if (index.exists && index.data()?.shipmentId !== shipmentId) throw new ImportReview('Инвойс уже связан с другим отправлением.');
         if (index.data()?.fullInvoice && index.data()?.fullInvoice !== draft.commercial_invoice_number) throw new ImportReview('Короткое имя инвойса уже связано с другим полным номером инвойса.');
         const old = existing.exists ? existing.data() as Shipment : undefined;
@@ -261,7 +265,7 @@ export function createOutlookImportService(deps: Dependencies) {
         tx.set(shipmentRef, { ...patch, id: shipmentId }, { merge: true });
         tx.set(indexRef, { shipmentId, invoice: name, fullInvoice: draft.commercial_invoice_number });
         tx.set(record, { ...base, status: old ? 'updated' : 'created', invoice: name, shipmentId, documents: documents.length });
-        tx.create(shipmentRef.collection('logs').doc(messageId), { timestamp: iso(), shipmentId,
+        tx.set(shipmentRef.collection('logs').doc(messageId), { timestamp: iso(), shipmentId,
           location: 'Outlook', message: `Получены документы к ${name}: ${documents.length} файлов. Дата письма: ${receivedAt}.`, updatedBy: 'Импорт из Outlook' });
       });
     } catch (error) {
