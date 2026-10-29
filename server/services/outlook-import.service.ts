@@ -8,6 +8,10 @@ import { MailIngressError, parseMail, readPowerAutomateMail, type MailSource } f
 
 const hash = (text: string | Buffer) => crypto.createHash('sha256').update(text).digest('hex');
 const random = () => crypto.randomUUID();
+/** A refresh resends a whole period through Power Automate; a second one meanwhile only competes with it. */
+export const REFRESH_COOLDOWN_MS = 15 * 60 * 1000;
+const LEASE_WAIT_ATTEMPTS = 30, LEASE_WAIT_MS = 3000;
+const almatyTime = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Asia/Almaty', hour: '2-digit', minute: '2-digit' });
 const almatyDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty', year: 'numeric', month: '2-digit', day: '2-digit' });
 const emptySettings = (): OutlookSettings => ({ tenantId: '', clientId: '', mailbox: '', sender: '',
   importFrom: new Date().toISOString(), travelDays: 12, enabled: false, defaultRoute: 'Amol - Almaty', namePrefix: '' });
@@ -24,6 +28,8 @@ interface Dependencies {
   readFile?: (path: string) => Promise<Buffer>;
   /** Calls the Power Automate "resend emails for a period" flow. */
   fetch?: typeof fetch;
+  /** Waits between attempts to take the import lease (tests pass an instant one). */
+  sleep?: (ms: number) => Promise<void>;
   graph?: (token: string) => OutlookGraph;
   oauth?: typeof microsoftTokenRequest;
   now?: () => number;
@@ -372,15 +378,23 @@ export function createOutlookImportService(deps: Dependencies) {
   }
   async function authorizePower(key: string) { checkPowerKey((await powerRef.get()).data(), key); }
   async function receivePower(key: string, bytes: Buffer, receivedAt: string) {
-    const leaseOwner = random();
-    const context = await db.runTransaction(async tx => {
-      const [control, power] = await Promise.all([tx.get(stateRef), tx.get(powerRef)]);
-      const state = (control.data() || {}) as State, saved = power.data();
-      checkPowerKey(saved, key);
-      if ((state.leaseUntil || 0) > now()) throw new MailIngressError(429, 'Другой импорт ещё выполняется. Повторите передачу через минуту.');
-      tx.set(stateRef, { leaseOwner, leaseUntil: now() + 360000 }, { merge: true });
-      return { ...state, settings: { tenantId: '', clientId: '', ...saved!.settings }, ownerUid: saved!.ownerUid } as State;
-    });
+    const leaseOwner = random(), sleep = deps.sleep || (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
+    // Emails are imported one at a time. Instead of answering "busy" at once, wait in line for
+    // up to ~90 s, so a flow sending emails one after another rarely needs its retry policy.
+    let context: State | null = null;
+    for (let attempt = 0; !context; attempt++) {
+      context = await db.runTransaction(async tx => {
+        const [control, power] = await Promise.all([tx.get(stateRef), tx.get(powerRef)]);
+        const state = (control.data() || {}) as State, saved = power.data();
+        checkPowerKey(saved, key);
+        if ((state.leaseUntil || 0) > now()) return null;
+        tx.set(stateRef, { leaseOwner, leaseUntil: now() + 360000 }, { merge: true });
+        return { ...state, settings: { tenantId: '', clientId: '', ...saved!.settings }, ownerUid: saved!.ownerUid } as State;
+      });
+      if (context) break;
+      if (attempt >= LEASE_WAIT_ATTEMPTS) throw new MailIngressError(429, 'Другой импорт ещё выполняется. Повторите передачу через минуту.');
+      await sleep(LEASE_WAIT_MS);
+    }
     try {
       const { message, source } = await readPowerAutomateMail(bytes, receivedAt, context.settings!.sender, now());
       if (Date.parse(message.receivedDateTime) < Date.parse(context.settings!.importFrom)) {
@@ -463,13 +477,22 @@ export function createOutlookImportService(deps: Dependencies) {
     const saved = (await powerRef.get()).data() || {};
     if (!saved.settings?.enabled || !saved.keyHash) throw new ImportReview('Сначала включите приём писем от Power Automate.');
     if (!saved.refreshUrl) throw new ImportReview('Сначала вставьте ссылку потока «Обновить отправления».');
+    // One refresh at a time: parallel copies of the flow only make each other wait.
+    const previous = Date.parse(saved.lastRefreshStartedAt || saved.lastRefresh?.requestedAt || '');
+    if (Number.isFinite(previous) && now() - previous < REFRESH_COOLDOWN_MS) {
+      throw new ImportReview(`Обновление уже запущено в ${almatyTime.format(new Date(previous))} (Алматы), Power Automate ещё передаёт письма. `
+        + `Новое можно запустить после ${almatyTime.format(new Date(previous + REFRESH_COOLDOWN_MS))}.`);
+    }
+    await powerRef.set({ lastRefreshStartedAt: iso() }, { merge: true });
+    // A flow that never started must not block the next attempt.
+    const failed = async (message: string) => { await powerRef.set({ lastRefreshStartedAt: null }, { merge: true }); return new ImportReview(message); };
     const call = deps.fetch || fetch;
     let response: Response;
     try {
       response = await call(saved.refreshUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(30000),
         body: JSON.stringify({ from, to, days, searchQueries: days.map(day => `received:${day}`), mailbox: saved.settings.mailbox }) });
-    } catch { throw new ImportReview('Поток Power Automate не ответил. Проверьте, что он включён, и повторите.'); }
-    if (!response.ok) throw new ImportReview(`Поток Power Automate отклонил запрос (HTTP ${response.status}). Проверьте ссылку и что поток включён.`);
+    } catch { throw await failed('Поток Power Automate не ответил. Проверьте, что он включён, и повторите.'); }
+    if (!response.ok) throw await failed(`Поток Power Automate отклонил запрос (HTTP ${response.status}). Проверьте ссылку и что поток включён.`);
     // Review emails whose original is kept may resolve now (e.g. after a shipment appeared).
     const started = now(), dayOf = (time: string) => almatyDay.format(new Date(time));
     const pending = (await ledger.get()).docs.map(doc => ({ id: doc.id, item: doc.data() }))

@@ -60,6 +60,10 @@ export function PowerAutomateImport() {
       + (result.rechecked ? ` Повторно проверено писем из «Нужна проверка»: ${result.rechecked}, из них разобрано: ${result.resolved}.` : '');
   });
   const change = <K extends keyof MailImportSettings>(name: K, value: MailImportSettings[K]) => setForm(old => old && ({ ...old, [name]: value }));
+  // A refresh takes Power Automate a while; a second click would only run in parallel with it.
+  const refreshStarted = Date.parse(status?.lastRefresh?.requestedAt || '');
+  const refreshBusyUntil = Number.isFinite(refreshStarted) ? refreshStarted + 15 * 60000 : 0;
+  const refreshBusy = refreshBusyUntil > Date.now();
   return <section className="min-w-0 space-y-4 rounded-2xl border border-blue-200 bg-blue-50/40 p-4 sm:p-5" aria-label="Подключение Power Automate">
     <div><h4 className="font-bold text-slate-900">Подключение через Power Automate</h4>
       <p className="mt-1 text-sm text-slate-600">Поток Microsoft передаёт письмо с вложениями в CRM, и CRM сама создаёт или дополняет отправления. Tenant ID и Client ID здесь не нужны.</p></div>
@@ -84,11 +88,12 @@ export function PowerAutomateImport() {
           <fieldset disabled={busy} className="flex flex-wrap items-end gap-3">
             <label className="text-sm">С<input className={field} type="date" value={period.from} max={period.to} onChange={e => setPeriod(old => ({ ...old, from: e.target.value }))} /></label>
             <label className="text-sm">По<input className={field} type="date" value={period.to} min={period.from} max={today} onChange={e => setPeriod(old => ({ ...old, to: e.target.value }))} /></label>
-            <button className={`${button} flex items-center gap-2 bg-emerald-600 text-white`} disabled={!period.from || !period.to || !status.settings.enabled} onClick={refresh}>
+            <button className={`${button} flex items-center gap-2 bg-emerald-600 text-white`} disabled={!period.from || !period.to || !status.settings.enabled || refreshBusy} onClick={refresh}>
               <RefreshCw className={'h-4 w-4' + (busy ? ' animate-spin' : '')} />Обновить отправления
             </button>
           </fieldset>
           {status.lastRefresh && <p className="text-xs text-slate-500">Последнее обновление: {almatyText(status.lastRefresh.requestedAt)} (Алматы), период {dayText(status.lastRefresh.from)} — {dayText(status.lastRefresh.to)}.</p>}
+          {refreshBusy && <p className="text-xs font-medium text-amber-700">Power Automate ещё передаёт письма этого обновления. Новое можно запустить после {almatyText(new Date(refreshBusyUntil).toISOString())} — повторное нажатие только замедлит импорт.</p>}
           <details className="text-xs text-slate-500">
             <summary className="cursor-pointer">Поток подключён ({status.refreshHost}). Заменить ссылку</summary>
             <div className="mt-2 flex flex-wrap gap-2">

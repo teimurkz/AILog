@@ -83,11 +83,15 @@ async function fixture() {
     original: async () => Buffer.from('synthetic original email including signature'),
   };
   let failFile = false, clock = tickTime;
+  const waits: number[] = [];
   const service = createOutlookImportService({ db: db as any, graph: () => fake as any,
-    now: () => clock, oauth: async () => ({ access_token: 'PRIVATE_ACCESS_TOKEN', refresh_token: 'NEW_PRIVATE_REFRESH_TOKEN' }),
+    now: () => clock,
+    // Waits only briefly, so the queued email still overlaps the one being imported.
+    sleep: async ms => { waits.push(ms); await new Promise(resolve => setTimeout(resolve, 10)); },
+    oauth: async () => ({ access_token: 'PRIVATE_ACCESS_TOKEN', refresh_token: 'NEW_PRIVATE_REFRESH_TOKEN' }),
     saveFile: async (path, bytes) => { if (failFile) throw new Error('network'); savedFiles.set(path, bytes); return 'https://storage.example.test/' + path; },
     readFile: async path => { const bytes = savedFiles.get(path); assert.ok(bytes); return bytes; } });
-  return { db, service, fake, files, savedFiles, setFail: (value: boolean) => { failFile = value; }, setTime: (value: number) => { clock = value; } };
+  return { db, service, fake, files, savedFiles, waits, setFail: (value: boolean) => { failFile = value; }, setTime: (value: number) => { clock = value; } };
 }
 
 test('invoice parser separates receipt-independent invoice/loading dates, preserves decimal identifier, reads cached formula products', async () => {
@@ -387,15 +391,21 @@ test('Power Automate reports invoice mismatch and a corrected resubmission can c
   assert.equal((await f.service.status()).logs[0].status, 'created');
 });
 
-test('Power Automate and Graph serialize imports, return retryable busy and do not invent scheduler heartbeat', async () => {
+test('Power Automate and Graph serialize imports, queue a busy email and do not invent scheduler heartbeat', async () => {
   const f = await fixture(), { key } = await f.service.savePowerSettings(settings, 'admin', true);
   const bytes = await exportedEmail(f);
-  const results = await Promise.allSettled([f.service.receivePower(key!, bytes, receipt), f.service.receivePower(key!, bytes, receipt)]);
-  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
-  assert.ok(results.some(result => result.status === 'rejected' && statusError(429)(result.reason)));
+  // The second copy waits for the first one instead of being refused, then replays its result.
+  const results = await Promise.all([f.service.receivePower(key!, bytes, receipt), f.service.receivePower(key!, bytes, receipt)]);
+  assert.equal(results[0].shipmentId, results[1].shipmentId);
+  assert.ok(f.waits.length >= 1);
+  assert.equal((await f.db.collection('shipments').get()).docs.length, 1);
   assert.equal((await f.service.status()).lastHeartbeat, null);
   const state = f.db.data.get('outlook_private/state');
   f.db.data.set('outlook_private/state', { ...state, leaseOwner: 'other', leaseUntil: tickTime + 60000 });
+  // A lease that is never released is answered with a retryable "busy" after about 90 seconds of waiting.
+  f.waits.length = 0;
+  await assert.rejects(f.service.receivePower(key!, bytes, receipt), statusError(429));
+  assert.equal(f.waits.reduce((sum, ms) => sum + ms, 0), 90000);
   await assert.rejects(f.service.savePowerSettings(settings, 'admin', true), /выполняется/);
 });
 
@@ -651,10 +661,11 @@ test('"Обновить отправления" asks the flow to resend a period
   const f = await fixture();
   f.db.data.set('outlook_private/state', { watermark: settings.importFrom });
   const calls: any[] = [];
-  const service = createOutlookImportService({ db: f.db as any, now: () => tickTime,
+  let clock = tickTime, flowStatus = 202;
+  const service = createOutlookImportService({ db: f.db as any, now: () => clock,
     saveFile: async (path, bytes) => { f.savedFiles.set(path, bytes); return 'https://storage.example.test/' + path; },
     readFile: async path => f.savedFiles.get(path)!,
-    fetch: (async (url: string, init: any) => { calls.push({ url, body: JSON.parse(init.body) }); return new Response(null, { status: 202 }); }) as any });
+    fetch: (async (url: string, init: any) => { calls.push({ url, body: JSON.parse(init.body) }); return new Response(null, { status: flowStatus }); }) as any });
   const { key } = await service.savePowerSettings(solico, 'admin', true);
   await assert.rejects(service.refreshPeriod('2026-09-01', '2026-09-10'), /ссылку потока/);
   await assert.rejects(service.savePowerRefreshUrl('https://evil.example.test/workflows/1'), /не ссылка триггера/);
@@ -679,6 +690,18 @@ test('"Обновить отправления" asks the flow to resend a period
   assert.equal(result.days, 3); assert.equal(result.rechecked, 1); assert.equal(result.resolved, 1);
   assert.equal(((await f.db.collection('shipments').doc('a').get()).data() as any).mail_documents.length, 3);
   assert.deepEqual((await service.powerStatus()).lastRefresh, result);
+
+  // A second click while the flow is still resending emails does not start a parallel run.
+  clock += 10 * 60000;
+  await assert.rejects(service.refreshPeriod('2026-09-09', '2026-09-11'), /уже запущено.*после/);
+  assert.equal(calls.length, 1);
+  clock += 6 * 60000;
+  flowStatus = 500;
+  await assert.rejects(service.refreshPeriod('2026-09-09', '2026-09-11'), /HTTP 500/);
+  // A run the flow refused does not block the next attempt.
+  flowStatus = 202;
+  await service.refreshPeriod('2026-09-09', '2026-09-11');
+  assert.equal(calls.length, 3);
 });
 
 test('a shipment deleted in the CRM is created again when its email is sent again', async () => {
