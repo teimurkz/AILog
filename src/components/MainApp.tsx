@@ -13,6 +13,7 @@ import { ShipmentList } from './shipments/ShipmentList';
 import { ShipmentDetails } from './shipments/ShipmentDetails';
 import { NewShipmentModal } from './shipments/NewShipmentModal';
 import { UserManagement } from './admin/UserManagement';
+import { SvhReconcile } from './admin/SvhReconcile';
 import { ExcelImport } from './admin/ExcelImport';
 import { RegionalOrders } from './regional/RegionalOrders';
 import { DirectoriesManager } from './directories/DirectoriesManager';
@@ -44,13 +45,13 @@ export const MainAppContent = () => {
   const shipmentUnavailable = shipmentTab && (loadingShipments || Boolean(shipmentsError));
 
   // Sections the administrator opened for this user; a hidden section is never rendered.
-  const visibleTabs = [...SECTION_MENU.filter(section => canView(section.id)).map(section => section.id as string), ...(isAdmin ? ['admin-tools'] : [])];
+  const visibleTabs = [...SECTION_MENU.filter(section => canView(section.id)).map(section => section.id as string), ...(isAdmin ? ['svh-reconcile', 'admin-tools'] : [])];
   const currentTab = visibleTabs.includes(activeTab) ? activeTab : (visibleTabs[0] || 'no-access');
   const isRegionalOnly = !canView('dashboard') && !canView('shipments') && !canView('archive');
   const pageTitle = t((({
     'regional-orders': 'regionalOrders', 'auto-mailing': 'autoMailing',
     'analytics-reports': 'analyticsReports', 'kusto-stock-expiry': 'kustoStockExpiry',
-    'admin-tools': 'adminPanel', 'truck-tracking': 'truckTracking',
+    'admin-tools': 'adminPanel', 'svh-reconcile': 'Сверка стоянки СВХ', 'truck-tracking': 'truckTracking',
   } as Record<string, string>)[currentTab] || currentTab) as any);
 
   React.useEffect(() => {
@@ -191,6 +192,8 @@ export const MainAppContent = () => {
                   onNew={() => setIsNewModalOpen(true)} 
                   filterStatus={['Delivered']}
                 />
+              ) : currentTab === 'svh-reconcile' && isAdmin ? (
+                <SvhReconcile />
               ) : currentTab === 'admin-tools' && isAdmin ? (
                 <div className="space-y-8">
                   <ExcelImport />

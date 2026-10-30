@@ -1,5 +1,5 @@
 import React from 'react';
-import { Navigation, Languages, User as UserIcon, LogOut, X, Shield } from 'lucide-react';
+import { Navigation, Languages, User as UserIcon, LogOut, X, Shield, FileSpreadsheet } from 'lucide-react';
 import { SECTION_MENU } from './sections';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -21,7 +21,8 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
   const menuItems: { id: string; icon: typeof Shield; label: string }[] = SECTION_MENU
     .filter(section => canView(section.id))
     .map(section => ({ id: section.id, icon: section.icon, label: t(section.labelKey as any) || section.fallback }));
-  if (isAdmin) menuItems.push({ id: 'admin-tools', icon: Shield, label: t('adminPanel') });
+  // Admin-only tools: not part of the per-user rights.
+  if (isAdmin) menuItems.push({ id: 'svh-reconcile', icon: FileSpreadsheet, label: 'Сверка стоянки СВХ' }, { id: 'admin-tools', icon: Shield, label: t('adminPanel') });
 
   const languages: { id: Language; label: string; flag: string }[] = [
     { id: 'en', label: 'English', flag: '🇺🇸' },
