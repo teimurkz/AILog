@@ -1,24 +1,6 @@
 import React from 'react';
-import { 
-  LayoutDashboard, 
-  Package, 
-  Archive, 
-  Truck, 
-  Warehouse,
-  CalendarClock,
-  Send,
-  Navigation, 
-  Languages, 
-  User as UserIcon, 
-  LogOut,
-  BookOpen,
-  Stamp,
-  Mail,
-  BarChart3,
-  X,
-  Shield,
-  ScanEye
-} from 'lucide-react';
+import { Navigation, Languages, User as UserIcon, LogOut, X, Shield } from 'lucide-react';
+import { SECTION_MENU } from './sections';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Language } from '../../translations';
@@ -33,31 +15,13 @@ interface SidebarProps {
 
 export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarProps) => {
   const { t, language, setLanguage, isRTL } = useLanguage();
-  const { profile, isAdmin, isRegionalManager, logout } = useAuth();
-  
-  let menuItems = [
-    { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard') },
-    { id: 'shipments', icon: Package, label: t('shipments') },
-    { id: 'truck-tracking', icon: ScanEye, label: t('truckTracking') || 'Слежка авто' },
-    { id: 'regional-orders', icon: Send, label: t('regionalOrders') },
-    { id: 'directories', icon: BookOpen, label: t('directories') },
-    { id: 'warehouses', icon: Warehouse, label: t('warehouses') },
-    { id: 'auto-mailing', icon: Mail, label: t('autoMailing') || 'Авто-рассылка Excel' },
-    { id: 'analytics-reports', icon: BarChart3, label: t('analyticsReports') || 'Аналитика и отчёты' },
-    { id: 'kusto-stock-expiry', icon: CalendarClock, label: t('kustoStockExpiry') || 'Остатки по срокам Кусто' },
-    { id: 'stamp-scans', icon: Stamp, label: t('stampOnScans') || 'Печать на сканах' },
-    { id: 'archive', icon: Archive, label: t('archive') },
-    { id: 'fleet', icon: Truck, label: t('fleet') },
-  ];
+  const { profile, isAdmin, canView, logout } = useAuth();
 
-  if (isRegionalManager && !isAdmin) {
-    menuItems = [
-      { id: 'regional-orders', icon: Send, label: t('regionalOrders') },
-      { id: 'directories', icon: BookOpen, label: t('directories') },
-    ];
-  } else if (isAdmin) {
-    menuItems.push({ id: 'admin-tools', icon: Shield, label: t('adminPanel') });
-  }
+  // Only the sections the administrator opened for this user (or the defaults of the role).
+  const menuItems: { id: string; icon: typeof Shield; label: string }[] = SECTION_MENU
+    .filter(section => canView(section.id))
+    .map(section => ({ id: section.id, icon: section.icon, label: t(section.labelKey as any) || section.fallback }));
+  if (isAdmin) menuItems.push({ id: 'admin-tools', icon: Shield, label: t('adminPanel') });
 
   const languages: { id: Language; label: string; flag: string }[] = [
     { id: 'en', label: 'English', flag: '🇺🇸' },

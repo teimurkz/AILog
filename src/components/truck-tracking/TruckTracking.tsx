@@ -104,15 +104,15 @@ const RulesNotice = ({ onRetry, text }: { onRetry: () => void; text: TrackingTex
 };
 
 export const TruckTracking = () => {
-  const { isLogistics } = useAuth();
+  const { canEdit: canEditSection } = useAuth();
   const { text, language, isRTL } = useTrackingText();
   const { showToast, showError, showInfo } = useToast();
   const { stages, loading: stagesLoading, saveStages } = useTruckTrackingStages();
   const { entries, loading, error, confirmed, retry, create, createMany, update, updateEach, removeMany, restore } = useTruckTracking(stages);
-  const canEdit = isLogistics;
+  const canEdit = canEditSection('truck-tracking');
   const { shipments, confirmed: shipmentsConfirmed } = useShipments();
   // Stage dates of matching invoices flow into "Отправления" (SVH arrival, unload date, status).
-  const shipmentLinks = useShipmentSync(entries, stages, shipments, canEdit && confirmed && shipmentsConfirmed);
+  const shipmentLinks = useShipmentSync(entries, stages, shipments, canEdit && canEditSection('shipments') && confirmed && shipmentsConfirmed);
 
   const [tab, setTab] = React.useState<string>(() => readPrefs().tab || 'all');
   const [view, setView] = React.useState<'table' | 'board'>(() => readPrefs().view === 'board' ? 'board' : 'table');

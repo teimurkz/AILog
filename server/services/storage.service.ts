@@ -1,3 +1,4 @@
+import type { AccessMap } from '../../shared/access-policy.js';
 import fs from 'fs';
 import path from 'path';
 import { usesFirebase } from './tracking-context.js';
@@ -138,6 +139,8 @@ export interface UserProfileRecord {
   email: string;
   displayName: string;
   role: 'admin' | 'logistics' | 'viewer' | 'regional_manager';
+  /** Effective section access (see shared/access-policy). */
+  access?: AccessMap | null;
 }
 
 export interface DriverSessionRecord {

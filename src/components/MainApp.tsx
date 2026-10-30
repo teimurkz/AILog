@@ -24,6 +24,7 @@ import { AnalyticsReports } from './analytics/AnalyticsReports';
 import { TruckTracking } from './truck-tracking/TruckTracking';
 import { CommandPalette } from './common/CommandPalette';
 import { ToastProvider } from '../contexts/ToastContext';
+import { SECTION_MENU } from './common/sections';
 
 // Hooks
 import { useShipments } from '../hooks/useShipments';
@@ -34,7 +35,7 @@ import { generateDelayReport } from '../utils/reports';
 
 export const MainAppContent = () => {
   const { t, isRTL } = useLanguage();
-  const { isAdmin, isLogistics, isRegionalManager } = useAuth();
+  const { isAdmin, canView } = useAuth();
   const [activeTab, setActiveTab] = React.useState('dashboard');
   const [selectedShipment, setSelectedShipment] = React.useState<Shipment | null>(null);
   const [isNewModalOpen, setIsNewModalOpen] = React.useState(false);
@@ -44,19 +45,15 @@ export const MainAppContent = () => {
   const shipmentTab = ['dashboard', 'shipments', 'archive'].includes(activeTab);
   const shipmentUnavailable = shipmentTab && (loadingShipments || Boolean(shipmentsError));
 
-  const isRegionalOnly = isRegionalManager && !isAdmin;
-  const currentTab = isRegionalOnly && activeTab !== 'directories' ? 'regional-orders' : activeTab;
+  // Sections the administrator opened for this user; a hidden section is never rendered.
+  const visibleTabs = [...SECTION_MENU.filter(section => canView(section.id)).map(section => section.id as string), ...(isAdmin ? ['admin-tools'] : [])];
+  const currentTab = visibleTabs.includes(activeTab) ? activeTab : (visibleTabs[0] || 'no-access');
+  const isRegionalOnly = !canView('dashboard') && !canView('shipments') && !canView('archive');
   const pageTitle = t((({
     'regional-orders': 'regionalOrders', 'auto-mailing': 'autoMailing',
     'analytics-reports': 'analyticsReports', 'kusto-stock-expiry': 'kustoStockExpiry',
     'stamp-scans': 'stampOnScans', 'admin-tools': 'adminPanel', 'truck-tracking': 'truckTracking',
   } as Record<string, string>)[currentTab] || currentTab) as any);
-
-  React.useEffect(() => {
-    if (isRegionalOnly && activeTab !== 'regional-orders' && activeTab !== 'directories') {
-      setActiveTab('regional-orders');
-    }
-  }, [isRegionalOnly, activeTab]);
 
   React.useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -157,7 +154,12 @@ export const MainAppContent = () => {
               transition={{ duration: 0.15 }}
               className="w-full min-w-0"
             >
-              {shipmentUnavailable && !shipments.length && !isRegionalOnly ? (
+              {currentTab === 'no-access' ? (
+                <div className="bg-white p-8 sm:p-12 rounded-2xl shadow-sm border border-slate-200/70 text-center">
+                  <h3 className="text-lg font-bold text-slate-900">Нет доступных разделов</h3>
+                  <p className="text-slate-500 mt-1 text-sm">Администратор ещё не открыл вам ни одного раздела CRM. Обратитесь к нему.</p>
+                </div>
+              ) : shipmentUnavailable && !shipments.length && !isRegionalOnly ? (
                 <DataLoadNotice loading={loadingShipments} error={shipmentsError} onRetry={retryShipments} />
               ) : selectedShipment && !isRegionalOnly ? (
                 <ShipmentDetails 
@@ -215,7 +217,8 @@ export const MainAppContent = () => {
           <CommandPalette 
             isOpen={isCommandPaletteOpen} 
             onClose={() => setIsCommandPaletteOpen(false)} 
-            onNavigate={(tab) => setActiveTab(tab)} 
+            onNavigate={(tab) => setActiveTab(tab)}
+            canOpen={(tab) => visibleTabs.includes(tab)} 
           />
         </div>
       </main>

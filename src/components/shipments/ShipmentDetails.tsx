@@ -34,7 +34,8 @@ interface ShipmentDetailsProps {
 
 export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
   const { t, isRTL } = useLanguage();
-  const { isAdmin, isLogistics, user } = useAuth();
+  const { isAdmin, canEdit, user } = useAuth();
+  const isLogistics = canEdit('shipments');
   const [logs, setLogs] = useState<ShipmentLog[]>([]);
   const [newLog, setNewLog] = useState('');
   const [statusMessage, setStatusMessage] = useState(shipment.status_message || '');

@@ -1,6 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import type { RequestHandler } from 'express';
-import { effectiveRole } from '../../shared/access-policy.js';
+import { effectiveAccess, effectiveRole } from '../../shared/access-policy.js';
 import type { UserProfileRecord } from './storage.service.js';
 
 type Identity = { uid: string; email?: string; email_verified?: boolean; name?: string; exp: number; firebase?: { sign_in_provider?: string } };
@@ -36,7 +36,7 @@ export function createAuthenticator(verifyToken: Verifier = verify, profileLoade
       isAnonymous: claims.firebase?.sign_in_provider === 'anonymous' };
     const profile: UserProfileRecord = { ...saved, uid: claims.uid, email: claims.email || '',
       displayName: saved?.displayName || claims.name || (identity.isAnonymous ? 'Гость' : ''),
-      role: effectiveRole(identity, saved?.role) };
+      role: effectiveRole(identity, saved?.role), access: effectiveAccess(identity, saved?.role, saved?.access) };
     verified.set(request, { profile, expiresAt: claims.exp * 1000 });
     return profile;
   };

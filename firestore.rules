@@ -26,13 +26,20 @@ service cloud.firestore {
         request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
 
-    function isLogistics() {
+    // May change data of a CRM section. The administrator sets `access` per user
+    // ({ section: 'view' | 'edit' }); without it the role decides, as before.
+    function canEdit(section) {
       return isAuthenticated() && (
         isAdmin() ||
         (request.auth.token.firebase.sign_in_provider != 'anonymous' &&
          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['logistics', 'admin'])
+         sectionEditable(get(/databases/$(database)/documents/users/$(request.auth.uid)).data, section))
       );
+    }
+
+    function sectionEditable(profile, section) {
+      return (profile.get('access', null) == null && profile.role in ['logistics', 'admin']) ||
+        (profile.get('access', null) != null && profile.access.get(section, '') == 'edit');
     }
 
     function isOwner(userId) {
@@ -49,21 +56,23 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isAuthenticated();
       allow list: if isAdmin();
-      allow create: if isOwner(userId) && request.resource.data.uid == userId &&
+      allow create: if isOwner(userId) && request.resource.data.uid == userId && !('access' in request.resource.data) &&
         (request.resource.data.role == 'viewer' || (isAdmin() && request.resource.data.role == 'admin'));
-      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role);
+      // Users may edit their own profile, but never their role or section access.
+      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role &&
+        request.resource.data.get('access', null) == resource.data.get('access', null));
       allow delete: if isAdmin();
     }
 
     match /shipments/{shipmentId} {
       allow read: if isAuthenticated();
-      allow create: if isLogistics() && isValidShipment(request.resource.data);
-      allow update: if isLogistics() && isValidShipment(request.resource.data);
-      allow delete: if isAdmin() || (isLogistics() && resource.data.createdBy == request.auth.uid);
+      allow create: if canEdit('shipments') && isValidShipment(request.resource.data);
+      allow update: if canEdit('shipments') && isValidShipment(request.resource.data);
+      allow delete: if isAdmin() || (canEdit('shipments') && resource.data.createdBy == request.auth.uid);
       
       match /logs/{logId} {
         allow read: if isAuthenticated();
-        allow create: if isLogistics();
+        allow create: if canEdit('shipments');
       }
     }
 
@@ -114,17 +123,17 @@ service cloud.firestore {
     // "Слежка авто": trucks at our SVH. Stages (tabs) are configured by the team.
     match /truck_tracking/{entryId} {
       allow read: if isAuthenticated();
-      allow create, update: if isLogistics() &&
+      allow create, update: if canEdit('truck-tracking') &&
         request.resource.data.status is string &&
         request.resource.data.invoice is string && request.resource.data.productName is string;
-      allow delete: if isLogistics();
+      allow delete: if canEdit('truck-tracking');
     }
 
     match /truck_tracking_stages/{stageId} {
       allow read: if isAuthenticated();
-      allow create, update: if isLogistics() &&
+      allow create, update: if canEdit('truck-tracking') &&
         request.resource.data.label is string && request.resource.data.label.size() > 0;
-      allow delete: if isLogistics();
+      allow delete: if canEdit('truck-tracking');
     }
 
     match /trucks/{truckId} {

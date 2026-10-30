@@ -7,9 +7,11 @@ interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
   onNavigate: (tab: string) => void;
+  /** Hides sections the user has no access to. */
+  canOpen?: (tab: string) => boolean;
 }
 
-export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, onNavigate }) => {
+export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, onNavigate, canOpen = () => true }) => {
   const { t } = useLanguage();
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -49,7 +51,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
     { id: 'directories', title: 'Справочники (Водители, Клиенты)', icon: User, category: 'Настройки' },
   ];
 
-  const filtered = navItems.filter(item =>
+  const filtered = navItems.filter(item => canOpen(item.id)).filter(item =>
     item.title.toLowerCase().includes(query.toLowerCase()) ||
     item.category.toLowerCase().includes(query.toLowerCase())
   );

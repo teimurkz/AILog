@@ -1,3 +1,4 @@
+import type { AccessMap } from '../../shared/access-policy';
 export type ShipmentStatus = 'In Transit' | 'Customs' | 'Delivered' | 'Delay';
 export type RouteType = 'Tehran - Almaty' | 'Amol - Almaty';
 
@@ -65,6 +66,8 @@ export interface UserProfile {
   email: string;
   displayName: string;
   role: 'admin' | 'logistics' | 'viewer' | 'regional_manager';
+  /** Sections chosen by the administrator; null/absent = defaults of the role. */
+  access?: AccessMap | null;
 }
 
 export type RegionalOrderStatus = 'new' | 'assigned' | 'loading' | 'dispatched' | 'delivered' | 'cancelled';

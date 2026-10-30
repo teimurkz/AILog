@@ -1,3 +1,4 @@
+import { canEditSection } from '../../shared/access-policy.js';
 import { Router, type RequestHandler } from 'express';
 import crypto from 'node:crypto';
 import { db, admin } from '../config/firebase.js';
@@ -20,7 +21,7 @@ const wrap = (handler: (req: any, res: any) => Promise<unknown>): RequestHandler
   });
 };
 const logistics: RequestHandler = (req, res, next) => {
-  if (!['admin', 'logistics'].includes(getCrmUser(req)?.role || '')) return void res.status(403).json({ error: 'Недостаточно прав.' });
+  if (!canEditSection(getCrmUser(req)?.access || {}, 'shipments')) return void res.status(403).json({ error: 'Недостаточно прав.' });
   next();
 };
 for (const [endpoint, collection, event, permission] of [

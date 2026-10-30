@@ -35,7 +35,8 @@ interface ShipmentListProps {
 
 export const ShipmentList = ({ shipments, onSelect, onNew, filterStatus }: ShipmentListProps) => {
   const { t, isRTL } = useLanguage();
-  const { isAdmin, isLogistics } = useAuth();
+  const { isAdmin, canEdit } = useAuth();
+  const isLogistics = canEdit('shipments');
   const now = useMinuteClock();
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'invoiceAsc' | 'invoiceDesc' | 'departureDate' | 'itemsAsc' | 'itemsDesc'>('newest');
