@@ -107,11 +107,17 @@ export function parkingDays(arrived: string | null, unloaded: string | null, mov
 }
 
 export type ReconcileStatus = 'ok' | 'mismatch' | 'not-found' | 'ambiguous' | 'no-invoice';
+/** Where the truck was unloaded: at the SVH, or straight at the commercial warehouse (no SVH date). */
+export interface UnloadPlace { place: 'svh' | 'warehouse' | null; day: string | null }
+export const unloadPlace = (svh: string | null, warehouse: string | null): UnloadPlace =>
+  svh ? { place: 'svh', day: svh } : warehouse ? { place: 'warehouse', day: warehouse } : { place: null, day: null };
 export interface ReconcileRow {
   partner: PartnerRow;
   crm: { id: string; invoice: string; arrived: string | null; unloaded: string | null; moved: string | null } | null;
   status: ReconcileStatus;
   issues: string[];
+  partnerUnload: UnloadPlace;
+  crmUnload: UnloadPlace | null;
   partnerDays: number | null; partnerOpen: boolean;
   crmDays: number | null; crmOpen: boolean;
   /** Partner days minus CRM days: more than 0 = the partner bills more than we recorded. */
@@ -143,7 +149,7 @@ export function reconcile(allRows: PartnerRow[], entries: TruckTrackingEntry[], 
     const counted = parkingDays(partner.arrived.day, partner.unloaded.day, partner.moved.day, today);
     // An unreadable end date must not turn into "parked until today".
     const parking = counted.open && (partner.unloaded.bad || partner.moved.bad) ? { days: null, open: false } : counted;
-    const base = { partner, partnerDays: parking.days, partnerOpen: parking.open };
+    const base = { partner, partnerDays: parking.days, partnerOpen: parking.open, partnerUnload: unloadPlace(partner.unloaded.day, partner.moved.day), crmUnload: null };
     if (!partner.invoice) return { ...base, crm: null, status: 'no-invoice', issues, crmDays: null, crmOpen: false, diff: null };
     const candidates = byNumber.get(partner.invoice) || [];
     if (candidates.length !== 1) {
@@ -161,7 +167,11 @@ export function reconcile(allRows: PartnerRow[], entries: TruckTrackingEntry[], 
     };
     for (const field of ['arrived', 'unloaded', 'moved'] as const) {
       const theirs = partner[field].day, ours = crm[field];
-      if (theirs && ours && theirs !== ours) {
+      if (field === 'unloaded' && !theirs && ours && partner.moved.day && !partner.unloaded.bad) {
+        issues.push(`Выгрузка: у партнёра сразу на ком. склад ${formatDay(partner.moved.day)}, в CRM выгружена на СВХ ${formatDay(ours)}`);
+      } else if (field === 'unloaded' && theirs && !ours && crm.moved) {
+        issues.push(`Выгрузка: у партнёра на СВХ ${formatDay(theirs)}, в CRM сразу на ком. склад ${formatDay(crm.moved)}`);
+      } else if (theirs && ours && theirs !== ours) {
         const shift = daysBetween(ours, theirs);
         issues.push(`${LABEL[field]}: у партнёра ${formatDay(theirs)}, в CRM ${formatDay(ours)} (${shift > 0 ? '+' : ''}${shift} дн.)`);
       } else if (theirs && !ours) issues.push(`${LABEL[field]}: в CRM нет даты (у партнёра ${formatDay(theirs)})`);
@@ -169,7 +179,7 @@ export function reconcile(allRows: PartnerRow[], entries: TruckTrackingEntry[], 
     }
     const ours = parkingDays(crm.arrived, crm.unloaded, crm.moved, today);
     const diff = parking.days !== null && ours.days !== null ? parking.days - ours.days : null;
-    return { ...base, crm, status: issues.length ? 'mismatch' : 'ok', issues, crmDays: ours.days, crmOpen: ours.open, diff };
+    return { ...base, crm, crmUnload: unloadPlace(crm.unloaded, crm.moved), status: issues.length ? 'mismatch' : 'ok', issues, crmDays: ours.days, crmOpen: ours.open, diff };
   });
 
   // Trucks we recorded in the period that the partner's file does not list at all
@@ -200,5 +210,18 @@ export function reconcile(allRows: PartnerRow[], entries: TruckTrackingEntry[], 
       crmDays: sum(compared.map(row => row.crmDays)),
       allPartnerDays: sum(rows.map(row => row.partnerDays)),
     },
+  };
+}
+
+/** Parking cost in tenge at a daily rate: reconciled trucks (partner / CRM / difference) and the whole selection by the partner. */
+export function parkingCost(rows: ReconcileRow[], rate: number) {
+  const perDay = Number.isFinite(rate) && rate > 0 ? rate : 0;
+  const sum = (pick: (row: ReconcileRow) => number | null, list: ReconcileRow[]) => list.reduce((total, row) => total + (pick(row) || 0), 0) * perDay;
+  const compared = rows.filter(row => row.crm);
+  return {
+    partner: sum(row => row.partnerDays, compared),
+    crm: sum(row => row.crmDays, compared),
+    diff: sum(row => row.diff, compared),
+    partnerAll: sum(row => row.partnerDays, rows),
   };
 }

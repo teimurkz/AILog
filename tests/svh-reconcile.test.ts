@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_STAGES } from '../shared/truck-tracking';
-import { parkingDays, parsePartnerSheet, partnerDate, partnerInvoice, reconcile } from '../shared/svh-reconcile';
+import { parkingCost, parkingDays, parsePartnerSheet, partnerDate, partnerInvoice, reconcile } from '../shared/svh-reconcile';
 
 const today = '2026-10-30';
 const serial = (day: string) => Math.round((Date.parse(day) - Date.UTC(1899, 11, 30)) / 86400000);
@@ -89,4 +89,32 @@ test('reconciliation for a chosen period keeps trucks that arrived in it', () =>
   // Our trucks that arrived in October but are not in the partner's file.
   assert.deepEqual(missing.map(item => item.invoice), ['500']);
   assert.deepEqual(period, { from: '2026-10-01', to: '2026-10-30' });
+});
+
+test('unloading place: SVH, or straight to the commercial warehouse when the SVH date is empty', () => {
+  const sheet = [
+    header,
+    row(1, '10/1/26', '20260903-351', '10/9/26', '10/5/26'),
+    row(2, '10/2/26', '20260914-398', '10/6/26', null),
+  ];
+  const partner = parsePartnerSheet(sheet, today);
+  const entries = [
+    { id: 'a', invoice: '351', productName: 'Cream', status: 'moved', stageDates: { arrived: '2026-10-01', unloaded: '2026-10-05', moved: '2026-10-09' } },
+    { id: 'b', invoice: '398', productName: 'Milk', status: 'moved', stageDates: { arrived: '2026-10-02', moved: '2026-10-06' } },
+  ];
+  const { rows } = reconcile(partner, entries, DEFAULT_STAGES, today);
+  assert.deepEqual(rows.map(item => [item.partnerUnload, item.crmUnload]), [
+    [{ place: 'svh', day: '2026-10-05' }, { place: 'svh', day: '2026-10-05' }],
+    [{ place: 'warehouse', day: '2026-10-06' }, { place: 'warehouse', day: '2026-10-06' }],
+  ]);
+  assert.deepEqual(rows.map(item => item.status), ['ok', 'ok']);
+  assert.deepEqual(rows.map(item => item.partnerDays), [4, 4]);
+});
+
+test('parking cost in tenge by a daily rate', () => {
+  const sheet = [header, row(1, '10/1/26', '20260903-351', null, '10/5/26'), row(2, '10/2/26', '', null, '10/4/26')];
+  const entries = [{ id: 'a', invoice: '351', productName: 'Cream', status: 'unloaded', stageDates: { arrived: '2026-10-02', unloaded: '2026-10-05' } }];
+  const result = reconcile(parsePartnerSheet(sheet, today), entries, DEFAULT_STAGES, today);
+  assert.deepEqual(parkingCost(result.rows, 10000), { partner: 40000, crm: 30000, diff: 10000, partnerAll: 60000 });
+  assert.deepEqual(parkingCost(result.rows, 0), { partner: 0, crm: 0, diff: 0, partnerAll: 0 });
 });
