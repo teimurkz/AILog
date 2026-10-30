@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Truck, FileText, Menu, X, Search } from 'lucide-react';
+import { FileText, Menu, X, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Shipment } from '../types';
@@ -18,7 +18,6 @@ import { WarehouseInventory } from './warehouses/WarehouseInventory';
 import { RegionalOrders } from './regional/RegionalOrders';
 import { DirectoriesManager } from './directories/DirectoriesManager';
 import { KustoExpiryStock } from './kusto/KustoExpiryStock';
-import { StampOnScans } from './stamps/StampOnScans';
 import { WarehouseAutoMailing } from './warehouses/WarehouseAutoMailing';
 import { AnalyticsReports } from './analytics/AnalyticsReports';
 import { TruckTracking } from './truck-tracking/TruckTracking';
@@ -52,7 +51,7 @@ export const MainAppContent = () => {
   const pageTitle = t((({
     'regional-orders': 'regionalOrders', 'auto-mailing': 'autoMailing',
     'analytics-reports': 'analyticsReports', 'kusto-stock-expiry': 'kustoStockExpiry',
-    'stamp-scans': 'stampOnScans', 'admin-tools': 'adminPanel', 'truck-tracking': 'truckTracking',
+    'admin-tools': 'adminPanel', 'truck-tracking': 'truckTracking',
   } as Record<string, string>)[currentTab] || currentTab) as any);
 
   React.useEffect(() => {
@@ -188,8 +187,6 @@ export const MainAppContent = () => {
                 <AnalyticsReports />
               ) : currentTab === 'kusto-stock-expiry' ? (
                 <KustoExpiryStock />
-              ) : currentTab === 'stamp-scans' ? (
-                <StampOnScans />
               ) : currentTab === 'archive' ? (
                 <ShipmentList 
                   shipments={shipments} 
@@ -202,13 +199,7 @@ export const MainAppContent = () => {
                   <ExcelImport />
                   <UserManagement />
                 </div>
-              ) : (
-                <div className="bg-white p-8 sm:p-12 rounded-2xl shadow-sm border border-slate-200/70 text-center">
-                  <Truck className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                  <h3 className="text-lg font-bold text-slate-900">{t('fleet')}</h3>
-                  <p className="text-slate-500 mt-1 text-sm">{t('comingSoon')}</p>
-                </div>
-              )}
+              ) : null}
             </motion.div>
           </AnimatePresence>
           {shipmentUnavailable && shipments.length > 0 && !isRegionalOnly && <DataLoadNotice loading={loadingShipments} error={shipmentsError} onRetry={retryShipments} />}

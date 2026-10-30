@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, Package, Archive, Truck, Warehouse, CalendarClock, Send, BookOpen, Stamp, Mail, BarChart3, ScanEye,
+  LayoutDashboard, Package, Archive, Warehouse, CalendarClock, Send, BookOpen, Mail, BarChart3, ScanEye,
 } from 'lucide-react';
 import type { CrmSection } from '../../../shared/access-policy';
 
@@ -14,7 +14,5 @@ export const SECTION_MENU: { id: CrmSection; icon: typeof Package; labelKey: str
   { id: 'auto-mailing', icon: Mail, labelKey: 'autoMailing', fallback: 'Авто-рассылка Excel' },
   { id: 'analytics-reports', icon: BarChart3, labelKey: 'analyticsReports', fallback: 'Аналитика и отчёты' },
   { id: 'kusto-stock-expiry', icon: CalendarClock, labelKey: 'kustoStockExpiry', fallback: 'Остатки по срокам Кусто' },
-  { id: 'stamp-scans', icon: Stamp, labelKey: 'stampOnScans', fallback: 'Печать на сканах' },
   { id: 'archive', icon: Archive, labelKey: 'archive', fallback: 'Архив' },
-  { id: 'fleet', icon: Truck, labelKey: 'fleet', fallback: 'Автопарк' },
 ];

@@ -22,9 +22,7 @@ export const CRM_SECTIONS = [
   { id: 'auto-mailing', editable: false },
   { id: 'analytics-reports', editable: false },
   { id: 'kusto-stock-expiry', editable: false },
-  { id: 'stamp-scans', editable: false },
   { id: 'archive', editable: false },
-  { id: 'fleet', editable: false },
 ] as const;
 export type CrmSection = typeof CRM_SECTIONS[number]['id'];
 export type AccessLevel = 'view' | 'edit';

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Command, X, Truck, Building2, Stamp, Mail, FileSpreadsheet, User, ArrowRight } from 'lucide-react';
+import { Search, Command, X, Truck, Building2, Mail, FileSpreadsheet, User, ArrowRight } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 
 interface CommandPaletteProps {
@@ -45,7 +45,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
     { id: 'regional-orders', title: 'Региональные рейсы (Астана, Шымкент)', icon: Truck, category: 'Навигация' },
     { id: 'shipments', title: 'Складской учет и статусы авто', icon: Building2, category: 'Навигация' },
     { id: 'truck-tracking', title: 'Слежка авто (инвойсы, прибытие, СВХ)', icon: Truck, category: 'Навигация' },
-    { id: 'stamp-scans', title: 'Печать и штампы на PDF / Сканы', icon: Stamp, category: 'Инструменты' },
     { id: 'auto-mailing', title: 'Авто-рассылка отчетов Excel', icon: Mail, category: 'Инструменты' },
     { id: 'analytics-reports', title: 'Аналитика и сводные отчеты', icon: FileSpreadsheet, category: 'Аналитика' },
     { id: 'directories', title: 'Справочники (Водители, Клиенты)', icon: User, category: 'Настройки' },
