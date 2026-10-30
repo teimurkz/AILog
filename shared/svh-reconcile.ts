@@ -120,8 +120,15 @@ export interface ReconcileRow {
 
 const LABEL = { arrived: 'Заезд', unloaded: 'Выгрузка', moved: 'Перемещение' } as const;
 
-export function reconcile(partnerRows: PartnerRow[], entries: TruckTrackingEntry[], stages: TruckStage[], today: string) {
+export interface ReconcilePeriod { from: string; to: string }
+
+/**
+ * `period` limits the check to trucks that entered the yard in it (by the partner's arrival date);
+ * without it the whole file is checked.
+ */
+export function reconcile(allRows: PartnerRow[], entries: TruckTrackingEntry[], stages: TruckStage[], today: string, period?: ReconcilePeriod | null) {
   const roles = stageRoles(stages);
+  const partnerRows = period ? allRows.filter(row => row.arrived.day && row.arrived.day >= period.from && row.arrived.day <= period.to) : allRows;
   const byNumber = new Map<string, TruckTrackingEntry[]>();
   for (const entry of entries) {
     const number = trailingNumber(entry.invoice || '');
@@ -165,20 +172,26 @@ export function reconcile(partnerRows: PartnerRow[], entries: TruckTrackingEntry
     return { ...base, crm, status: issues.length ? 'mismatch' : 'ok', issues, crmDays: ours.days, crmOpen: ours.open, diff };
   });
 
-  // Trucks we recorded in the same period that the partner's file does not list.
+  // Trucks we recorded in the period that the partner's file does not list at all
+  // (checked against the whole file: arrival dates may differ by a day across the period edge).
   const arrivals = partnerRows.map(row => row.arrived.day).filter((day): day is string => Boolean(day)).sort();
-  const missing = arrivals.length && roles.arrived ? entries.filter(entry => {
+  const range = period || (arrivals.length ? { from: arrivals[0], to: arrivals[arrivals.length - 1] } : null);
+  const inFile = new Set(allRows.map(row => row.invoice).filter(Boolean));
+  const missing = range && roles.arrived ? entries.filter(entry => {
     const day = stageDate(entry, roles.arrived!);
-    return !matched.has(entry.id) && day && day >= arrivals[0] && day <= arrivals[arrivals.length - 1];
+    const number = trailingNumber(entry.invoice || '');
+    return !matched.has(entry.id) && !(number && inFile.has(String(Number(number)))) && day && day >= range.from && day <= range.to;
   }).map(entry => ({ id: entry.id, invoice: entry.invoice, productName: entry.productName, arrived: stageDate(entry, roles.arrived!) }))
     .sort((a, b) => a.arrived.localeCompare(b.arrived)) : [];
 
   const sum = (values: (number | null)[]) => values.reduce<number>((total, value) => total + (value || 0), 0);
   const compared = rows.filter(row => row.crm);
   return {
-    rows, missing,
+    rows, missing, period: range,
     summary: {
       total: rows.length,
+      /** Rows of the file left out by the period (other dates or an unreadable arrival). */
+      outside: allRows.length - rows.length,
       ok: rows.filter(row => row.status === 'ok').length,
       mismatch: rows.filter(row => row.status === 'mismatch').length,
       notFound: rows.filter(row => row.status === 'not-found' || row.status === 'ambiguous').length,

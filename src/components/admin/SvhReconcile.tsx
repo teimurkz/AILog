@@ -35,6 +35,8 @@ export const SvhReconcile = () => {
   const [file, setFile] = useState<{ name: string; rows: PartnerRow[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('problems');
+  // Arrival-date period; null = the whole file.
+  const [period, setPeriod] = useState<{ from: string; to: string } | null>(null);
   const today = todayDay();
 
   const read = async (picked?: File | null) => {
@@ -46,13 +48,27 @@ export const SvhReconcile = () => {
       const rows = parsePartnerSheet(XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true }), today);
       if (!rows.length) throw new Error('В файле не найдено ни одной фуры. Нужна таблица с колонками «Дата подачи на тупик СВХ», «инвойс», «Дата выгрузки на СВХ».');
       setFile({ name: picked.name, rows });
+      setPeriod(null);
     } catch (reason) {
       setFile(null);
       setError(reason instanceof Error ? reason.message : 'Не удалось прочитать файл.');
     }
   };
 
-  const result = useMemo(() => file ? reconcile(file.rows, entries, stages, today) : null, [file, entries, stages, today]);
+  const range = period && period.from > period.to ? { from: period.to, to: period.from } : period;
+  const result = useMemo(() => file ? reconcile(file.rows, entries, stages, today, range) : null, [file, entries, stages, today, range?.from, range?.to]);
+  // Quick buttons for the months that occur in the file.
+  const months = useMemo(() => [...new Set((file?.rows || []).map(row => row.arrived.day?.slice(0, 7)).filter((month): month is string => Boolean(month)))].sort(), [file]);
+  const monthRange = (month: string) => {
+    const [year, number] = month.split('-').map(Number);
+    return { from: `${month}-01`, to: new Date(Date.UTC(year, number, 0)).toISOString().slice(0, 10) };
+  };
+  const monthName = (month: string) => new Date(month + '-15T00:00:00Z').toLocaleDateString('ru-RU', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const setDate = (field: 'from' | 'to', value: string) => {
+    if (!value || !file) return;
+    const days = file.rows.map(row => row.arrived.day).filter((day): day is string => Boolean(day)).sort();
+    setPeriod(old => ({ from: old?.from || days[0] || value, to: old?.to || days.at(-1) || value, [field]: value }));
+  };
   const visible = useMemo(() => (result?.rows || []).filter(row =>
     filter === 'all' ? true : filter === 'problems' ? row.status !== 'ok' && row.status !== 'no-invoice' : filter === 'not-found' ? row.status === 'not-found' || row.status === 'ambiguous' : row.status === filter), [result, filter]);
 
@@ -72,8 +88,7 @@ export const SvhReconcile = () => {
     };
     const missing: ReportTable = { title: 'Нет у партнёра', header: ['Инвойс', 'Товар', 'Заезд (CRM)'],
       rows: result.missing.map(item => [item.invoice, item.productName, formatDay(item.arrived)]) };
-    const arrivals = file.rows.map(row => row.arrived.day).filter((day): day is string => Boolean(day)).sort();
-    downloadReports([table, missing], { from: arrivals[0] || today, to: arrivals.at(-1) || today }, 'Сверка стоянки СВХ');
+    downloadReports([table, missing], result.period || { from: today, to: today }, 'Сверка стоянки СВХ');
   };
 
   const filters: { id: Filter; label: string; count?: number }[] = result ? [
@@ -113,7 +128,29 @@ export const SvhReconcile = () => {
 
       {result && file && (
         <>
-          <p className="text-xs text-slate-500">Файл: <span className="font-semibold text-slate-700">{file.name}</span> · фур в файле: {result.summary.total} · сегодня {formatDay(today)} (для фур без даты выгрузки стоянка считается до сегодня, отмечено «+»)</p>
+          <div className={`${card} p-3 flex flex-wrap items-center gap-2`}>
+            <span className="text-xs font-semibold text-slate-500 me-1">Заезд за период:</span>
+            <button type="button" onClick={() => setPeriod(null)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${!period ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}>Весь файл</button>
+            {months.map(month => {
+              const value = monthRange(month);
+              const active = range?.from === value.from && range?.to === value.to;
+              return (
+                <button key={month} type="button" onClick={() => setPeriod(value)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize ${active ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}>{monthName(month)}</button>
+              );
+            })}
+            <span className="mx-1 h-5 w-px bg-slate-200 hidden sm:block" />
+            <label className="flex items-center gap-1.5 text-xs text-slate-500">с
+              <input type="date" className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-800" value={range?.from || ''} onChange={event => setDate('from', event.target.value)} />
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-slate-500">по
+              <input type="date" className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-800" value={range?.to || ''} onChange={event => setDate('to', event.target.value)} />
+            </label>
+          </div>
+          <p className="text-xs text-slate-500">Файл: <span className="font-semibold text-slate-700">{file.name}</span> ·{' '}
+            {range ? <>заехали с {formatDay(range.from)} по {formatDay(range.to)}: <b>{result.summary.total}</b> фур (остальные {result.summary.outside} — вне периода или с непонятной датой заезда)</> : <>фур в файле: {result.summary.total}</>}
+            {' '}· сегодня {formatDay(today)} (для фур без даты выгрузки стоянка считается до сегодня, отмечено «+»)</p>
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
             {[
               { icon: CheckCircle2, label: 'Совпадает', value: result.summary.ok, tone: 'text-emerald-600' },
@@ -183,7 +220,7 @@ export const SvhReconcile = () => {
           {result.missing.length > 0 && (
             <div className={`${card} p-4 space-y-2`}>
               <h3 className="text-sm font-bold text-slate-900">Есть в «Слежке авто», нет у партнёра <span className="text-slate-400 font-normal">· {result.missing.length}</span></h3>
-              <p className="text-xs text-slate-500">Фуры, которые по CRM заехали в тот же период, что охватывает файл, но в файле партнёра их нет.</p>
+              <p className="text-xs text-slate-500">Фуры, которые по CRM заехали в выбранный период (или в период файла), но в файле партнёра их нет вообще.</p>
               <div className="flex flex-wrap gap-2">
                 {result.missing.map(item => (
                   <span key={item.id} className="px-2.5 py-1 rounded-lg border border-slate-200 text-xs text-slate-700">

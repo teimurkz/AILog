@@ -68,3 +68,25 @@ test('sheet parsing skips month rows and reconciles with "Слежка авто"
   assert.deepEqual(missing.map(item => item.invoice), ['500']);
   assert.equal(summary.ok, 1); assert.equal(summary.mismatch, 2); assert.equal(summary.notFound, 1); assert.equal(summary.noInvoice, 1);
 });
+
+test('reconciliation for a chosen period keeps trucks that arrived in it', () => {
+  const sheet = [
+    header,
+    row(1, '9/21/26', '20260903-351', '10/3/26', '9/28/26'),
+    row(2, '10/3/26', '20260914-398', null, '10/8/26'),
+    row(3, '10/31/26', '20260924-436', null, null),
+    row(4, 'вопрос', '20260924-437', null, null),
+  ];
+  const partner = parsePartnerSheet(sheet, today);
+  const entries = [
+    { id: 'b', invoice: '398', productName: 'Milk', status: 'unloaded', stageDates: { arrived: '2026-10-03', unloaded: '2026-10-08' } },
+    { id: 'x', invoice: '500', productName: 'Butter', status: 'arrived', stageDates: { arrived: '2026-10-20' } },
+    { id: 'y', invoice: '501', productName: 'Cream', status: 'arrived', stageDates: { arrived: '2026-09-02' } },
+  ];
+  const { rows, missing, summary, period } = reconcile(partner, entries, DEFAULT_STAGES, today, { from: '2026-10-01', to: '2026-10-30' });
+  assert.deepEqual(rows.map(item => item.partner.invoice), ['398']);
+  assert.equal(summary.total, 1); assert.equal(summary.outside, 3);
+  // Our trucks that arrived in October but are not in the partner's file.
+  assert.deepEqual(missing.map(item => item.invoice), ['500']);
+  assert.deepEqual(period, { from: '2026-10-01', to: '2026-10-30' });
+});
