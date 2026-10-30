@@ -20,7 +20,7 @@ test('saved access overrides the role: hidden sections and per-section editing',
   const access = effectiveAccess(staff, 'viewer', { 'truck-tracking': 'edit', shipments: 'view' });
   assert.ok(canEditSection(access, 'truck-tracking'));
   assert.ok(canViewSection(access, 'shipments') && !canEditSection(access, 'shipments'));
-  assert.ok(!canViewSection(access, 'dashboard') && !canViewSection(access, 'warehouses'));
+  assert.ok(!canViewSection(access, 'dashboard') && !canViewSection(access, 'auto-mailing'));
   // A logistics user can be limited too.
   assert.ok(!canEditSection(effectiveAccess(staff, 'logistics', { shipments: 'view' }), 'shipments'));
   // An empty map hides everything (it is not "by role").

@@ -18,7 +18,6 @@ export const CRM_SECTIONS = [
   { id: 'truck-tracking', editable: true },
   { id: 'regional-orders', editable: false },
   { id: 'directories', editable: false },
-  { id: 'warehouses', editable: false },
   { id: 'auto-mailing', editable: false },
   { id: 'analytics-reports', editable: false },
   { id: 'kusto-stock-expiry', editable: false },

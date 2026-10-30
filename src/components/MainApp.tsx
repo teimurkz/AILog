@@ -14,7 +14,6 @@ import { ShipmentDetails } from './shipments/ShipmentDetails';
 import { NewShipmentModal } from './shipments/NewShipmentModal';
 import { UserManagement } from './admin/UserManagement';
 import { ExcelImport } from './admin/ExcelImport';
-import { WarehouseInventory } from './warehouses/WarehouseInventory';
 import { RegionalOrders } from './regional/RegionalOrders';
 import { DirectoriesManager } from './directories/DirectoriesManager';
 import { KustoExpiryStock } from './kusto/KustoExpiryStock';
@@ -179,8 +178,6 @@ export const MainAppContent = () => {
                 />
               ) : currentTab === 'truck-tracking' ? (
                 <TruckTracking />
-              ) : currentTab === 'warehouses' ? (
-                <WarehouseInventory />
               ) : currentTab === 'auto-mailing' ? (
                 <WarehouseAutoMailing />
               ) : currentTab === 'analytics-reports' ? (
