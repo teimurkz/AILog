@@ -1,41 +1,48 @@
 import * as XLSX from 'xlsx';
-import { formatRegionalReportDate, type RegionalOrdersReport, type RegionalReportFilters } from '../../shared/regional-orders-report';
+import type { RegionalOrdersReport, RegionalReportFilters } from '../../shared/regional-orders-report';
+import { formatRegionalDay, localizeReportRoute, regionalLocale, regionalTexts } from '../components/regional/regional-i18n';
 
-export function regionalReportWorkbook(report: RegionalOrdersReport, filters: RegionalReportFilters) {
-  const period = filters.from && filters.to ? `${formatRegionalReportDate(filters.from)} — ${formatRegionalReportDate(filters.to)}` :
-    filters.from ? `С ${formatRegionalReportDate(filters.from)}` : filters.to ? `По ${formatRegionalReportDate(filters.to)}` : 'За всё время';
+export function regionalReportWorkbook(report: RegionalOrdersReport, filters: RegionalReportFilters, language: string) {
+  const texts = regionalTexts(language);
+  const { report: r, excel: x } = texts;
+  const day = (date: string) => formatRegionalDay(date, regionalLocale(language));
+  const status = (value: 'dispatched' | 'delivered') => value === 'dispatched' ? r.dispatched : r.delivered;
+  const period = filters.from && filters.to ? `${day(filters.from)} — ${day(filters.to)}` :
+    filters.from ? x.periodFrom(day(filters.from)) : filters.to ? x.periodTo(day(filters.to)) : r.allTime;
   const summary = XLSX.utils.aoa_to_sheet([
-    ['Отчёт по отправленным машинам в регионы'],
-    ['Период', period],
-    ['Город назначения', filters.destination || 'Все города'],
-    ['Статус', filters.status === 'dispatched' ? 'В пути' : filters.status === 'delivered' ? 'Доставлено' : 'В пути и доставлено'],
-    ['Количество машин (рейсов)', report.total],
-    ['В пути', report.dispatched], ['Доставлено', report.delivered],
-    ['Рейсов с датой отгрузки из заявки вместо фактической даты', report.shipmentDates],
-    ['Рейсов без даты в отчёте', report.undated],
-    ['Без даты, исключены из выбранного периода', report.undatedExcluded],
-    ['Правило подсчёта', 'Одна заявка — один рейс. Даты отправки: Asia/Almaty.'],
+    [x.title],
+    [x.period, period],
+    [r.destination, filters.destination || r.allCities],
+    [r.status, filters.status === 'dispatched' || filters.status === 'delivered' ? status(filters.status) : r.statusAll],
+    [x.trucksCount, report.total],
+    [r.dispatched, report.dispatched], [r.delivered, report.delivered],
+    [x.shipmentDates, report.shipmentDates],
+    [x.undated, report.undated],
+    [x.undatedExcluded, report.undatedExcluded],
+    [x.rule, x.ruleText],
     [],
-    ['Направление', 'Машин (рейсов)', 'В пути', 'Доставлено', 'Первая отправка', 'Последняя отправка'],
-    ...report.directions.map(group => [group.route, group.count, group.dispatched, group.delivered,
-      group.firstDate ? formatRegionalReportDate(group.firstDate) : '', group.lastDate ? formatRegionalReportDate(group.lastDate) : '']),
-    ['ИТОГО', report.total, report.dispatched, report.delivered],
+    [r.direction, r.trucks, r.dispatched, r.delivered, r.firstDispatch, r.lastDispatch],
+    ...report.directions.map(group => [localizeReportRoute(group.route, texts), group.count, group.dispatched, group.delivered,
+      group.firstDate ? day(group.firstDate) : '', group.lastDate ? day(group.lastDate) : '']),
+    [x.total, report.total, report.dispatched, report.delivered],
   ]);
   summary['!cols'] = [{ wch: 62 }, { wch: 27 }, { wch: 15 }, { wch: 17 }, { wch: 22 }, { wch: 22 }];
   const details = XLSX.utils.aoa_to_sheet([
-    ['Дата отправки', 'Источник даты', '№ заявки', 'Направление', 'Госномер', 'Водитель', 'Статус', 'Накладная', 'Менеджер', 'ID заявки'],
-    ...report.rows.map(row => [row.date ? formatRegionalReportDate(row.date) : '',
-      row.dateSource === 'actual' ? 'Фактическая отправка' : row.dateSource === 'shipment' ? 'Дата отгрузки из заявки' : 'Не указана',
-      row.orderNumber, row.route, row.plate, row.driver, row.status === 'dispatched' ? 'В пути' : 'Доставлено', row.invoice, row.manager, row.id]),
+    [r.dispatchDate, x.dateSource, r.orderNo, r.direction, r.plate, r.driver, r.status, x.invoice, x.manager, x.orderId],
+    ...report.rows.map(row => [row.date ? day(row.date) : '',
+      row.dateSource === 'actual' ? x.sourceActual : row.dateSource === 'shipment' ? x.sourceShipment : texts.common.notSpecifiedDate,
+      row.orderNumber, localizeReportRoute(row.route, texts), row.plate, row.driver, status(row.status), row.invoice, row.manager, row.id]),
   ]);
   details['!cols'] = [20, 28, 20, 45, 25, 42, 18, 32, 32, 30].map(wch => ({ wch }));
   details['!autofilter'] = { ref: `A1:J${report.rows.length + 1}` };
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, summary, 'Сводка по направлениям');
-  XLSX.utils.book_append_sheet(workbook, details, 'Отправленные машины');
+  // Persian sheets read right to left in Excel.
+  if (language === 'fa') workbook.Workbook = { Views: [{ RTL: true }] };
+  XLSX.utils.book_append_sheet(workbook, summary, x.summarySheet);
+  XLSX.utils.book_append_sheet(workbook, details, x.detailsSheet);
   return workbook;
 }
 
-export function downloadRegionalReport(report: RegionalOrdersReport, filters: RegionalReportFilters) {
-  XLSX.writeFile(regionalReportWorkbook(report, filters), `Regional_Trucks_${filters.from || 'all'}_${filters.to || 'all'}.xlsx`);
+export function downloadRegionalReport(report: RegionalOrdersReport, filters: RegionalReportFilters, language: string) {
+  XLSX.writeFile(regionalReportWorkbook(report, filters, language), `Regional_Trucks_${filters.from || 'all'}_${filters.to || 'all'}.xlsx`);
 }

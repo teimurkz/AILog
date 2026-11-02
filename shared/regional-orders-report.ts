@@ -64,11 +64,18 @@ export function formatRegionalReportDate(date: string): string {
   return date ? date.split('-').reverse().join('.') : 'Не указана';
 }
 
+// Marker for a missing origin or destination; the interface shows it in the chosen language.
+export const REGIONAL_REPORT_UNKNOWN_PLACE = 'Не указан';
+export const REGIONAL_REPORT_ERRORS = {
+  invalidPeriod: 'Укажите корректные даты периода.',
+  reversedPeriod: 'Начало периода должно быть не позже его окончания.',
+};
+
 export function buildRegionalOrdersReport(orders: RegionalReportOrder[], filters: RegionalReportFilters = {}) {
   const from = filters.from ? regionalReportDate(filters.from) : '';
   const to = filters.to ? regionalReportDate(filters.to) : '';
-  if ((filters.from && !from) || (filters.to && !to)) throw new Error('Укажите корректные даты периода.');
-  if (from && to && from > to) throw new Error('Начало периода должно быть не позже его окончания.');
+  if ((filters.from && !from) || (filters.to && !to)) throw new Error(REGIONAL_REPORT_ERRORS.invalidPeriod);
+  if (from && to && from > to) throw new Error(REGIONAL_REPORT_ERRORS.reversedPeriod);
 
   // Firestore document ID identifies a trip; order numbers and plates can repeat.
   const unique = new Map(orders.filter(order => order.id).map(order => [order.id, order]));
@@ -86,8 +93,8 @@ export function buildRegionalOrdersReport(orders: RegionalReportOrder[], filters
     const date = actual || shipment;
     if (!date && (from || to)) { undatedExcluded++; continue; }
     if (date && ((from && date < from) || (to && date > to))) continue;
-    const origin = clean(order.originCity) || 'Не указан';
-    const destination = clean(order.destinationCity) || 'Не указан';
+    const origin = clean(order.originCity) || REGIONAL_REPORT_UNKNOWN_PLACE;
+    const destination = clean(order.destinationCity) || REGIONAL_REPORT_UNKNOWN_PLACE;
     rows.push({
       id: order.id, orderNumber: clean(order.orderNumber) || order.id,
       date, dateSource: actual ? 'actual' : shipment ? 'shipment' : 'missing',

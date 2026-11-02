@@ -72,13 +72,27 @@ test('exported Excel matches the filtered report and retains date provenance and
   const filters = { from: '2026-09-01', to: '2026-09-30', status: 'all' as const };
   const report = buildRegionalOrdersReport([order('a', { orderNumber: '000123', invoiceNumber: '00123' }),
     order('b', { dispatchedAt: '2026-09-16T09:00:00Z', status: 'dispatched' }), order('c', { shipmentDate: '2026-10-01' })], filters);
-  const file = XLSX.write(regionalReportWorkbook(report, filters), { type: 'buffer', bookType: 'xlsx' });
+  const file = XLSX.write(regionalReportWorkbook(report, filters, 'ru'), { type: 'buffer', bookType: 'xlsx' });
   const exported = XLSX.read(file);
   assert.deepEqual(exported.SheetNames, ['Сводка по направлениям', 'Отправленные машины']);
   assert.equal(exported.Sheets['Сводка по направлениям'].B5.v, 2);
+  assert.equal(exported.Sheets['Сводка по направлениям'].B2.v, '01.09.2026 — 30.09.2026');
   assert.equal(exported.Sheets['Отправленные машины'].C3.v, '000123');
   assert.equal(exported.Sheets['Отправленные машины'].H3.v, '00123');
   assert.equal(exported.Sheets['Отправленные машины'].B2.v, 'Фактическая отправка');
   assert.equal(exported.Sheets['Отправленные машины'].B3.v, 'Дата отгрузки из заявки');
   assert.equal(exported.Sheets['Отправленные машины']['!autofilter']?.ref, 'A1:J3');
+});
+
+test('exported Excel sheets and headers follow the chosen language; data values stay as entered', () => {
+  const report = buildRegionalOrdersReport([order('a'), order('b', { originCity: '' })]);
+  const english = XLSX.read(XLSX.write(regionalReportWorkbook(report, {}, 'en'), { type: 'buffer', bookType: 'xlsx' }));
+  assert.deepEqual(english.SheetNames, ['Summary by destination', 'Dispatched trucks']);
+  assert.equal(english.Sheets['Dispatched trucks'].A1.v, 'Dispatch date');
+  assert.equal(english.Sheets['Dispatched trucks'].B2.v, 'Shipment date from order');
+  assert.ok(Object.values(english.Sheets['Summary by destination']).some(cell => (cell as XLSX.CellObject).v === 'Not specified → Астана'));
+  const farsi = XLSX.read(XLSX.write(regionalReportWorkbook(report, {}, 'fa'), { type: 'buffer', bookType: 'xlsx' }));
+  assert.deepEqual(farsi.SheetNames, ['خلاصه بر اساس مسیر', 'کامیون‌های ارسال‌شده']);
+  assert.equal(farsi.Sheets['کامیون‌های ارسال‌شده'].A2.v, '۲۰۲۶/۰۹/۱۵');
+  assert.equal(farsi.Workbook?.Views?.[0]?.RTL, true);
 });

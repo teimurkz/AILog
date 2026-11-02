@@ -5,6 +5,8 @@ import { ordersApi } from '../services/api';
 import { mergeOrderGps, type GpsDocument } from '../../shared/gps-projection';
 import { RegionalTruckOrder, RegionalOrderStatus } from '../types';
 import type { StatusChangeOptions } from '../../shared/regional-order-status';
+import { useSectionText } from '../i18n/useSectionText';
+import { REGIONAL_TEXT } from '../components/regional/regional-i18n';
 
 export const playNotificationSound = () => {
   try {
@@ -67,6 +69,10 @@ export const useRegionalOrders = () => {
   const [revision, setRevision] = useState(0);
   const retry = useCallback(() => setRevision(value => value + 1), []);
   const [lastNewOrderAlert, setLastNewOrderAlert] = useState<RegionalTruckOrder | null>(null);
+  const { text } = useSectionText(REGIONAL_TEXT);
+  // Read through a ref so a language switch does not restart the subscription.
+  const textRef = useRef(text);
+  textRef.current = text;
   const knownOrderIdsRef = useRef<Set<string>>(new Set());
   const initialLoadDoneRef = useRef(false);
 
@@ -87,7 +93,7 @@ export const useRegionalOrders = () => {
       if (initialLoadDoneRef.current) for (const order of list) {
         if (!knownOrderIdsRef.current.has(order.id)) {
           playNotificationSound();
-          triggerBrowserPush(`Новая заявка ${order.orderNumber}`, `Город: ${order.destinationCity}`);
+          triggerBrowserPush(textRef.current.push.newOrder(order.orderNumber), textRef.current.push.city(order.destinationCity));
           setLastNewOrderAlert(order);
         }
       }
@@ -107,7 +113,7 @@ export const useRegionalOrders = () => {
           if (!cancelled) { publish(list); setError(null); setLoading(false); }
         }
       } catch (error) {
-        if (!cancelled) { setError(error instanceof Error ? error.message : 'Не удалось загрузить заявки из Firebase.'); setLoading(false); }
+        if (!cancelled) { setError(error instanceof Error ? error.message : textRef.current.push.loadFailed); setLoading(false); }
       } finally {
         fetching = false;
         if (!cancelled) timer = setTimeout(() => void load(), 20000);

@@ -1,5 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useSectionText } from '../../i18n/useSectionText';
+import { REGIONAL_TEXT } from './regional-i18n';
 
 interface ExpandableMapProps {
   height: string;
@@ -7,6 +9,7 @@ interface ExpandableMapProps {
 }
 
 export function ExpandableMap({ height, children }: ExpandableMapProps) {
+  const { text, isRTL } = useSectionText(REGIONAL_TEXT);
   const [expanded, setExpanded] = useState(false);
   const [content] = useState(() => {
     const element = document.createElement('div');
@@ -41,7 +44,7 @@ export function ExpandableMap({ height, children }: ExpandableMapProps) {
   return <>
     <div ref={inlineRef} className={`relative w-full ${height} overflow-hidden rounded-2xl border border-slate-700 shadow-inner`} />
     {createPortal(
-      <dialog ref={dialogRef} aria-label="Карта рейса на весь экран"
+      <dialog ref={dialogRef} aria-label={text.mapView.fullscreenAria} dir={isRTL ? 'rtl' : 'ltr'}
         onCancel={event => { event.preventDefault(); setExpanded(false); }}
         onClose={() => { if (!dialogRef.current?.open) setExpanded(false); }}
         style={{ position: 'fixed', inset: 0, margin: 0, padding: 0, border: 0,

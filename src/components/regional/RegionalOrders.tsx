@@ -47,45 +47,42 @@ import { RegionalOrdersReport } from './RegionalOrdersReport';
 import { generateWhatsAppLink, buildWhatsAppStatusMessage } from '../../utils/whatsapp';
 import { buildRegionalOrderEdit } from '../../utils/regional-order-edit';
 import { isClosedRegionalOrder } from '../../../shared/regional-order-status';
+import { useSectionText } from '../../i18n/useSectionText';
+import { REGIONAL_TEXT, formatRegionalDay } from './regional-i18n';
 
-const STATUS_CONFIG: Record<RegionalOrderStatus, { label: string; bg: string; text: string; border: string; icon: React.FC<{ className?: string }> }> = {
+// Status names come from REGIONAL_TEXT.status.
+const STATUS_CONFIG: Record<RegionalOrderStatus, { bg: string; text: string; border: string; icon: React.FC<{ className?: string }> }> = {
   new: {
-    label: 'Новая заявка',
     bg: 'bg-amber-50 dark:bg-amber-950/50',
     text: 'text-amber-700 dark:text-amber-300',
     border: 'border-amber-200 dark:border-amber-800',
     icon: BellRing,
   },
   assigned: {
-    label: 'Назначена фура',
     bg: 'bg-blue-50 dark:bg-blue-950/50',
     text: 'text-blue-700 dark:text-blue-300',
     border: 'border-blue-200 dark:border-blue-800',
     icon: Truck,
   },
   loading: {
-    label: 'На погрузке',
     bg: 'bg-indigo-50 dark:bg-indigo-950/50',
     text: 'text-indigo-700 dark:text-indigo-300',
     border: 'border-indigo-200 dark:border-indigo-800',
     icon: Package,
   },
   dispatched: {
-    label: 'В пути в регион',
     bg: 'bg-emerald-50 dark:bg-emerald-950/50',
     text: 'text-emerald-700 dark:text-emerald-300',
     border: 'border-emerald-200 dark:border-emerald-800',
     icon: Clock,
   },
   delivered: {
-    label: 'Доставлено',
     bg: 'bg-slate-100 dark:bg-slate-800',
     text: 'text-slate-700 dark:text-slate-300',
     border: 'border-slate-200 dark:border-slate-700',
     icon: CheckCircle2,
   },
   cancelled: {
-    label: 'Отменено',
     bg: 'bg-red-50 dark:bg-red-950/50',
     text: 'text-red-700 dark:text-red-300',
     border: 'border-red-200 dark:border-red-800',
@@ -95,6 +92,10 @@ const STATUS_CONFIG: Record<RegionalOrderStatus, { label: string; bg: string; te
 
 export const RegionalOrders: React.FC = () => {
   const { t } = useLanguage();
+  const { text, language, locale } = useSectionText(REGIONAL_TEXT);
+  const o = text.orders;
+  const day = (value: string) => formatRegionalDay(value, locale);
+  const count = (value: number) => value.toLocaleString(locale);
   const { user, isAdmin, isLogistics } = useAuth();
   const { 
     orders, 
@@ -140,22 +141,22 @@ export const RegionalOrders: React.FC = () => {
     if (selectedOrderIds.length === 0) return;
     try {
       await Promise.all(selectedOrderIds.map(id => updateOrderStatus(id, newStatus)));
-      showSuccess(`Обновлен статус для ${selectedOrderIds.length} заказов!`);
+      showSuccess(o.bulkStatusUpdated(selectedOrderIds.length));
       setSelectedOrderIds([]);
     } catch (e: any) {
-      showError(e.message || 'Ошибка обновления статусов');
+      showError(e.message || o.bulkStatusFailed);
     }
   };
 
   const handleBulkDelete = async () => {
     if (selectedOrderIds.length === 0) return;
-    if (!confirm(`Вы действительно хотите удалить выбранные (${selectedOrderIds.length}) заявки?`)) return;
+    if (!confirm(o.confirmBulkDelete(selectedOrderIds.length))) return;
     try {
       await Promise.all(selectedOrderIds.map(id => deleteOrder(id)));
-      showSuccess(`Удалено ${selectedOrderIds.length} заказов`);
+      showSuccess(o.bulkDeleted(selectedOrderIds.length));
       setSelectedOrderIds([]);
     } catch (e: any) {
-      showError(e.message || 'Ошибка удаления заказов');
+      showError(e.message || o.bulkDeleteFailed);
     }
   };
 
@@ -211,7 +212,7 @@ export const RegionalOrders: React.FC = () => {
     setPushPermission('granted');
 
     // 3. Show clear toast alert
-    setNotificationToast('🔔 Пуш-уведомления и звуковое оповещение логистики включены! При создании новых заявок вы услышите сигнал.');
+    setNotificationToast(o.pushEnabledToast);
     setTimeout(() => setNotificationToast(null), 6000);
 
     // 4. Try native browser push permission
@@ -220,8 +221,8 @@ export const RegionalOrders: React.FC = () => {
         const res = await Notification.requestPermission();
         if (res === 'granted') {
           triggerBrowserPush(
-            '🔔 Пуш-уведомления логистики включены!',
-            'Вы будете мгновенно получать уведомления при размещении новых заявок на фуры.'
+            o.pushEnabledTitle,
+            o.pushEnabledBody
           );
         }
       }
@@ -276,9 +277,9 @@ export const RegionalOrders: React.FC = () => {
       const updates = buildRegionalOrderEdit(editingOrder, { status: editStatus, assignedTruckPlate, assignedDriver });
       if (Object.keys(updates).length) await updateOrder(editingOrder.id, updates);
       setEditingOrder(null);
-      showSuccess('Изменения заявки сохранены.');
+      showSuccess(o.editSaved);
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Не удалось сохранить изменения заявки.';
+      const message = e instanceof Error ? e.message : o.editSaveFailed;
       setEditError(message);
       showError(message);
     } finally {
@@ -331,10 +332,10 @@ export const RegionalOrders: React.FC = () => {
               </div>
               <div>
                 <p className="font-bold text-sm">
-                  🚚 Новая заявка на фуру в город {lastNewOrderAlert.destinationCity}!
+                  {o.newOrderAlert(lastNewOrderAlert.destinationCity)}
                 </p>
                 <p className="text-xs text-amber-100">
-                  {lastNewOrderAlert.invoiceNumber} • Дата отправки: {lastNewOrderAlert.shipmentDate} • Менеджер: {lastNewOrderAlert.managerName}
+                  {lastNewOrderAlert.invoiceNumber} • {o.alertDetails(day(lastNewOrderAlert.shipmentDate), lastNewOrderAlert.managerName)}
                 </p>
               </div>
             </div>
@@ -346,7 +347,7 @@ export const RegionalOrders: React.FC = () => {
                 }}
                 className="px-3 py-1.5 bg-white text-orange-600 rounded-xl font-bold text-xs shadow hover:bg-orange-50 transition-colors"
               >
-                Посмотреть
+                {o.viewAlert}
               </button>
               <button
                 onClick={dismissAlert}
@@ -368,16 +369,16 @@ export const RegionalOrders: React.FC = () => {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
-                Заказ машин в регионы
+                {o.title}
               </h2>
               {newCount > 0 && (
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-white">
-                  {newCount} новых
+                  {o.newBadge(newCount)}
                 </span>
               )}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Заявки регионального отдела для оперативной подачи фур под погрузку
+              {o.subtitle}
             </p>
           </div>
         </div>
@@ -389,35 +390,35 @@ export const RegionalOrders: React.FC = () => {
             <button
               onClick={requestPushPermission}
               className="px-3.5 py-2 text-xs font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl hover:bg-amber-100 transition-colors flex items-center gap-1.5 active:scale-95 shadow-sm"
-              title="Нажмите, чтобы активировать алерты и звуковые оповещения о заявках"
+              title={o.enablePushTitle}
             >
               <Bell className="w-4 h-4 text-amber-500 animate-pulse" />
-              <span>Включить Пуш-уведомления</span>
+              <span>{o.enablePush}</span>
             </button>
           ) : (
             <div className="flex items-center gap-2">
               <div className="px-3 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl flex items-center gap-1.5">
                 <Bell className="w-4 h-4 text-emerald-500" />
-                <span>🔔 Пуш-уведомления активны</span>
+                <span>{o.pushActive}</span>
               </div>
               <button
                 onClick={() => {
                   playNotificationSound();
-                  setNotificationToast('🔊 Звуковой сигнал оповещения проверен!');
+                  setNotificationToast(o.soundChecked);
                   setTimeout(() => setNotificationToast(null), 3000);
                 }}
                 className="px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 rounded-xl transition-colors flex items-center gap-1.5"
-                title="Проверить звуковой сигнал"
+                title={o.testSoundTitle}
               >
                 <Volume2 className="w-4 h-4 text-blue-500" />
-                <span>Проверить звук</span>
+                <span>{o.testSound}</span>
               </button>
             </div>
           )}
 
           <button type="button" onClick={() => setReportOpen(true)}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
-            <FileSpreadsheet className="h-4 w-4 text-blue-600" />Отчёт по отправкам
+            <FileSpreadsheet className="h-4 w-4 text-blue-600" />{o.report}
           </button>
           {/* New Order Button */}
           <button
@@ -425,7 +426,7 @@ export const RegionalOrders: React.FC = () => {
             className="px-5 py-2.5 bg-blue-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2 active:scale-95"
           >
             <Plus className="w-4 h-4" />
-            <span>+ Заказать фуру в регион</span>
+            <span>{o.orderTruck}</span>
           </button>
         </div>
       </div>
@@ -438,10 +439,10 @@ export const RegionalOrders: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Всего заявок
+              {o.totalOrders}
             </p>
             <p className="text-xl font-bold text-slate-900 dark:text-white">
-              {totalCount}
+              {count(totalCount)}
             </p>
           </div>
         </div>
@@ -452,10 +453,10 @@ export const RegionalOrders: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Новые (Требуют фуру)
+              {o.newNeedTruck}
             </p>
             <p className="text-xl font-bold text-amber-600 dark:text-amber-400">
-              {newCount}
+              {count(newCount)}
             </p>
           </div>
         </div>
@@ -466,10 +467,10 @@ export const RegionalOrders: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              На погрузке / Поиск
+              {o.loadingSearch}
             </p>
             <p className="text-xl font-bold text-indigo-600 dark:text-indigo-400">
-              {activeCount}
+              {count(activeCount)}
             </p>
           </div>
         </div>
@@ -480,10 +481,10 @@ export const RegionalOrders: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              В пути в регионы
+              {o.inTransit}
             </p>
             <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
-              {dispatchedCount}
+              {count(dispatchedCount)}
             </p>
           </div>
         </div>
@@ -502,11 +503,11 @@ export const RegionalOrders: React.FC = () => {
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              Все статусы ({totalCount})
+              {o.allStatuses(totalCount)}
             </button>
 
             {(Object.keys(STATUS_CONFIG) as RegionalOrderStatus[]).map((st) => {
-              const count = orders.filter(o => o.status === st).length;
+              const statusCount = orders.filter(order => order.status === st).length;
               const cfg = STATUS_CONFIG[st];
               return (
                 <button
@@ -519,9 +520,9 @@ export const RegionalOrders: React.FC = () => {
                   }`}
                 >
                   <span className={`w-2 h-2 rounded-full ${cfg.bg.replace('bg-', 'bg-')}`} />
-                  <span>{cfg.label}</span>
+                  <span>{text.status[st]}</span>
                   <span className="text-[10px] px-1.5 py-0.2 bg-slate-200 dark:bg-slate-700 rounded-full text-slate-700 dark:text-slate-300">
-                    {count}
+                    {count(statusCount)}
                   </span>
                 </button>
               );
@@ -539,7 +540,7 @@ export const RegionalOrders: React.FC = () => {
               }`}
             >
               <List className="w-4 h-4" />
-              <span>Таблица</span>
+              <span>{o.table}</span>
             </button>
             <button
               onClick={() => setViewMode('kanban')}
@@ -550,7 +551,7 @@ export const RegionalOrders: React.FC = () => {
               }`}
             >
               <LayoutGrid className="w-4 h-4" />
-              <span>Канбан Доска</span>
+              <span>{o.kanban}</span>
             </button>
           </div>
         </div>
@@ -558,13 +559,13 @@ export const RegionalOrders: React.FC = () => {
         {/* Search & City Dropdown */}
         <div className="flex flex-col sm:flex-row items-center gap-3">
           <div className="relative flex-1 w-full">
-            <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+            <Search className="w-4 h-4 absolute start-3.5 top-3 text-slate-400" />
             <input
               type="text"
-              placeholder="Поиск по городу, накладной, менеджеру, гос. номеру авто..."
+              placeholder={o.searchPlaceholder}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white"
+              className="w-full ps-10 pe-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white"
             />
           </div>
 
@@ -574,7 +575,7 @@ export const RegionalOrders: React.FC = () => {
               onChange={(e) => setSelectedCityFilter(e.target.value)}
               className="w-full sm:w-48 px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white"
             >
-              <option value="all">Все города ({uniqueCities.length})</option>
+              <option value="all">{o.allCities(uniqueCities.length)}</option>
               {uniqueCities.map(city => (
                 <option key={city} value={city}>{city}</option>
               ))}
@@ -588,30 +589,30 @@ export const RegionalOrders: React.FC = () => {
         <div className="bg-white dark:bg-slate-800 rounded-2xl p-12 text-center border border-slate-200 dark:border-slate-700">
           <Truck className="w-8 h-8 text-blue-500 animate-bounce mx-auto mb-3" />
           <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">
-            Загрузка заявок на фуры в регионы...
+            {o.loadingOrders}
           </p>
         </div>
       ) : filteredOrders.length === 0 ? (
         <div className="bg-white dark:bg-slate-800 rounded-2xl p-12 text-center border border-slate-200 dark:border-slate-700">
           <Truck className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
           <h3 className="text-base font-bold text-slate-900 dark:text-white">
-            Заявок не найдено
+            {o.noOrders}
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
-            По заданным фильтрам нет заявок на перевозку. Нажмите кнопку «Заказать фуру в регион», чтобы создать новую заявку.
+            {o.noOrdersHint}
           </p>
           <button
             onClick={() => setIsModalOpen(true)}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:bg-blue-700 transition-colors"
           >
-            + Создать первую заявку
+            {o.createFirst}
           </button>
         </div>
       ) : viewMode === 'table' ? (
         /* TABLE VIEW */
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm overflow-hidden">
           <div className="min-w-0">
-            <ResponsiveTable className="w-full text-left border-collapse">
+            <ResponsiveTable className="w-full text-start border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-700/60 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                   <th className="py-3.5 px-3 w-10 text-center">
@@ -622,13 +623,13 @@ export const RegionalOrders: React.FC = () => {
                       className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                     />
                   </th>
-                  <th className="py-3.5 px-4">№ Заявки</th>
-                  <th className="py-3.5 px-4">Дата отгрузки</th>
-                  <th className="py-3.5 px-4">Направление</th>
-                  <th className="py-3.5 px-4">Накладная / Документ</th>
-                  <th className="py-3.5 px-4">Менеджер регионов</th>
-                  <th className="py-3.5 px-4">Статус / Назначенный авто</th>
-                  <th className="py-3.5 px-4 text-center">Действия</th>
+                  <th className="py-3.5 px-4">{o.columns.orderNo}</th>
+                  <th className="py-3.5 px-4">{o.columns.shipmentDate}</th>
+                  <th className="py-3.5 px-4">{o.columns.direction}</th>
+                  <th className="py-3.5 px-4">{o.columns.invoice}</th>
+                  <th className="py-3.5 px-4">{o.columns.manager}</th>
+                  <th className="py-3.5 px-4">{o.columns.statusTruck}</th>
+                  <th className="py-3.5 px-4 text-center">{o.columns.actions}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700/60 text-xs">
@@ -658,7 +659,7 @@ export const RegionalOrders: React.FC = () => {
                           <FileText className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                           <span>{order.orderNumber}</span>
                           {order.status === 'new' && (
-                            <span className="w-2 h-2 shrink-0 rounded-full bg-amber-500" title="Новая заявка" />
+                            <span className="w-2 h-2 shrink-0 rounded-full bg-amber-500" title={text.status.new} />
                           )}
                         </div>
                       </td>
@@ -667,7 +668,7 @@ export const RegionalOrders: React.FC = () => {
                       <td className="py-3.5 px-4">
                         <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 font-bold border border-amber-200/80 dark:border-amber-800/80 text-xs whitespace-nowrap">
                           <Calendar className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                          <span>{order.shipmentDate}</span>
+                          <span>{day(order.shipmentDate)}</span>
                         </div>
                       </td>
 
@@ -677,8 +678,8 @@ export const RegionalOrders: React.FC = () => {
                           <MapPin className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                           <span>{order.destinationCity}</span>
                           {order.deliveryPoints && order.deliveryPoints.length > 1 && (
-                            <span className="ml-1 px-1.5 py-0.2 bg-emerald-600 text-white text-[10px] rounded-md font-bold">
-                              {order.deliveryPoints.length} точки
+                            <span className="ms-1 px-1.5 py-0.2 bg-emerald-600 text-white text-[10px] rounded-md font-bold">
+                              {o.pointsCount(order.deliveryPoints.length)}
                             </span>
                           )}
                         </div>
@@ -703,7 +704,7 @@ export const RegionalOrders: React.FC = () => {
                           <span>{order.invoiceNumber}</span>
                           {order.invoices && order.invoices.length > 1 && (
                             <span className="px-1.5 py-0.2 bg-purple-600 text-white text-[10px] rounded-md font-bold">
-                              {order.invoices.length} накладных
+                              {o.invoicesCount(order.invoices.length)}
                             </span>
                           )}
                         </div>
@@ -711,7 +712,7 @@ export const RegionalOrders: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setActiveInvoicePreview({
-                            title: `Заявка: ${order.invoiceNumber}`,
+                            title: text.common.orderTitle(order.invoiceNumber),
                             orderNumber: order.orderNumber,
                             invoiceNumber: order.invoiceNumber,
                             destinationCity: order.destinationCity,
@@ -736,7 +737,7 @@ export const RegionalOrders: React.FC = () => {
                           className="mt-1 text-[11px] font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1"
                         >
                           <Eye className="w-3.5 h-3.5 text-purple-500" />
-                          <span>Просмотр накладных</span>
+                          <span>{text.common.viewInvoices}</span>
                         </button>
                       </td>
 
@@ -759,12 +760,12 @@ export const RegionalOrders: React.FC = () => {
                         <div className="flex items-center flex-wrap gap-1">
                           <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold ${cfg.bg} ${cfg.text} ${cfg.border} border`}>
                             <StatusIcon className="w-3.5 h-3.5" />
-                            <span>{cfg.label}</span>
+                            <span>{text.status[order.status] || text.status.new}</span>
                           </div>
                           {isAdmin && order.status === 'dispatched' && order.hasRealGps && order.isTrackingActive && (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 animate-pulse">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                              <span>GPS онлайн</span>
+                              <span>{o.gpsOnline}</span>
                             </span>
                           )}
                         </div>
@@ -773,10 +774,10 @@ export const RegionalOrders: React.FC = () => {
                           <div className="text-[11px] font-bold text-slate-800 dark:text-slate-200 mt-1 flex flex-col gap-0.5">
                             <div className="flex items-center gap-1">
                               <Truck className="w-3.5 h-3.5 text-emerald-500" />
-                              <span>Гос. №: {order.assignedTruckPlate}</span>
+                              <span>{o.plate(order.assignedTruckPlate)}</span>
                             </div>
                             {order.assignedDriver && (
-                              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal pl-4">
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal ps-4">
                                 {order.assignedDriver}
                               </span>
                             )}
@@ -784,23 +785,23 @@ export const RegionalOrders: React.FC = () => {
                         ) : order.assignedDriver ? (
                           <div className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 mt-1 flex items-center gap-1">
                             <Truck className="w-3.5 h-3.5 text-blue-500" />
-                            <span>Водитель: {order.assignedDriver}</span>
+                            <span>{text.common.driver(order.assignedDriver)}</span>
                           </div>
                         ) : order.status === 'new' ? (
                           <div className="text-[10px] text-amber-600 dark:text-amber-400 mt-1 font-medium">
-                            Ожидает назначения авто
+                            {o.awaitingTruck}
                           </div>
                         ) : order.status === 'cancelled' ? (
                           <div className="text-[10px] text-red-500 dark:text-red-400 mt-1 font-medium">
-                            Заявка отменена
+                            {o.orderCancelled}
                           </div>
                         ) : order.status === 'delivered' ? (
                           <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium">
-                            Рейс успешно завершен
+                            {o.tripCompleted}
                           </div>
                         ) : (
                           <div className="text-[10px] text-blue-600 dark:text-blue-400 mt-1 font-medium">
-                            Автотранспорт назначен
+                            {o.truckAssigned}
                           </div>
                         )}
                       </td>
@@ -811,19 +812,20 @@ export const RegionalOrders: React.FC = () => {
                           {isAdmin && <button
                             onClick={() => setSelectedMapOrder(order)}
                             className="px-2 py-1 text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1"
-                            title="Открыть карту маршрута и GPS трэкинг водителя"
+                            title={o.openMapTitle}
                           >
                             <Map className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                            <span>Карта & GPS</span>
+                            <span>{text.common.mapGps}</span>
                           </button>}
 
                           {order.recipientPhone && (
                             <a
-                              href={generateWhatsAppLink(order.recipientPhone, buildWhatsAppStatusMessage(order))}
+                              href={generateWhatsAppLink(order.recipientPhone, buildWhatsAppStatusMessage(order, language))}
                               target="_blank"
                               rel="noreferrer"
                               className="px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 rounded-lg transition-colors flex items-center gap-1"
-                              title="Отправить статус в WhatsApp"
+                              title={o.sendWhatsAppTitle}
+                              aria-label={o.sendWhatsAppTitle}
                             >
                               <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
                               <span className="hidden xl:inline">WhatsApp</span>
@@ -833,21 +835,22 @@ export const RegionalOrders: React.FC = () => {
                           <button
                             onClick={() => handleOpenEdit(order)}
                             className="px-2.5 py-1 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1"
-                            title="Управлять статусом и назначить фуру"
+                            title={o.manageTitle}
                           >
                             <Edit3 className="w-3.5 h-3.5" />
-                            <span>Логистика</span>
+                            <span>{o.logistics}</span>
                           </button>
 
                           {canDeleteOrder(order) && (
                             <button
                               onClick={() => {
-                                if (confirm(`Удалить заявку ${order.orderNumber}?`)) {
+                                if (confirm(text.common.confirmDeleteOrder(order.orderNumber))) {
                                   deleteOrder(order.id);
                                 }
                               }}
                               className="p-1 text-slate-400 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                              title="Удалить заявку"
+                              title={text.common.deleteOrder}
+                              aria-label={text.common.deleteOrder}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -877,7 +880,7 @@ export const RegionalOrders: React.FC = () => {
                 <div className={`p-2.5 rounded-xl ${cfg.bg} ${cfg.text} ${cfg.border} border mb-3 flex items-center justify-between`}>
                   <div className="flex items-center gap-1.5 font-bold text-xs">
                     <cfg.icon className="w-4 h-4" />
-                    <span>{cfg.label}</span>
+                    <span>{text.status[st]}</span>
                   </div>
                   <span className="px-2 py-0.5 bg-white dark:bg-slate-800 rounded-full text-[11px] font-bold shadow-xs">
                     {columnOrders.length}
@@ -897,7 +900,7 @@ export const RegionalOrders: React.FC = () => {
                         </span>
                         <span className="px-2 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 font-bold text-[10px] flex items-center gap-1 border border-amber-200/80 dark:border-amber-800/80">
                           <Calendar className="w-3 h-3 text-amber-500" />
-                          {order.shipmentDate}
+                          {day(order.shipmentDate)}
                         </span>
                       </div>
 
@@ -937,14 +940,14 @@ export const RegionalOrders: React.FC = () => {
 
                       {order.assignedTruckPlate && (
                         <div className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 p-1.5 rounded-lg">
-                          🚛 Фура: {order.assignedTruckPlate}
+                          {o.truck(order.assignedTruckPlate)}
                         </div>
                       )}
 
                       <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between">
                         <button
                           onClick={() => setActiveInvoicePreview({
-                            title: `Заявка: ${order.invoiceNumber}`,
+                            title: text.common.orderTitle(order.invoiceNumber),
                             orderNumber: order.orderNumber,
                             invoiceNumber: order.invoiceNumber,
                             destinationCity: order.destinationCity,
@@ -969,14 +972,15 @@ export const RegionalOrders: React.FC = () => {
                           className="text-[11px] font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1"
                         >
                           <Eye className="w-3.5 h-3.5 text-purple-500" />
-                          <span>Просмотр накладных</span>
+                          <span>{text.common.viewInvoices}</span>
                         </button>
 
-                        <div className="ml-auto flex items-center gap-1">
+                        <div className="ms-auto flex items-center gap-1">
                           {isAdmin && <button
                             onClick={() => setSelectedMapOrder(order)}
                             className="p-1 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 rounded-lg transition-colors"
-                            title="Карта & GPS"
+                            title={text.common.mapGps}
+                            aria-label={text.common.mapGps}
                           >
                             <Map className="w-3.5 h-3.5" />
                           </button>}
@@ -984,12 +988,13 @@ export const RegionalOrders: React.FC = () => {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (confirm(`Удалить заявку ${order.orderNumber}?`)) {
+                                if (confirm(text.common.confirmDeleteOrder(order.orderNumber))) {
                                   deleteOrder(order.id);
                                 }
                               }}
                               className="p-1 text-slate-400 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                              title="Удалить заявку"
+                              title={text.common.deleteOrder}
+                              aria-label={text.common.deleteOrder}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -998,7 +1003,7 @@ export const RegionalOrders: React.FC = () => {
                             onClick={() => handleOpenEdit(order)}
                             className="px-2.5 py-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 rounded-lg hover:bg-blue-100 transition-colors"
                           >
-                            Управлять
+                            {o.manage}
                           </button>
                         </div>
                       </div>
@@ -1039,7 +1044,7 @@ export const RegionalOrders: React.FC = () => {
                       {activeInvoicePreview.title}
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Заявка № {activeInvoicePreview.orderNumber} • Город назначения: <strong>{activeInvoicePreview.destinationCity}</strong>
+                      {text.common.orderNo} {activeInvoicePreview.orderNumber} • {o.destinationCity} <strong>{activeInvoicePreview.destinationCity}</strong>
                     </p>
                   </div>
                 </div>
@@ -1061,20 +1066,20 @@ export const RegionalOrders: React.FC = () => {
                           }
                         }}
                         className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5"
-                        title="Открыть документ в отдельной вкладке браузера"
+                        title={o.openInTabTitle}
                       >
                         <ExternalLink className="w-3.5 h-3.5 text-blue-500" />
-                        <span className="hidden sm:inline"> В отдельной вкладке</span>
+                        <span className="hidden sm:inline"> {o.inNewTab}</span>
                       </button>
 
                       <a
                         href={activeInvoicePreview.fileData}
                         download={activeInvoicePreview.fileName || `${activeInvoicePreview.invoiceNumber}.pdf`}
                         className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 shadow-sm"
-                        title="Скачать файл"
+                        title={o.downloadFileTitle}
                       >
                         <Download className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline"> Скачать</span>
+                        <span className="hidden sm:inline"> {text.common.download}</span>
                       </a>
                     </>
                   )}
@@ -1086,7 +1091,7 @@ export const RegionalOrders: React.FC = () => {
                       className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 shadow-sm"
                     >
                       <Printer className="w-3.5 h-3.5" />
-                      <span>Печать</span>
+                      <span>{o.print}</span>
                     </button>
                   )}
 
@@ -1130,57 +1135,57 @@ export const RegionalOrders: React.FC = () => {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-300 dark:border-slate-700 pb-4">
                     <div>
                       <h2 className="text-lg font-black tracking-tight text-blue-900 dark:text-blue-300">
-                        ТОО «LOGISTICS REGIONS KAZAKHSTAN»
+                        {o.docCompany}
                       </h2>
-                      <p className="text-xs text-slate-500">Департамент междугородней и региональной логистики</p>
+                      <p className="text-xs text-slate-500">{o.docDepartment}</p>
                     </div>
-                    <div className="sm:text-right">
+                    <div className="sm:text-end">
                       <div className="inline-block px-3 py-1 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 text-xs font-bold rounded-lg border border-purple-200">
-                        Электронная спецификация
+                        {o.docSpec}
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-1">Дата подачи: {activeInvoicePreview.shipmentDate}</p>
+                      <p className="text-[11px] text-slate-400 mt-1">{o.docSubmitted(day(activeInvoicePreview.shipmentDate))}</p>
                     </div>
                   </div>
 
                   <div className="text-center py-2 border-b border-slate-200 dark:border-slate-800">
                     <h3 className="text-lg sm:text-xl font-black uppercase text-slate-800 dark:text-white tracking-wider">
-                      ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ (ЗАЯВКА НА ФУРУ)
+                      {o.docHeading}
                     </h3>
                     <p className="text-sm font-bold text-purple-600 dark:text-purple-400 mt-0.5">
-                      {activeInvoicePreview.invoiceNumber} (Заявка № {activeInvoicePreview.orderNumber})
+                      {activeInvoicePreview.invoiceNumber} ({text.common.orderNo} {activeInvoicePreview.orderNumber})
                     </p>
                   </div>
 
                   {/* Details Grid */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                     <div className="p-3.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1.5">
-                      <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Маршрут доставки</p>
+                      <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">{o.docRoute}</p>
                       <p className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 text-sm">
                         <span>Алматы</span>
-                        <ArrowRight className="w-3.5 h-3.5 text-blue-500" />
+                        <ArrowRight className="w-3.5 h-3.5 text-blue-500 rtl:rotate-180" />
                         <span className="text-blue-600 dark:text-blue-400">{activeInvoicePreview.destinationCity}</span>
                       </p>
-                      <p className="text-slate-500">Дата отправки авто: <strong>{activeInvoicePreview.shipmentDate}</strong></p>
+                      <p className="text-slate-500">{o.docTruckDate} <strong>{day(activeInvoicePreview.shipmentDate)}</strong></p>
                     </div>
 
                     <div className="p-3.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1.5">
-                      <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Параметры автотранспорта</p>
+                      <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">{o.docTransport}</p>
                       <p className="font-bold text-slate-900 dark:text-white text-sm">{activeInvoicePreview.truckType}</p>
-                      <p className="text-slate-500">Объем / Вес: <strong>{activeInvoicePreview.palletsCount || '—'} • {activeInvoicePreview.weight || '—'}</strong></p>
+                      <p className="text-slate-500">{o.docVolumeWeight} <strong>{activeInvoicePreview.palletsCount || '—'} • {activeInvoicePreview.weight || '—'}</strong></p>
                     </div>
 
                     <div className="p-3.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1.5">
-                      <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Описание груза</p>
-                      <p className="font-semibold text-slate-800 dark:text-slate-200">{activeInvoicePreview.cargoDescription || 'Молочная и сырная продукция'}</p>
+                      <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">{o.docCargo}</p>
+                      <p className="font-semibold text-slate-800 dark:text-slate-200">{activeInvoicePreview.cargoDescription || o.docDefaultCargo}</p>
                       {activeInvoicePreview.comments && (
-                        <p className="text-slate-500 italic">Примечание: {activeInvoicePreview.comments}</p>
+                        <p className="text-slate-500 italic">{o.docNote} {activeInvoicePreview.comments}</p>
                       )}
                     </div>
 
                     <div className="p-3.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1.5">
-                      <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Ответственный менеджер</p>
+                      <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">{o.docManager}</p>
                       <p className="font-bold text-slate-900 dark:text-white">{activeInvoicePreview.managerName}</p>
-                      <p className="text-slate-500">Телефон: {activeInvoicePreview.managerPhone || 'Не указан'}</p>
+                      <p className="text-slate-500">{text.common.phone(activeInvoicePreview.managerPhone || text.common.notSpecified)}</p>
                     </div>
                   </div>
 
@@ -1188,7 +1193,7 @@ export const RegionalOrders: React.FC = () => {
                   <div className="p-4 bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 rounded-xl space-y-3">
                     <p className="font-bold text-emerald-900 dark:text-emerald-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                       <MapPin className="w-4 h-4 text-emerald-600" />
-                      <span>Адреса выгрузки по заявке ({activeInvoicePreview.deliveryPoints?.length || 1})</span>
+                      <span>{o.docAddresses(activeInvoicePreview.deliveryPoints?.length || 1)}</span>
                     </p>
 
                     {activeInvoicePreview.deliveryPoints && activeInvoicePreview.deliveryPoints.length > 0 ? (
@@ -1202,7 +1207,7 @@ export const RegionalOrders: React.FC = () => {
                               <div>
                                 <p className="font-bold text-slate-900 dark:text-white">{pt.address}</p>
                                 {pt.recipientPhone && (
-                                  <p className="text-slate-500 text-[11px]">Телефон: {pt.recipientPhone} {pt.recipientName ? `(${pt.recipientName})` : ''}</p>
+                                  <p className="text-slate-500 text-[11px]">{text.common.phone(pt.recipientPhone)} {pt.recipientName ? `(${pt.recipientName})` : ''}</p>
                                 )}
                               </div>
                             </div>
@@ -1216,8 +1221,8 @@ export const RegionalOrders: React.FC = () => {
                       </div>
                     ) : (
                       <div className="p-2.5 bg-white dark:bg-slate-800 rounded-lg border border-emerald-100 dark:border-emerald-900 text-xs">
-                        <p className="font-bold text-slate-900 dark:text-white">{activeInvoicePreview.deliveryAddress || 'Не указан'}</p>
-                        <p className="text-slate-500 text-[11px]">Телефон: {activeInvoicePreview.recipientPhone || 'Не указан'}</p>
+                        <p className="font-bold text-slate-900 dark:text-white">{activeInvoicePreview.deliveryAddress || text.common.notSpecified}</p>
+                        <p className="text-slate-500 text-[11px]">{text.common.phone(activeInvoicePreview.recipientPhone || text.common.notSpecified)}</p>
                       </div>
                     )}
                   </div>
@@ -1226,7 +1231,7 @@ export const RegionalOrders: React.FC = () => {
                   <div className="p-4 bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/60 rounded-xl space-y-3">
                     <p className="font-bold text-purple-900 dark:text-purple-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                       <FileText className="w-4 h-4 text-purple-600" />
-                      <span>Накладные и прикрепленные файлы ({activeInvoicePreview.invoices?.length || 1})</span>
+                      <span>{o.docInvoices(activeInvoicePreview.invoices?.length || 1)}</span>
                     </p>
 
                     {activeInvoicePreview.invoices && activeInvoicePreview.invoices.length > 0 ? (
@@ -1260,7 +1265,7 @@ export const RegionalOrders: React.FC = () => {
                                   className="px-2.5 py-1 bg-purple-100 dark:bg-purple-900/60 hover:bg-purple-200 text-purple-800 dark:text-purple-200 text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1"
                                 >
                                   <Eye className="w-3 h-3 text-purple-600" />
-                                  <span>Просмотр</span>
+                                  <span>{text.common.view}</span>
                                 </button>
                                 <a
                                   href={inv.fileData}
@@ -1268,7 +1273,7 @@ export const RegionalOrders: React.FC = () => {
                                   className="px-2.5 py-1 bg-purple-600 text-white text-[11px] font-bold rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-1"
                                 >
                                   <Download className="w-3 h-3" />
-                                  <span>Скачать</span>
+                                  <span>{text.common.download}</span>
                                 </a>
                               </div>
                             )}
@@ -1286,14 +1291,14 @@ export const RegionalOrders: React.FC = () => {
                     <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl flex items-center justify-between text-xs">
                       <div>
                         <p className="font-bold text-emerald-800 dark:text-emerald-300">
-                          Назначенный автотранспорт: {activeInvoicePreview.assignedTruckPlate}
+                          {o.docAssignedTransport(activeInvoicePreview.assignedTruckPlate)}
                         </p>
                         {activeInvoicePreview.assignedDriver && (
-                          <p className="text-emerald-600 dark:text-emerald-400">Водитель: {activeInvoicePreview.assignedDriver}</p>
+                          <p className="text-emerald-600 dark:text-emerald-400">{text.common.driver(activeInvoicePreview.assignedDriver)}</p>
                         )}
                       </div>
                       <span className="px-2.5 py-1 bg-emerald-600 text-white font-bold rounded-lg text-[10px]">
-                        Подтвержден
+                        {o.docConfirmed}
                       </span>
                     </div>
                   )}
@@ -1301,7 +1306,7 @@ export const RegionalOrders: React.FC = () => {
                   {/* Stamp & Verification */}
                   <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
                     <div>
-                      Электронный документ подтвержден ERP-системой логистики
+                      {o.docConfirmedErp}
                     </div>
                     <div className="font-mono text-[10px]">
                       VERIFIED-TTN-{activeInvoicePreview.orderNumber}
@@ -1315,7 +1320,7 @@ export const RegionalOrders: React.FC = () => {
                   onClick={() => setActiveInvoicePreview(null)}
                   className="px-6 py-2.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold transition-colors"
                 >
-                  Закрыть
+                  {text.common.close}
                 </button>
               </div>
             </motion.div>
@@ -1337,7 +1342,7 @@ export const RegionalOrders: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <Truck className="w-5 h-5 text-blue-600" />
                   <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                    Управление заявкой {editingOrder.orderNumber}
+                    {o.manageOrder(editingOrder.orderNumber)}
                   </h3>
                 </div>
                 <button
@@ -1352,22 +1357,22 @@ export const RegionalOrders: React.FC = () => {
               <div className="p-3.5 bg-slate-50 dark:bg-slate-900 rounded-2xl space-y-1.5 text-xs">
                 <p className="font-bold text-slate-900 dark:text-white flex items-center gap-1">
                   <MapPin className="w-3.5 h-3.5 text-blue-500" />
-                  <span>Направление: {editingOrder.destinationCity}</span>
+                  <span>{o.direction(editingOrder.destinationCity)}</span>
                 </p>
                 {editingOrder.deliveryAddress && (
                   <p className="text-slate-700 dark:text-slate-300 font-medium flex items-start gap-1">
                     <MapPin className="w-3.5 h-3.5 text-red-500 mt-0.5 flex-shrink-0" />
-                    <span>Адрес выгрузки: <strong>{editingOrder.deliveryAddress}</strong></span>
+                    <span>{o.unloadAddress} <strong>{editingOrder.deliveryAddress}</strong></span>
                   </p>
                 )}
                 {editingOrder.recipientPhone && (
                   <p className="text-slate-700 dark:text-slate-300 font-medium flex items-center gap-1">
                     <Phone className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
-                    <span>Телефон получателя: <strong>{editingOrder.recipientPhone}</strong></span>
+                    <span>{o.recipientPhone} <strong>{editingOrder.recipientPhone}</strong></span>
                   </p>
                 )}
                 <p className="text-slate-600 dark:text-slate-400">
-                  {editingOrder.invoiceNumber} • Дата: {editingOrder.shipmentDate}
+                  {editingOrder.invoiceNumber} • {o.date(day(editingOrder.shipmentDate))}
                 </p>
                 <p className="text-slate-600 dark:text-slate-400">
                   {editingOrder.truckType} ({editingOrder.palletsCount})
@@ -1378,39 +1383,38 @@ export const RegionalOrders: React.FC = () => {
               <div className="space-y-4">
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                    Статус заявки
+                    {o.orderStatus}
                   </label>
                   <select
                     value={editStatus}
-                    aria-label="Статус заявки"
+                    aria-label={o.orderStatus}
                     disabled={savingEdit || (isClosedRegionalOrder(editingOrder.status) && !isAdmin)}
                     onChange={(e) => setEditStatus(e.target.value as RegionalOrderStatus)}
                     className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white"
                   >
                     {(Object.keys(STATUS_CONFIG) as RegionalOrderStatus[]).map(st => (
-                      <option key={st} value={st}>{STATUS_CONFIG[st].label}</option>
+                      <option key={st} value={st}>{text.status[st]}</option>
                     ))}
                   </select>
                   {isClosedRegionalOrder(editingOrder.status) && (
                     <p className="text-xs text-slate-500">
-                      {isAdmin ? 'Можно исправить статус этой заявки. Для следующей доставки создайте новую заявку.' :
-                        'Исправить статус закрытого рейса может администратор. Данные водителя и машины можно редактировать.'}
+                      {isAdmin ? o.adminCanFix : o.onlyAdminFix}
                     </p>
                   )}
                   {isClosedRegionalOrder(editingOrder.status) && editStatus !== editingOrder.status && !isClosedRegionalOrder(editStatus) && (
                     <p role="status" className="text-xs text-amber-700 dark:text-amber-300">
-                      Заявка вернётся в работу. История GPS сохранится. Для продолжения отслеживания водитель должен снова принять рейс в боте и включить новую трансляцию геопозиции.
+                      {o.reopenNote}
                     </p>
                   )}
                 </div>
 
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                    Гос. номер назначенного авто / фуры
+                    {o.assignedPlate}
                   </label>
                   <input
                     type="text"
-                    placeholder="например: 777 ABC 02 (МАН / Рефрижератор)"
+                    placeholder={o.platePlaceholder}
                     value={assignedTruckPlate}
                     onChange={(e) => setAssignedTruckPlate(e.target.value)}
                     className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white"
@@ -1419,11 +1423,11 @@ export const RegionalOrders: React.FC = () => {
 
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                    ФИО и телефон водителя
+                    {o.driverField}
                   </label>
                   <input
                     type="text"
-                    placeholder="например: Руслан Ахметов (+7 705 111-2233)"
+                    placeholder={o.driverPlaceholder}
                     value={assignedDriver}
                     onChange={(e) => setAssignedDriver(e.target.value)}
                     className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white"
@@ -1438,7 +1442,7 @@ export const RegionalOrders: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      if (confirm(`Удалить заявку ${editingOrder.orderNumber}?`)) {
+                      if (confirm(text.common.confirmDeleteOrder(editingOrder.orderNumber))) {
                         deleteOrder(editingOrder.id);
                         setEditingOrder(null);
                       }
@@ -1446,7 +1450,7 @@ export const RegionalOrders: React.FC = () => {
                     className="px-3.5 py-2 text-xs font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-xl transition-colors flex items-center gap-1.5"
                   >
                     <Trash2 className="w-4 h-4" />
-                    <span>Удалить заявку</span>
+                    <span>{text.common.deleteOrder}</span>
                   </button>
                 ) : <div />}
 
@@ -1464,7 +1468,7 @@ export const RegionalOrders: React.FC = () => {
                     disabled={savingEdit}
                     className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:bg-blue-700 transition-colors"
                   >
-                    {savingEdit ? 'Сохранение…' : 'Сохранить назначения'}
+                    {savingEdit ? o.saving : o.saveAssignments}
                   </button>
                 </div>
               </div>
@@ -1482,48 +1486,49 @@ export const RegionalOrders: React.FC = () => {
             exit={{ opacity: 0, y: 50, scale: 0.9 }}
             className="crm-bulk-actions fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 text-white backdrop-blur-md px-5 py-3 rounded-2xl shadow-2xl border border-slate-700 flex flex-wrap items-center gap-3"
           >
-            <div className="flex items-center gap-2 text-xs font-bold border-r border-slate-700 pr-4">
+            <div className="flex items-center gap-2 text-xs font-bold border-e border-slate-700 pe-4">
               <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
-              <span>Выбрано: {selectedOrderIds.length} заказов</span>
+              <span>{o.selectedCount(selectedOrderIds.length)}</span>
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">Статус:</span>
+              <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">{o.statusLabel}</span>
               <button
                 onClick={() => handleBulkStatusChange('assigned')}
                 className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
               >
-                Машина назначена
+                {o.bulkAssigned}
               </button>
               <button
                 onClick={() => handleBulkStatusChange('dispatched')}
                 className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
               >
-                Отправлено / В пути
+                {o.bulkDispatched}
               </button>
               <button
                 onClick={() => handleBulkStatusChange('delivered')}
                 className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
               >
-                Выгружено
+                {o.bulkUnloaded}
               </button>
             </div>
 
             {(isAdmin || isLogistics) && (
               <button
                 onClick={handleBulkDelete}
-                className="ml-2 p-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
-                title="Удалить выбранные"
+                className="ms-2 p-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                title={o.deleteSelected}
               >
                 <Trash2 className="w-4 h-4" />
-                <span className="hidden sm:inline">Удалить</span>
+                <span className="hidden sm:inline">{text.common.delete}</span>
               </button>
             )}
 
             <button
               onClick={() => setSelectedOrderIds([])}
-              className="text-slate-400 hover:text-white p-1 ml-2 cursor-pointer"
-              title="Сбросить выбор"
+              className="text-slate-400 hover:text-white p-1 ms-2 cursor-pointer"
+              title={o.clearSelection}
+              aria-label={o.clearSelection}
             >
               <X className="w-4 h-4" />
             </button>

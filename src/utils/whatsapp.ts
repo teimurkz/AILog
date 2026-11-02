@@ -1,3 +1,5 @@
+import { formatRegionalDay, regionalLocale, regionalTexts } from '../components/regional/regional-i18n';
+
 /**
  * Formats a phone number to standard international digits (e.g. "+7 701 123 4567" -> "77011234567")
  */
@@ -43,39 +45,31 @@ export function buildWhatsAppStatusMessage(order: {
   assignedTruckPlate?: string;
   assignedDriver?: string;
   deliveryAddress?: string;
-}): string {
-  const statusLabels: Record<string, string> = {
-    new: '🆕 Принята в обработку',
-    assigned: '🚛 Назначена машина',
-    loading: '📦 На погрузке СВХ',
-    dispatched: '🚚 В пути на региональный склад',
-    delivered: '✅ Выгружено / Доставлено',
-    cancelled: '❌ Отменено'
-  };
-
-  const statusText = statusLabels[order.status] || order.status;
+}, language: string = 'ru'): string {
+  const text = regionalTexts(language).whatsapp;
+  const statusText = text.status[order.status as keyof typeof text.status] || order.status;
   const cleanInvoice = sanitizeTextForWhatsApp(order.invoiceNumber || '');
   const cleanAddress = sanitizeTextForWhatsApp(order.deliveryAddress || '');
 
   let msg = `🚚 *SILK ROAD LOGISTICS*\n`;
   msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
-  msg += `📋 *Заявка:* ${order.orderNumber}\n`;
-  msg += `📄 *Документ:* ${cleanInvoice}\n`;
-  msg += `📍 *Маршрут:* г. Алматы ➔ г. ${order.destinationCity}\n`;
+  msg += `📋 *${text.order}:* ${order.orderNumber}\n`;
+  msg += `📄 *${text.document}:* ${cleanInvoice}\n`;
+  msg += `📍 *${text.route}:* ${text.routeText(order.destinationCity)}\n`;
   if (cleanAddress) {
-    msg += `🏢 *Адрес выгрузки:* ${cleanAddress}\n`;
+    msg += `🏢 *${text.address}:* ${cleanAddress}\n`;
   }
-  msg += `📅 *Дата отгрузки:* ${order.shipmentDate}\n`;
-  msg += `📊 *Текущий статус:* ${statusText}\n`;
+  msg += `📅 *${text.shipmentDate}:* ${formatRegionalDay(order.shipmentDate, regionalLocale(language))}\n`;
+  msg += `📊 *${text.currentStatus}:* ${statusText}\n`;
 
   if (order.assignedTruckPlate) {
-    msg += `\n🚛 *Назначено авто:* ${order.assignedTruckPlate}`;
+    msg += `\n🚛 *${text.truck}:* ${order.assignedTruckPlate}`;
   }
   if (order.assignedDriver) {
-    msg += `\n👤 *Водитель:* ${order.assignedDriver}`;
+    msg += `\n👤 *${text.driver}:* ${order.assignedDriver}`;
   }
 
   msg += `\n━━━━━━━━━━━━━━━━━━━━━\n`;
-  msg += `С уважением,\nСлужба логистики Silk Road`;
+  msg += text.regards;
   return msg;
 }

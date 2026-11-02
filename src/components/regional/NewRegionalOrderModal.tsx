@@ -25,6 +25,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useSectionText } from '../../i18n/useSectionText';
+import { REGIONAL_TEXT } from './regional-i18n';
 import { useAuth } from '../../contexts/AuthContext';
 import { playNotificationSound } from '../../hooks/useRegionalOrders';
 import { useSavedDeliveryContacts } from '../../hooks/useSavedDeliveryContacts';
@@ -64,6 +66,8 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
   onSubmit,
 }) => {
   const { t } = useLanguage();
+  const { text } = useSectionText(REGIONAL_TEXT);
+  const n = text.newOrder;
   const { user: authUser, profile } = useAuth();
   const { savedContacts, addSavedContact, deleteSavedContact } = useSavedDeliveryContacts();
 
@@ -89,8 +93,8 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
     tmr.setDate(tmr.getDate() + 1);
     return tmr.toISOString().split('T')[0];
   });
-  const [cargoDescription, setCargoDescription] = useState('Молочная продукция / сыр / масло');
-  const [managerName, setManagerName] = useState(profile?.displayName || authUser?.displayName || 'Менеджер регионов');
+  const [cargoDescription, setCargoDescription] = useState(n.defaultCargo);
+  const [managerName, setManagerName] = useState(profile?.displayName || authUser?.displayName || n.defaultManager);
   const [managerPhone, setManagerPhone] = useState('+7 701 ');
   const [comments, setComments] = useState('');
 
@@ -169,13 +173,13 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
     if (!file) return;
 
     if (file.size > 8 * 1024 * 1024) {
-      setErrorMsg('Размер файла превышает 8МБ. Пожалуйста, прикрепите документ меньшего размера.');
+      setErrorMsg(n.fileTooLarge);
       return;
     }
     setErrorMsg('');
 
     const fileSizeKb = Math.round(file.size / 1024);
-    const sizeStr = fileSizeKb > 1024 ? `${(fileSizeKb / 1024).toFixed(1)} МБ` : `${fileSizeKb} КБ`;
+    const sizeStr = fileSizeKb > 1024 ? n.sizeMb((fileSizeKb / 1024).toFixed(1)) : n.sizeKb(fileSizeKb);
 
     const updateInvoiceData = (fileName: string, type: string, dataUrl: string) => {
       setInvoiceList(prev => prev.map((item, i) => {
@@ -248,28 +252,28 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
     const finalCity = isCustomCitySelected ? customCity.trim() : destinationCity;
 
     if (!finalCity) {
-      setErrorMsg('Пожалуйста, укажите город/направление доставки.');
+      setErrorMsg(n.needCity);
       return;
     }
 
     const validInvoices = invoiceList.filter(inv => inv.invoiceNumber.trim() !== '');
     if (validInvoices.length === 0) {
-      setErrorMsg('Пожалуйста, добавьте хотя бы одну накладную (укажите номер).');
+      setErrorMsg(n.needInvoice);
       return;
     }
 
     const validPoints = deliveryPoints.filter(p => p.address.trim() !== '');
     if (validPoints.length === 0) {
-      setErrorMsg('Пожалуйста, укажите хотя бы один адрес выгрузки.');
+      setErrorMsg(n.needAddress);
       return;
     }
 
     if (!shipmentDate) {
-      setErrorMsg('Укажите дату, на которую требуется подача машины.');
+      setErrorMsg(n.needDate);
       return;
     }
     if (!managerName.trim()) {
-      setErrorMsg('Укажите ФИО ответственного менеджера.');
+      setErrorMsg(n.needManager);
       return;
     }
 
@@ -345,7 +349,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
       onClose();
     } catch (err: any) {
       console.error("Submit regional order error:", err);
-      setErrorMsg(err.message || 'Ошибка при создании заявки на фуру.');
+      setErrorMsg(err.message || n.createFailed);
     } finally {
       setIsSubmitting(false);
     }
@@ -367,10 +371,10 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
             </div>
             <div>
               <h2 className="text-xl font-bold text-white tracking-tight">
-                Заявка на фуру в регион
+                {n.title}
               </h2>
               <p className="text-xs text-blue-100 mt-0.5">
-                Заполнение заявки логистам: поддержка нескольких накладных и адресов выгрузки
+                {n.subtitle}
               </p>
             </div>
           </div>
@@ -395,7 +399,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
           <div className="space-y-2">
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
               <MapPin className="w-4 h-4 text-blue-500" />
-              <span>Направление (Город доставки) *</span>
+              <span>{n.city}</span>
             </label>
             
             <div className="flex flex-wrap gap-1.5">
@@ -427,14 +431,14 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                     : 'bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
                 }`}
               >
-                + Другой город
+                {n.otherCity}
               </button>
             </div>
 
             {isCustomCitySelected && (
               <input
                 type="text"
-                placeholder="Введите наименование города / населенного пункта..."
+                placeholder={n.cityPlaceholder}
                 value={customCity}
                 onChange={(e) => setCustomCity(e.target.value)}
                 className="w-full mt-2 px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-blue-500 rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white"
@@ -452,10 +456,10 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                 </div>
                 <div>
                   <h3 className="text-xs font-bold text-emerald-900 dark:text-emerald-200 uppercase tracking-wider">
-                    Адреса выгрузки ({deliveryPoints.length})
+                    {n.addresses(deliveryPoints.length)}
                   </h3>
                   <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
-                    Добавляйте точки выгрузки (1, 2, 3, 4, 5 и т.д.) для маршрута водителя
+                    {n.addressesHint}
                   </p>
                 </div>
               </div>
@@ -467,7 +471,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                   className="text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:underline flex items-center gap-1"
                 >
                   <Bookmark className="w-3.5 h-3.5" />
-                  <span>Справочник ({savedContacts.length})</span>
+                  <span>{n.directory(savedContacts.length)}</span>
                 </button>
               )}
             </div>
@@ -476,20 +480,21 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
             {showDirectoryManager && savedContacts.length > 0 && (
               <div className="p-3 bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700 rounded-xl space-y-2 max-h-40 overflow-y-auto">
                 <p className="text-[11px] font-bold text-emerald-900 dark:text-emerald-300">
-                  Сохраненные адреса выгрузки (нажмите "Выбрать" для заполнения нужной точки ниже):
+                  {n.savedAddressesHint}
                 </p>
                 {savedContacts.map(contact => (
                   <div key={contact.id} className="p-2 bg-slate-50 dark:bg-slate-900 rounded-lg flex items-center justify-between text-xs gap-2">
                     <div className="min-w-0">
                       <span className="font-bold text-slate-800 dark:text-slate-200">{contact.city}: </span>
                       <span className="text-slate-600 dark:text-slate-300">{contact.deliveryAddress}</span>
-                      <span className="text-slate-400 ml-1">({contact.recipientPhone})</span>
+                      <span className="text-slate-400 ms-1">({contact.recipientPhone})</span>
                     </div>
                     <button
                       type="button"
                       onClick={() => deleteSavedContact(contact.id)}
                       className="p-1 text-slate-400 hover:text-red-600"
-                      title="Удалить из справочника"
+                      title={n.removeFromDirectory}
+                      aria-label={n.removeFromDirectory}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -508,7 +513,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                         {index + 1}
                       </span>
                       <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                        Точка выгрузки #{index + 1}
+                        {n.pointTitle(index + 1)}
                       </span>
                     </div>
 
@@ -520,7 +525,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                           className="px-2 py-1 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-[11px] font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
                           defaultValue=""
                         >
-                          <option value="" disabled>-- Подставить из справочника --</option>
+                          <option value="" disabled>{n.fillFromDirectory}</option>
                           {savedContacts.map(c => (
                             <option key={c.id} value={c.id}>{c.city} — {c.deliveryAddress.slice(0, 25)}...</option>
                           ))}
@@ -532,7 +537,8 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                           type="button"
                           onClick={() => handleRemoveDeliveryPoint(index)}
                           className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors"
-                          title="Удалить эту точку выгрузки"
+                          title={n.removePoint}
+                          aria-label={n.removePoint}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -543,44 +549,44 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1 sm:col-span-2">
                       <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                        Адрес выгрузки (склад / магазин / точка №{index + 1}) *
+                        {n.addressLabel(index + 1)}
                       </label>
                       <div className="relative">
                         <input
                           type="text"
                           required
-                          placeholder={index === 0 ? "например: шоссе Алаш 12/1, склад №4" : `например: Точка #${index + 1} - рынок Алтын Орда, бутик 15`}
+                          placeholder={index === 0 ? n.addressPlaceholderFirst : n.addressPlaceholderNext(index + 1)}
                           value={point.address}
                           onChange={(e) => handleDeliveryPointChange(index, 'address', e.target.value)}
-                          className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none dark:text-white"
+                          className="w-full ps-9 pe-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none dark:text-white"
                         />
-                        <MapPin className="w-4 h-4 text-red-500 absolute left-2.5 top-2.5" />
+                        <MapPin className="w-4 h-4 text-red-500 absolute start-2.5 top-2.5" />
                       </div>
                     </div>
 
                     <div className="space-y-1">
                       <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                        Телефон и имя получателя
+                        {n.recipient}
                       </label>
                       <div className="relative">
                         <input
                           type="text"
-                          placeholder="+7 701 123-45-67 (Алихан / Приемщик)"
+                          placeholder={n.recipientPlaceholder}
                           value={point.recipientPhone}
                           onChange={(e) => handleDeliveryPointChange(index, 'recipientPhone', e.target.value)}
-                          className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none dark:text-white"
+                          className="w-full ps-9 pe-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none dark:text-white"
                         />
-                        <Phone className="w-4 h-4 text-emerald-500 absolute left-2.5 top-2.5" />
+                        <Phone className="w-4 h-4 text-emerald-500 absolute start-2.5 top-2.5" />
                       </div>
                     </div>
 
                     <div className="space-y-1">
                       <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                        Примечание по этой точке (паллеты, время)
+                        {n.pointNote}
                       </label>
                       <input
                         type="text"
-                        placeholder="например: Выгрузка 8 паллет, до 12:00"
+                        placeholder={n.pointNotePlaceholder}
                         value={point.note || ''}
                         onChange={(e) => handleDeliveryPointChange(index, 'note', e.target.value)}
                         className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none dark:text-white"
@@ -599,7 +605,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 active:scale-95"
               >
                 <Plus className="w-4 h-4" />
-                <span>+ Добавить еще адрес выгрузки (2, 3, 4 точка...)</span>
+                <span>{n.addAddress}</span>
               </button>
 
               <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
@@ -611,7 +617,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                 />
                 <span className="flex items-center gap-1">
                   <Save className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Сохранить адреса в справочник</span>
+                  <span>{n.saveAddresses}</span>
                 </span>
               </label>
             </div>
@@ -626,10 +632,10 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                 </div>
                 <div>
                   <h3 className="text-xs font-bold text-purple-900 dark:text-purple-200 uppercase tracking-wider">
-                    Накладные и заказы ({invoiceList.length})
+                    {n.invoices(invoiceList.length)}
                   </h3>
                   <p className="text-[11px] text-purple-700 dark:text-purple-400">
-                    Добавляйте несколько накладных (2, 3, 4, 5 шт) и прикрепляйте файлы к каждой из них
+                    {n.invoicesHint}
                   </p>
                 </div>
               </div>
@@ -645,7 +651,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                         {index + 1}
                       </span>
                       <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                        Накладная / Заказ #{index + 1}
+                        {n.invoiceTitle(index + 1)}
                       </span>
                     </div>
 
@@ -654,7 +660,8 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                         type="button"
                         onClick={() => handleRemoveInvoice(index)}
                         className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors"
-                        title="Удалить эту накладную"
+                        title={n.removeInvoice}
+                        aria-label={n.removeInvoice}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -664,12 +671,12 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                        Номер накладной / заказа *
+                        {n.invoiceNumber}
                       </label>
                       <input
                         type="text"
                         required
-                        placeholder={index === 0 ? "например: Накладная №88412" : `например: Накладная №884${13 + index}`}
+                        placeholder={index === 0 ? n.invoicePlaceholderFirst : n.invoicePlaceholderNext(13 + index)}
                         value={inv.invoiceNumber}
                         onChange={(e) => handleInvoiceNumberChange(index, e.target.value)}
                         className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:ring-2 focus:ring-purple-500 focus:outline-none dark:text-white"
@@ -678,7 +685,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
 
                     <div className="space-y-1">
                       <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                        Прикрепленный файл к накладной
+                        {n.attachedFile}
                       </label>
                       {inv.fileName ? (
                         <div className="p-2 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 rounded-xl flex items-center justify-between">
@@ -706,7 +713,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                       ) : (
                         <label className="border border-dashed border-slate-300 dark:border-slate-700 hover:border-purple-500 bg-slate-50 dark:bg-slate-900/50 rounded-xl p-2 flex items-center justify-center gap-2 cursor-pointer transition-colors text-xs font-medium text-slate-600 dark:text-slate-400">
                           <Upload className="w-4 h-4 text-purple-500" />
-                          <span>Прикрепить фото / PDF</span>
+                          <span>{n.attachFile}</span>
                           <input
                             type="file"
                             accept="image/*,application/pdf,.xlsx,.xls,.doc,.docx"
@@ -729,7 +736,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
                 className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 active:scale-95"
               >
                 <Plus className="w-4 h-4" />
-                <span>+ Добавить еще накладную (2, 3, 4, 5-я накладная...)</span>
+                <span>{n.addInvoice}</span>
               </button>
             </div>
           </div>
@@ -739,7 +746,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
             <div className="space-y-1.5">
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                 <Calendar className="w-4 h-4 text-emerald-500" />
-                <span>Дата отправки авто *</span>
+                <span>{n.shipDate}</span>
               </label>
               <input
                 type="date"
@@ -753,11 +760,11 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
             <div className="space-y-1.5">
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                 <Package className="w-4 h-4 text-indigo-500" />
-                <span>Наименование / категория груза</span>
+                <span>{n.cargo}</span>
               </label>
               <input
                 type="text"
-                placeholder="например: Сливочное масло, твердый сыр, десерты"
+                placeholder={n.cargoPlaceholder}
                 value={cargoDescription}
                 onChange={(e) => setCargoDescription(e.target.value)}
                 className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white"
@@ -769,12 +776,12 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
             <div className="space-y-1.5">
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                 <User className="w-4 h-4 text-purple-500" />
-                <span>Ответственный менеджер *</span>
+                <span>{n.manager}</span>
               </label>
               <input
                 type="text"
                 required
-                placeholder="ФИО сотрудника регионального отдела"
+                placeholder={n.managerPlaceholder}
                 value={managerName}
                 onChange={(e) => setManagerName(e.target.value)}
                 className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white"
@@ -784,7 +791,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
             <div className="space-y-1.5">
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                 <Phone className="w-4 h-4 text-emerald-500" />
-                <span>Телефон менеджера</span>
+                <span>{n.managerPhone}</span>
               </label>
               <input
                 type="text"
@@ -798,11 +805,11 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
 
           <div className="space-y-1.5">
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-              Особые примечания для логистов (склад погрузки, температурный режим)
+              {n.notes}
             </label>
             <textarea
               rows={2}
-              placeholder="например: Погрузка со склада Жолдостар к 09:00, нужен температурный режим +4°C"
+              placeholder={n.notesPlaceholder}
               value={comments}
               onChange={(e) => setComments(e.target.value)}
               className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white resize-none"
@@ -812,7 +819,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
           <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-2xl flex items-center gap-3 text-amber-800 dark:text-amber-300 text-xs">
             <Bell className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 animate-bounce" />
             <span>
-              После размещения заявки, отделу логистики автоматически придет <strong>пуш-уведомление</strong> и звуковой сигнал с подробной информацией о накладных и точках выгрузки!
+              {n.pushNoteBefore} <strong>{n.pushNoteStrong}</strong> {n.pushNoteAfter}
             </span>
           </div>
 
@@ -831,7 +838,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
               className="px-6 py-2.5 text-xs font-bold text-white bg-blue-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl shadow-lg shadow-blue-500/25 transition-all flex items-center gap-2 disabled:opacity-50"
             >
               <Truck className="w-4 h-4" />
-              <span>{isSubmitting ? 'Размещение...' : '🚀 Разместить заявку на фуру'}</span>
+              <span>{isSubmitting ? n.submitting : n.submit}</span>
             </button>
           </div>
         </form>

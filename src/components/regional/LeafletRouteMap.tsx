@@ -4,6 +4,8 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { splitGpsTrail } from '../../lib/gps-trail';
 import { ExpandableMap } from './ExpandableMap';
+import { useSectionText } from '../../i18n/useSectionText';
+import { REGIONAL_TEXT } from './regional-i18n';
 
 export interface LocationPoint {
   lat: number;
@@ -45,8 +47,8 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
   waypoints,
   detailedRoadPolyline,
   locationHistory,
-  truckPlate = 'Госномер не указан',
-  driverName = 'Водитель не назначен',
+  truckPlate: truckPlateProp,
+  driverName: driverNameProp,
   lastPingSecondsAgo = 0,
   signalStatus = 'in_transit',
   signalStatusText,
@@ -55,6 +57,10 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
   isTrackingActive = false,
   driverConsent = false,
 }) => {
+  const { text, isRTL } = useSectionText(REGIONAL_TEXT);
+  const t = text.mapView;
+  const truckPlate = truckPlateProp || t.plateMissing;
+  const driverName = driverNameProp || t.driverMissing;
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const isFirstRenderRef = useRef<boolean>(true);
@@ -248,31 +254,31 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
     const isMoving = speed >= 4 && !isSignalLost;
 
     // Formatting last activity text
-    let lastActiveText = "только что";
+    let lastActiveText = t.justNow;
     if (lastPingSecondsAgo >= 60) {
       const mins = Math.floor(lastPingSecondsAgo / 60);
-      lastActiveText = `${mins} мин. назад`;
+      lastActiveText = t.minutesAgo(mins);
     } else if (lastPingSecondsAgo > 5) {
-      lastActiveText = `${lastPingSecondsAgo} сек. назад`;
+      lastActiveText = t.secondsAgo(lastPingSecondsAgo);
     }
 
     // Badge styling and labels
     let badgeColor = '#10b981'; // Green
     let gradient = 'linear-gradient(135deg, #10b981, #059669)';
-    let statusLabel = `${speed} км/ч • ${etaFormatted}`;
+    let statusLabel = `${text.common.kmh(speed)} • ${etaFormatted}`;
 
     if (!isTrackingActive) {
       badgeColor = '#64748b';
       gradient = 'linear-gradient(135deg, #64748b, #475569)';
-      statusLabel = signalStatusText || 'Последняя точка';
+      statusLabel = signalStatusText || t.lastPoint;
     } else if (isSignalLost) {
       badgeColor = '#ef4444'; // Red
       gradient = 'linear-gradient(135deg, #64748b, #475569)';
-      statusLabel = `⚠️ Связь потеряна (${lastActiveText})`;
+      statusLabel = t.signalLost(lastActiveText);
     } else if (isStationary) {
       badgeColor = '#f59e0b'; // Amber
       gradient = 'linear-gradient(135deg, #f59e0b, #d97706)';
-      statusLabel = `Стоянка • ${etaFormatted}`;
+      statusLabel = `${t.parked} • ${etaFormatted}`;
     }
 
     // D. Truck Icon with heading rotation (0-360°) and heading arrow
@@ -314,24 +320,24 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
 
     // E. Interactive Leaflet Popup Content
     const popupContent = `
-      <div style="font-family:system-ui,-apple-system,sans-serif;padding:6px;min-width:190px;color:#0f172a;">
+      <div dir="${isRTL ? 'rtl' : 'ltr'}" style="font-family:system-ui,-apple-system,sans-serif;padding:6px;min-width:190px;color:#0f172a;">
         <div style="font-weight:bold;font-size:13px;display:flex;align-items:center;gap:6px;margin-bottom:6px;color:#0f172a;border-bottom:1px solid #e2e8f0;padding-bottom:4px;">
           <span style="font-size:15px;">🚚</span> <span>${truckPlate}</span>
         </div>
         <div style="font-size:11px;color:#475569;margin-bottom:3px;">
-          👤 <b>Водитель:</b> ${driverName}
+          👤 <b>${t.driver}</b> ${driverName}
         </div>
         <div style="font-size:11px;color:#475569;margin-bottom:3px;">
-          ⚡ <b>Скорость:</b> <span style="color:${isMoving ? '#059669' : '#d97706'};font-weight:bold;">${speed} км/ч</span>
+          ⚡ <b>${t.speed}</b> <span style="color:${isMoving ? '#059669' : '#d97706'};font-weight:bold;">${text.common.kmh(speed)}</span>
         </div>
         <div style="font-size:11px;color:#475569;margin-bottom:3px;">
-          🧭 <b>Курс:</b> ${Math.round(heading)}°
+          🧭 <b>${t.heading}</b> ${Math.round(heading)}°
         </div>
         <div style="font-size:11px;color:#475569;margin-bottom:3px;">
-          ⏱️ <b>Сигнал:</b> ${lastActiveText}
+          ⏱️ <b>${t.signal}</b> ${lastActiveText}
         </div>
         <div style="font-size:10px;padding:3px 8px;border-radius:6px;background:${isSignalLost ? '#fee2e2' : isMoving ? '#d1fae5' : '#fef3c7'};color:${isSignalLost ? '#dc2626' : isMoving ? '#065f46' : '#92400e'};font-weight:bold;margin-top:6px;text-align:center;">
-          ${signalStatusText || (isSignalLost ? 'Нет свежего сигнала' : isMoving ? 'В движении' : 'Стоянка')}
+          ${signalStatusText || (isSignalLost ? t.noFreshSignal : isMoving ? t.moving : t.parked)}
         </div>
       </div>
     `;
@@ -351,7 +357,7 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
       truckMarkerRef.current.setIcon(icon);
       truckMarkerRef.current.setPopupContent(popupContent);
     }
-  }, [currentLat, currentLng, speed, heading, etaFormatted, trailSegments, trailMode, waypoints, truckPlate, driverName, lastPingSecondsAgo, signalStatus, signalStatusText, hasRealGps, isTrackingActive]);
+  }, [currentLat, currentLng, speed, heading, etaFormatted, trailSegments, trailMode, waypoints, truckPlate, driverName, lastPingSecondsAgo, signalStatus, signalStatusText, hasRealGps, isTrackingActive, text, isRTL]);
 
   // Resizing the modal, rotating a phone or expanding only the map must not
   // leave Leaflet's tiles using the old container dimensions.
@@ -413,23 +419,23 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
         <div className="flex flex-wrap items-center gap-1">
           {hasRealGps && <button type="button" onClick={handleRecenterTruck}
             className="flex min-h-10 items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 font-semibold text-white hover:bg-emerald-500"
-            title="Сфокусировать карту на местоположении фуры">
-            <LocateFixed size={16} aria-hidden="true" /> Фура
+            title={t.focusTruckTitle}>
+            <LocateFixed size={16} aria-hidden="true" /> {t.truck}
           </button>}
           <button type="button" onClick={handleRecenterRoute}
             className="flex min-h-10 items-center gap-1.5 rounded-lg px-2.5 hover:bg-slate-800">
-            <Route size={16} aria-hidden="true" /> Весь маршрут
+            <Route size={16} aria-hidden="true" /> {t.wholeRoute}
           </button>
           <button type="button" onClick={toggleExpanded} aria-expanded={expanded}
-            aria-label={expanded ? 'Свернуть карту' : 'Развернуть карту на весь экран'}
-            className="ml-auto flex min-h-10 items-center gap-1.5 rounded-lg bg-slate-700 px-2.5 font-semibold text-white hover:bg-slate-600">
+            aria-label={expanded ? t.collapseMap : t.expandMap}
+            className="ms-auto flex min-h-10 items-center gap-1.5 rounded-lg bg-slate-700 px-2.5 font-semibold text-white hover:bg-slate-600">
             {expanded ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}
-            {expanded ? 'Свернуть' : 'Развернуть'}
+            {expanded ? t.collapse : t.expand}
           </button>
         </div>
-        <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Отображение истории GPS">
-          <span className="mr-1 text-slate-400">История:</span>
-          {([['points', 'Точки'], ['line', 'След'], ['hidden', 'Скрыть']] as const).map(([mode, label]) =>
+        <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t.historyAria}>
+          <span className="me-1 text-slate-400">{t.history}</span>
+          {([['points', t.points], ['line', t.trail], ['hidden', t.hide]] as const).map(([mode, label]) =>
             <button key={mode} type="button" aria-pressed={trailMode === mode} onClick={() => setTrailMode(mode)}
               className={`min-h-9 rounded-lg px-3 ${trailMode === mode ? 'bg-emerald-900 text-emerald-200' : 'text-slate-300 hover:bg-slate-800'}`}>
               {label}
@@ -441,17 +447,17 @@ export const LeafletRouteMap: React.FC<LeafletRouteMapProps> = ({
         {(!hasRealGps || !isTrackingActive) && (
           <div className="pointer-events-none absolute bottom-7 left-3 right-3 z-[400] rounded-xl border border-amber-500/40 bg-slate-900/90 px-3 py-2 text-xs text-slate-300 shadow-xl">
             <div className="font-bold text-amber-300">
-              {signalStatusText || (driverConsent ? 'Ожидание геопозиции водителя' : 'GPS-отслеживание не запущено')}
+              {signalStatusText || (driverConsent ? t.waitingDriverGps : t.gpsNotStarted)}
             </div>
-            {hasRealGps ? 'На карте сохранена последняя полученная точка.' : 'Машина появится после отправки геопозиции водителем.'}
+            {hasRealGps ? t.lastPointKept : t.truckAppearsAfter}
           </div>
         )}
         <div ref={mapRef} className="h-full w-full z-10" />
       </div>
       <div className="shrink-0 bg-slate-900 px-3 py-1.5 text-[11px] text-slate-400" role="status"
         style={expanded ? { paddingBottom: 'max(6px, env(safe-area-inset-bottom))' } : undefined}>
-        {trailMode === 'points' ? 'Зелёные точки — полученные координаты GPS.' :
-          trailMode === 'line' ? 'Зелёный след — участки GPS. Пропуски и скачки не соединяются.' : 'История GPS скрыта. Машина и маршрут остаются на карте.'}
+        {trailMode === 'points' ? t.trailPoints :
+          trailMode === 'line' ? t.trailLine : t.trailHidden}
       </div>
     </>}</ExpandableMap>
   );
