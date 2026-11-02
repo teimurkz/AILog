@@ -1,4 +1,6 @@
+import { pickTexts, type CrmLanguage } from './i18n';
 import { stageShipmentSync } from './shipment-link';
+import { SVH_ISSUE_TEXTS } from './svh-reconcile-i18n';
 import { sortStages, stageDate, type TruckStage, type TruckTrackingEntry } from './truck-tracking';
 
 /**
@@ -124,15 +126,15 @@ export interface ReconcileRow {
   diff: number | null;
 }
 
-const LABEL = { arrived: 'Заезд', unloaded: 'Выгрузка', moved: 'Перемещение' } as const;
-
 export interface ReconcilePeriod { from: string; to: string }
 
 /**
  * `period` limits the check to trucks that entered the yard in it (by the partner's arrival date);
- * without it the whole file is checked.
+ * without it the whole file is checked. `language` is the language of the issue texts.
  */
-export function reconcile(allRows: PartnerRow[], entries: TruckTrackingEntry[], stages: TruckStage[], today: string, period?: ReconcilePeriod | null) {
+export function reconcile(allRows: PartnerRow[], entries: TruckTrackingEntry[], stages: TruckStage[], today: string, period?: ReconcilePeriod | null, language: CrmLanguage = 'ru') {
+  const text = pickTexts(SVH_ISSUE_TEXTS, language);
+  const LABEL = text.field;
   const roles = stageRoles(stages);
   const partnerRows = period ? allRows.filter(row => row.arrived.day && row.arrived.day >= period.from && row.arrived.day <= period.to) : allRows;
   const byNumber = new Map<string, TruckTrackingEntry[]>();
@@ -144,7 +146,7 @@ export function reconcile(allRows: PartnerRow[], entries: TruckTrackingEntry[], 
   const rows: ReconcileRow[] = partnerRows.map(partner => {
     const issues: string[] = [];
     for (const field of ['arrived', 'unloaded', 'moved'] as const) {
-      if (partner[field].bad) issues.push(`${LABEL[field]}: у партнёра непонятная дата «${partner[field].raw}»`);
+      if (partner[field].bad) issues.push(text.badDate(LABEL[field], partner[field].raw));
     }
     const counted = parkingDays(partner.arrived.day, partner.unloaded.day, partner.moved.day, today);
     // An unreadable end date must not turn into "parked until today".
@@ -154,7 +156,7 @@ export function reconcile(allRows: PartnerRow[], entries: TruckTrackingEntry[], 
     const candidates = byNumber.get(partner.invoice) || [];
     if (candidates.length !== 1) {
       return { ...base, crm: null, status: candidates.length ? 'ambiguous' : 'not-found',
-        issues: [...issues, candidates.length ? `В «Слежке авто» несколько фур с номером ${partner.invoice}` : `Инвойса ${partner.invoice} нет в «Слежке авто»`],
+        issues: [...issues, candidates.length ? text.ambiguous(partner.invoice) : text.notFound(partner.invoice)],
         crmDays: null, crmOpen: false, diff: null };
     }
     const entry = candidates[0];
@@ -168,14 +170,14 @@ export function reconcile(allRows: PartnerRow[], entries: TruckTrackingEntry[], 
     for (const field of ['arrived', 'unloaded', 'moved'] as const) {
       const theirs = partner[field].day, ours = crm[field];
       if (field === 'unloaded' && !theirs && ours && partner.moved.day && !partner.unloaded.bad) {
-        issues.push(`Выгрузка: у партнёра сразу на ком. склад ${formatDay(partner.moved.day)}, в CRM выгружена на СВХ ${formatDay(ours)}`);
+        issues.push(text.partnerWarehouse(formatDay(partner.moved.day), formatDay(ours)));
       } else if (field === 'unloaded' && theirs && !ours && crm.moved) {
-        issues.push(`Выгрузка: у партнёра на СВХ ${formatDay(theirs)}, в CRM сразу на ком. склад ${formatDay(crm.moved)}`);
+        issues.push(text.crmWarehouse(formatDay(theirs), formatDay(crm.moved)));
       } else if (theirs && ours && theirs !== ours) {
         const shift = daysBetween(ours, theirs);
-        issues.push(`${LABEL[field]}: у партнёра ${formatDay(theirs)}, в CRM ${formatDay(ours)} (${shift > 0 ? '+' : ''}${shift} дн.)`);
-      } else if (theirs && !ours) issues.push(`${LABEL[field]}: в CRM нет даты (у партнёра ${formatDay(theirs)})`);
-      else if (!theirs && ours && !partner[field].bad) issues.push(`${LABEL[field]}: у партнёра нет даты (в CRM ${formatDay(ours)})`);
+        issues.push(text.differs(LABEL[field], formatDay(theirs), formatDay(ours), `${shift > 0 ? '+' : ''}${shift}`));
+      } else if (theirs && !ours) issues.push(text.noCrmDate(LABEL[field], formatDay(theirs)));
+      else if (!theirs && ours && !partner[field].bad) issues.push(text.noPartnerDate(LABEL[field], formatDay(ours)));
     }
     const ours = parkingDays(crm.arrived, crm.unloaded, crm.moved, today);
     const diff = parking.days !== null && ours.days !== null ? parking.days - ours.days : null;

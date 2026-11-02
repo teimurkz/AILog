@@ -1,3 +1,5 @@
+import { MESSAGE } from '../i18n/common-i18n';
+
 export interface CollectionState<T> {
   data: T[];
   loading: boolean;
@@ -7,9 +9,9 @@ export interface CollectionState<T> {
 
 export function dataLoadError(error: unknown): string {
   const code = String((error as { code?: string })?.code || '');
-  if (code.includes('permission-denied')) return 'Нет доступа к данным. Проверьте, что вы вошли под рабочей учётной записью.';
-  if (code.includes('unauthenticated')) return 'Сеанс входа завершён. Войдите в CRM повторно.';
-  return 'Не удалось загрузить данные. Проверьте подключение и повторите попытку.';
+  if (code.includes('permission-denied')) return MESSAGE.permissionDenied;
+  if (code.includes('unauthenticated')) return MESSAGE.unauthenticated;
+  return MESSAGE.loadFailed;
 }
 
 export function normalizeDocument(id: string, data: Record<string, any>, idField = 'id'): any {
@@ -45,7 +47,7 @@ export function watchCollection<T>(
     if (fromCache) {
       if (data.length || state.data.length || state.confirmed) emit({
         ...(data.length ? { data } : {}), loading: false, confirmed: false,
-        error: 'Показаны последние загруженные данные. Ожидаем подтверждение соединения.'
+        error: MESSAGE.cachedData
       });
       return;
     }

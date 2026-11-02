@@ -51,7 +51,7 @@ export const MainAppContent = () => {
   const pageTitle = t((({
     'regional-orders': 'regionalOrders', 'auto-mailing': 'autoMailing',
     'analytics-reports': 'analyticsReports', 'kusto-stock-expiry': 'kustoStockExpiry',
-    'admin-tools': 'adminPanel', 'svh-reconcile': 'Сверка стоянки СВХ', 'truck-tracking': 'truckTracking',
+    'admin-tools': 'adminPanel', 'svh-reconcile': 'svhReconcile', 'truck-tracking': 'truckTracking',
   } as Record<string, string>)[currentTab] || currentTab) as any);
 
   React.useEffect(() => {
@@ -80,7 +80,7 @@ export const MainAppContent = () => {
           <button 
             onClick={() => setIsSidebarOpen(true)}
             className="p-2 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 rounded-xl text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
-            aria-label="Открыть меню"
+            aria-label={t('openMenu')}
           >
             <Menu className="w-5 h-5" />
           </button>
@@ -95,7 +95,7 @@ export const MainAppContent = () => {
         <div className="flex items-center gap-2">
           <div className="bg-emerald-50 text-emerald-700 border border-emerald-200/80 px-2 py-1 rounded-lg flex items-center gap-1.5 text-[10px] font-bold">
             <div className={cn('w-1.5 h-1.5 rounded-full', shipmentUnavailable ? 'bg-amber-500' : 'bg-slate-400')} />
-            <span className="hidden xs:inline">{shipmentUnavailable ? 'Нет связи' : 'CRM'}</span>
+            <span className="hidden xs:inline">{shipmentUnavailable ? t('noConnection') : 'CRM'}</span>
           </div>
         </div>
       </div>
@@ -106,22 +106,22 @@ export const MainAppContent = () => {
       )}>
         <div className="crm-content flex-1 w-full max-w-[1856px] mx-auto p-3 sm:p-5 lg:p-6 space-y-5">
           {/* Desktop & Tablet Header */}
-          <header className={cn("hidden lg:flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-slate-200", isRTL && "flex-row-reverse")}>
-            <div className={isRTL ? "text-right" : "text-left"}>
+          <header className={"hidden lg:flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-slate-200"}>
+            <div className="text-start">
               <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
                 {pageTitle}
               </h1>
               <p className="text-sm text-slate-500 mt-0.5">{t('controlCenter')}</p>
             </div>
             
-            <div className={cn("flex flex-wrap items-center gap-2.5 sm:gap-3", isRTL && "flex-row-reverse")}>
+            <div className={"flex flex-wrap items-center gap-2.5 sm:gap-3"}>
               <button
                 onClick={() => setIsCommandPaletteOpen(true)}
                 className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium text-xs rounded-xl transition-all flex items-center gap-2 border border-slate-200 dark:border-slate-700 cursor-pointer"
-                title="Быстрый поиск (Ctrl + K)"
+                title={t('quickSearch')}
               >
                 <Search className="w-3.5 h-3.5 text-slate-500" />
-                <span className="hidden sm:inline">Поиск...</span>
+                <span className="hidden sm:inline">{t('searchEllipsis')}</span>
                 <kbd className="hidden md:inline-block px-1.5 py-0.5 text-[10px] font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md text-slate-500 shadow-2xs">
                   Ctrl K
                 </kbd>
@@ -139,7 +139,7 @@ export const MainAppContent = () => {
               )}
               <div className="bg-white px-3.5 py-2 rounded-xl border border-slate-200 flex items-center gap-2 shadow-2xs">
                 <div className={cn('w-2 h-2 rounded-full', shipmentUnavailable ? 'bg-amber-500' : 'bg-slate-400')} />
-                <span className="text-xs font-bold text-slate-700 tracking-wide uppercase">{shipmentUnavailable ? 'Данные не загружены' : 'Silk Road'}</span>
+                <span className="text-xs font-bold text-slate-700 tracking-wide uppercase">{shipmentUnavailable ? t('dataNotLoaded') : 'Silk Road'}</span>
               </div>
             </div>
           </header>
@@ -155,8 +155,8 @@ export const MainAppContent = () => {
             >
               {currentTab === 'no-access' ? (
                 <div className="bg-white p-8 sm:p-12 rounded-2xl shadow-sm border border-slate-200/70 text-center">
-                  <h3 className="text-lg font-bold text-slate-900">Нет доступных разделов</h3>
-                  <p className="text-slate-500 mt-1 text-sm">Администратор ещё не открыл вам ни одного раздела CRM. Обратитесь к нему.</p>
+                  <h3 className="text-lg font-bold text-slate-900">{t('noSectionsTitle')}</h3>
+                  <p className="text-slate-500 mt-1 text-sm">{t('noSectionsBody')}</p>
                 </div>
               ) : shipmentUnavailable && !shipments.length && !isRegionalOnly ? (
                 <DataLoadNotice loading={loadingShipments} error={shipmentsError} onRetry={retryShipments} />

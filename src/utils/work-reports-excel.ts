@@ -13,8 +13,8 @@ function sheet(table: ReportTable) {
   return result;
 }
 
-/** Downloads the tables as one workbook, a sheet per table. */
-export function downloadReports(tables: ReportTable[], period: { from: string; to: string }, name = 'Отчёты') {
+/** The tables as one workbook, a sheet per table (titles and headers come translated); `rtl` opens the sheets right to left. */
+export function reportsWorkbook(tables: ReportTable[], rtl = false) {
   const workbook = XLSX.utils.book_new();
   const taken = new Set<string>();
   for (const table of tables) {
@@ -23,5 +23,11 @@ export function downloadReports(tables: ReportTable[], period: { from: string; t
     taken.add(title.toLowerCase());
     XLSX.utils.book_append_sheet(workbook, sheet(table), title);
   }
-  XLSX.writeFile(workbook, `${name} ${formatDay(period.from)}-${formatDay(period.to)}.xlsx`);
+  if (rtl) workbook.Workbook = { ...workbook.Workbook, Views: [{ RTL: true }] };
+  return workbook;
+}
+
+/** Downloads the tables as one workbook named "<name> <from>-<to>.xlsx". */
+export function downloadReports(tables: ReportTable[], period: { from: string; to: string }, name: string, rtl = false) {
+  XLSX.writeFile(reportsWorkbook(tables, rtl), `${name} ${formatDay(period.from)}-${formatDay(period.to)}.xlsx`);
 }

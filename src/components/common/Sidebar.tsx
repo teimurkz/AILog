@@ -22,7 +22,7 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
     .filter(section => canView(section.id))
     .map(section => ({ id: section.id, icon: section.icon, label: t(section.labelKey as any) || section.fallback }));
   // Admin-only tools: not part of the per-user rights.
-  if (isAdmin) menuItems.push({ id: 'svh-reconcile', icon: FileSpreadsheet, label: 'Сверка стоянки СВХ' }, { id: 'admin-tools', icon: Shield, label: t('adminPanel') });
+  if (isAdmin) menuItems.push({ id: 'svh-reconcile', icon: FileSpreadsheet, label: t('svhReconcile') }, { id: 'admin-tools', icon: Shield, label: t('adminPanel') });
 
   const languages: { id: Language; label: string; flag: string }[] = [
     { id: 'en', label: 'English', flag: '🇺🇸' },
@@ -55,7 +55,7 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
       />
 
       <aside className={cn(
-        "crm-sidebar w-64 max-w-[calc(100vw-40px)] bg-slate-900 text-slate-300 flex flex-col h-dvh fixed top-0 bottom-0 z-50 transition-transform duration-300 ease-in-out lg:translate-x-0 border-r border-slate-800/80 lg:visible",
+        "crm-sidebar w-64 max-w-[calc(100vw-40px)] bg-slate-900 text-slate-300 flex flex-col h-dvh fixed top-0 bottom-0 z-50 transition-transform duration-300 ease-in-out lg:translate-x-0 border-e border-slate-800/80 lg:visible",
         isRTL ? "right-0" : "left-0",
         isOpen ? "translate-x-0 visible" : (isRTL ? "translate-x-full invisible" : "-translate-x-full invisible")
       )}>
@@ -75,7 +75,8 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
           <button
             onClick={onClose}
             className="lg:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
-            title="Закрыть меню"
+            title={t('closeMenu')}
+            aria-label={t('closeMenu')}
           >
             <X className="w-5 h-5" />
           </button>
@@ -91,11 +92,10 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
                 title={item.label}
                 onClick={() => handleTabClick(item.id)}
                 className={cn(
-                  "w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-150 text-left text-sm font-medium",
+                  "w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-150 text-start text-sm font-medium",
                   activeTab === item.id 
                     ? "bg-blue-600 text-white shadow-md shadow-blue-900/30 font-semibold" 
-                    : "text-slate-300 hover:bg-slate-800/80 hover:text-white",
-                  isRTL && "flex-row-reverse text-right"
+                    : "text-slate-300 hover:bg-slate-800/80 hover:text-white"
                 )}
               >
                 <item.icon className={cn("w-4 h-4 shrink-0", activeTab === item.id ? "text-white" : "text-slate-400")} />
@@ -106,9 +106,9 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
 
           {/* Language Switcher Section */}
           <div className="pt-3 mt-3 border-t border-slate-800/80">
-            <div className={cn("px-3 py-1 flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider", isRTL && "flex-row-reverse")}>
+            <div className={"px-3 py-1 flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider"}>
               <Languages className="w-3.5 h-3.5 text-slate-400" />
-              <span>Language</span>
+              <span>{t('interfaceLanguage')}</span>
             </div>
             <div className="grid grid-cols-3 gap-1 mt-1 px-1">
               {languages.map((lang) => (
@@ -131,18 +131,18 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, onClose }: SidebarPro
 
         {/* User Profile & Local Status Footer */}
         <div className="p-3.5 border-t border-slate-800/80 shrink-0 bg-slate-950/70">
-          <div className={cn("flex items-center gap-2.5 px-2 py-1.5 mb-1.5", isRTL && "flex-row-reverse")}>
+          <div className={"flex items-center gap-2.5 px-2 py-1.5 mb-1.5"}>
             <div className="w-8 h-8 bg-blue-900/50 border border-blue-600/40 rounded-full flex items-center justify-center shrink-0">
               <UserIcon className="w-4 h-4 text-blue-300" />
             </div>
-            <div className={cn("flex-1 min-w-0", isRTL ? "text-right" : "text-left")}>
+            <div className={"flex-1 min-w-0 text-start"}>
               <p className="text-xs font-semibold text-white truncate">{profile?.displayName}</p>
               <p className="text-[10px] text-blue-400 font-mono truncate">{profile?.email} ({profile?.role})</p>
             </div>
           </div>
           <div className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] text-emerald-400 font-medium">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <button onClick={() => void logout().catch(() => alert('Не удалось выйти. Повторите попытку.'))} className="flex items-center gap-2"><LogOut className="h-3 w-3" />Выйти</button>
+            <button onClick={() => void logout().catch(() => alert(t('logOutFailed')))} className="flex items-center gap-2"><LogOut className="h-3 w-3" />{t('logOut')}</button>
           </div>
         </div>
       </aside>

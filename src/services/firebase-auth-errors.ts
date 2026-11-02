@@ -1,17 +1,22 @@
-export function firebaseSignInError(error: { code?: string; message?: string }, fallback = 'Не удалось войти. Повторите попытку.') {
+import type { CrmLanguage } from '../../shared/i18n';
+import { COMMON_TEXTS } from '../i18n/common-i18n';
+
+/** A sign-in error in the chosen language (Russian by default); `fallback` is used for unknown errors without a message. */
+export function firebaseSignInError(error: { code?: string; message?: string }, fallback?: string, language: CrmLanguage = 'ru') {
+  const text = COMMON_TEXTS[language].messages;
   switch (error.code) {
     case 'auth/popup-closed-by-user':
     case 'auth/cancelled-popup-request':
-      return 'Окно входа Google закрыто до завершения. Нажмите «Sign in with Google» и завершите выбор аккаунта.';
+      return text.popupClosed;
     case 'auth/popup-blocked':
-      return 'Браузер заблокировал окно Google. Разрешите всплывающие окна для этого сайта и повторите вход.';
+      return text.popupBlocked;
     case 'auth/unauthorized-domain':
-      return 'Этот адрес не разрешён в Firebase Authentication. Добавьте домен страницы в Authentication → Settings → Authorized domains существующего проекта Firebase.';
+      return text.unauthorizedDomain;
     case 'auth/network-request-failed':
-      return 'Не удалось связаться с Firebase для входа. Проверьте подключение к интернету и повторите попытку.';
+      return text.network;
     case 'auth/operation-not-allowed':
-      return 'Этот способ входа отключён в Firebase. Проверьте включённые способы входа в существующем проекте.';
+      return text.methodDisabled;
     default:
-      return error.message || fallback;
+      return error.message || fallback || text.signInFailed;
   }
 }

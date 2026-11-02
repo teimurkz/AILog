@@ -118,3 +118,18 @@ test('parking cost in tenge by a daily rate', () => {
   assert.deepEqual(parkingCost(result.rows, 10000), { partner: 40000, crm: 30000, diff: 10000, partnerAll: 60000 });
   assert.deepEqual(parkingCost(result.rows, 0), { partner: 0, crm: 0, diff: 0, partnerAll: 0 });
 });
+
+test('issue texts follow the chosen language; Russian stays the default', () => {
+  const sheet = [header, row(1, '10/3/26', '20260914-398', null, '10/8/26'), row(2, '10/4/26', '20260922-999', null, null)];
+  const entries = [{ id: 'b', invoice: '398', productName: 'Milk', status: 'unloaded', stageDates: { arrived: '2026-10-04', unloaded: '2026-10-08' } }];
+  const partner = parsePartnerSheet(sheet, today);
+  const issues = (language?: 'ru' | 'en' | 'fa') => reconcile(partner, entries, DEFAULT_STAGES, today, null, language).rows.map(item => item.issues[0]);
+  assert.deepEqual(issues(), issues('ru'));
+  assert.match(issues('ru')[0], /^Заезд: у партнёра 03\.10\.2026, в CRM 04\.10\.2026 \(-1 дн\.\)$/);
+  assert.deepEqual(issues('en'), ['Arrival: partner 03.10.2026, CRM 04.10.2026 (-1 days)', 'Invoice 999 is not in Truck Tracking']);
+  for (const issue of issues('fa')) {
+    assert.match(issue, /[؀-ۿ]/);
+    assert.doesNotMatch(issue, /[Ѐ-ӿ]/);
+  }
+  assert.match(issues('fa')[0], /03\.10\.2026.*04\.10\.2026.*-1/);
+});

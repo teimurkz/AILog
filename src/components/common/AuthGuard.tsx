@@ -6,10 +6,11 @@ import { auth } from '../../firebase';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { firebaseSignInError } from '../../services/firebase-auth-errors';
+import { translateMessage } from '../../i18n/common-i18n';
 
 export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
   const { user, profile, loading, authError } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [error, setError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
@@ -20,7 +21,7 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
       await signInWithPopup(auth, new GoogleAuthProvider());
     } catch (err: any) {
       console.error("Firebase Auth Error:", err);
-      setError(firebaseSignInError(err, t('signInError')));
+      setError(firebaseSignInError(err, t('signInError'), language));
     } finally {
       setAuthLoading(false);
     }
@@ -33,7 +34,7 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
       await signInAnonymously(auth);
     } catch (err: any) {
       console.error("Guest Sign-in Error:", err);
-      setError(firebaseSignInError(err, t('guestSignInError')));
+      setError(firebaseSignInError(err, t('guestSignInError'), language));
     } finally {
       setAuthLoading(false);
     }
@@ -59,10 +60,10 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
         <p className="text-slate-500 mb-6">{t('appDescription')}</p>
 
         {error && (
-          <div className="mb-6 p-4 bg-amber-50 rounded-xl border border-amber-200 text-left text-xs text-amber-900 flex gap-2.5">
+          <div className="mb-6 p-4 bg-amber-50 rounded-xl border border-amber-200 text-start text-xs text-amber-900 flex gap-2.5">
             <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
             <div className="space-y-2 w-full">
-              <p className="font-semibold text-amber-950">Не удалось завершить вход</p>
+              <p className="font-semibold text-amber-950">{t('signInFailedTitle')}</p>
               <p className="leading-relaxed">{error}</p>
             </div>
           </div>
@@ -99,6 +100,6 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
     </div>
   );
 
-  if (authError) return <div className="min-h-screen flex items-center justify-center p-6"><p role="alert">{authError}</p></div>;
+  if (authError) return <div className="min-h-screen flex items-center justify-center p-6"><p role="alert">{translateMessage(authError, language)}</p></div>;
   return <React.Fragment key={`${user.uid}:${profile?.role}`}>{children}</React.Fragment>;
 };

@@ -51,7 +51,9 @@ export const shipmentDays = (s: ReportShipment) => ({
 });
 
 const average = (values: number[]) => values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length * 10) / 10 : null;
-const routeOf = (s: ReportShipment) => s.route || 'Без маршрута';
+/** Route key of shipments without a route; the page shows it in the chosen language. */
+export const NO_ROUTE = 'Без маршрута';
+const routeOf = (s: ReportShipment) => s.route || NO_ROUTE;
 const byRoute = (shipments: ReportShipment[], route?: string) => route ? shipments.filter(s => routeOf(s) === route) : shipments;
 /** Monday of the week of a day. */
 export function weekStart(day: string) {

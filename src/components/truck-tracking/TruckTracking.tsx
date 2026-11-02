@@ -19,6 +19,7 @@ import { PasteImportModal } from './PasteImportModal';
 import { StageSettingsModal } from './StageSettingsModal';
 import { COLOR_STYLES } from './statusStyles';
 import { useTrackingText } from './useTrackingText';
+import { MESSAGE, translateMessage } from '../../i18n/common-i18n';
 import { cn } from '../../lib/utils';
 
 // Editable columns: fixed text fields plus one date column per stage ("date:<stageId>").
@@ -327,7 +328,7 @@ export const TruckTracking = () => {
 
   // Every signed-in user may read these collections, so "no access" means the rules
   // from firestore.rules have not been published yet (see TRUCK-TRACKING.md).
-  if (!entries.length && error?.startsWith('Нет доступа')) {
+  if (!entries.length && error === MESSAGE.permissionDenied) {
     return <RulesNotice onRetry={retry} text={text} />;
   }
 
@@ -475,7 +476,7 @@ export const TruckTracking = () => {
         </div>
 
         {!canEdit && <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">{text.readOnly}</div>}
-        {error && entries.length > 0 && <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">{error}</div>}
+        {error && entries.length > 0 && <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">{translateMessage(error, language)}</div>}
 
         {view === 'table' ? (
           <>

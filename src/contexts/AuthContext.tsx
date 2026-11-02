@@ -4,6 +4,7 @@ import { doc, onSnapshot, runTransaction } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { canEditSection, canViewSection, effectiveAccess, effectiveRole, isOwnerIdentity, type AccessMap, type CrmSection } from '../../shared/access-policy';
 import { UserProfile } from '../types';
+import { MESSAGE } from '../i18n/common-i18n';
 
 interface AuthContextType {
   user: User | null;
@@ -58,12 +59,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setLoading(false);
         }, () => {
           if (version !== generation) return;
-          setAuthError('Не удалось загрузить профиль Firebase. Проверьте подключение и повторите вход.');
+          setAuthError(MESSAGE.profileLoadFailed);
           setLoading(false);
         });
       } catch {
         if (version !== generation) return;
-        setAuthError('Не удалось загрузить профиль Firebase. Данные пользователя не изменены.');
+        setAuthError(MESSAGE.profileSaveFailed);
         setLoading(false);
       }
     });

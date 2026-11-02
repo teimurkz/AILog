@@ -36,6 +36,9 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
   );
 };
 
+/** The language context, or undefined outside a LanguageProvider (for widgets that also render on their own). */
+export const useOptionalLanguage = () => useContext(LanguageContext);
+
 export const useLanguage = () => {
   const context = useContext(LanguageContext);
   if (context === undefined) {

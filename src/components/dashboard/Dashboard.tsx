@@ -1,7 +1,8 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { Navigation, AlertCircle, CheckCircle2, Clock, MapPin, Truck as TruckIcon, ChevronRight, Package } from 'lucide-react';
-import { differenceInDays, parseISO, format } from 'date-fns';
+import { differenceInDays, parseISO } from 'date-fns';
+import { CRM_LOCALES, type CrmLanguage } from '../../../shared/i18n';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { Shipment } from '../../types';
 import { cn } from '../../lib/utils';
@@ -14,7 +15,8 @@ interface DashboardProps {
 }
 
 export const Dashboard = ({ shipments, onSelect }: DashboardProps) => {
-  const { t, isRTL } = useLanguage();
+  const { t, isRTL, language } = useLanguage();
+  const locale = CRM_LOCALES[language as CrmLanguage] || CRM_LOCALES.en;
   
   const stats = [
     { label: t('activeShipments'), value: shipments.filter(s => s.status === 'In Transit' || s.status === 'Customs').length, icon: Navigation, color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -90,8 +92,7 @@ export const Dashboard = ({ shipments, onSelect }: DashboardProps) => {
                   key={s.id} 
                   onClick={() => onSelect(s)}
                   className={cn(
-                    "flex items-center gap-4 p-4 rounded-xl hover:bg-slate-50 transition-all cursor-pointer border border-transparent hover:border-slate-100",
-                    isRTL && "flex-row-reverse"
+                    "flex items-center gap-4 p-4 rounded-xl hover:bg-slate-50 transition-all cursor-pointer border border-transparent hover:border-slate-100"
                   )}
                 >
                   <div className={cn(
@@ -113,10 +114,10 @@ export const Dashboard = ({ shipments, onSelect }: DashboardProps) => {
                         )}>
                           {t(s.status as any)}
                           {isDelayed && s.status !== 'Delivered' && (
-                            <span className="ml-1 text-[8px] opacity-75">({t('delayed')})</span>
+                            <span className="ms-1 text-[8px] opacity-75">({t('delayed')})</span>
                           )}
                         </p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">{Number.isFinite(Date.parse(s.last_updated || '')) ? format(parseISO(s.last_updated), 'MMM d, HH:mm') : 'Дата обновления не указана'}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{Number.isFinite(Date.parse(s.last_updated || '')) ? new Date(s.last_updated).toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : t('lastUpdateUnknown')}</p>
                       </div>
                 </div>
               );
@@ -155,7 +156,7 @@ export const Dashboard = ({ shipments, onSelect }: DashboardProps) => {
             {sortedItems.map(([item, count]) => (
               <div key={item} className={cn("bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col", isRTL && "text-right")}>
                 <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wider">{t('items')}</p>
-                <div className={cn("flex items-center justify-between gap-2", isRTL && "flex-row-reverse")}>
+                <div className={"flex items-center justify-between gap-2"}>
                   <span className="text-sm font-bold text-slate-700 truncate">{item}</span>
                   <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full">x{count}</span>
                 </div>

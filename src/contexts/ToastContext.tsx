@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, AlertCircle, Info, AlertTriangle, X, Undo2 } from 'lucide-react';
+import { useOptionalLanguage } from './LanguageContext';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -27,13 +28,14 @@ const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const undoText = useOptionalLanguage()?.t('undo') ?? 'Отменить';
 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   const showToast = useCallback(
-    ({ type, title, message, duration = 4000, onUndo, undoLabel = 'Отменить' }: Omit<ToastItem, 'id'>) => {
+    ({ type, title, message, duration = 4000, onUndo, undoLabel = undoText }: Omit<ToastItem, 'id'>) => {
       const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const newToast: ToastItem = { id, type, title, message, duration, onUndo, undoLabel };
 
@@ -47,7 +49,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       return id;
     },
-    [removeToast]
+    [removeToast, undoText]
   );
 
   const showSuccess = useCallback((message: string, title?: string) => showToast({ type: 'success', message, title }), [showToast]);

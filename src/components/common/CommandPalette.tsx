@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Command, X, Truck, Building2, Mail, FileSpreadsheet, User, ArrowRight } from 'lucide-react';
-import { useLanguage } from '../../contexts/LanguageContext';
+import { useSectionText } from '../../i18n/useSectionText';
+import { COMMON_TEXTS } from '../../i18n/common-i18n';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -12,7 +13,7 @@ interface CommandPaletteProps {
 }
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, onNavigate, canOpen = () => true }) => {
-  const { t } = useLanguage();
+  const text = useSectionText(COMMON_TEXTS).text.palette;
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -41,14 +42,14 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  const navItems = [
-    { id: 'regional-orders', title: 'Региональные рейсы (Астана, Шымкент)', icon: Truck, category: 'Навигация' },
-    { id: 'shipments', title: 'Складской учет и статусы авто', icon: Building2, category: 'Навигация' },
-    { id: 'truck-tracking', title: 'Слежка авто (инвойсы, прибытие, СВХ)', icon: Truck, category: 'Навигация' },
-    { id: 'auto-mailing', title: 'Авто-рассылка отчетов Excel', icon: Mail, category: 'Инструменты' },
-    { id: 'analytics-reports', title: 'Аналитика и сводные отчеты', icon: FileSpreadsheet, category: 'Аналитика' },
-    { id: 'directories', title: 'Справочники (Водители, Клиенты)', icon: User, category: 'Настройки' },
-  ];
+  const navItems = ([
+    { id: 'regional-orders', icon: Truck, category: 'navigation' },
+    { id: 'shipments', icon: Building2, category: 'navigation' },
+    { id: 'truck-tracking', icon: Truck, category: 'navigation' },
+    { id: 'auto-mailing', icon: Mail, category: 'tools' },
+    { id: 'analytics-reports', icon: FileSpreadsheet, category: 'analytics' },
+    { id: 'directories', icon: User, category: 'settings' },
+  ] as const).map(item => ({ id: item.id, icon: item.icon, title: text.items[item.id], category: text.category[item.category] }));
 
   const filtered = navItems.filter(item => canOpen(item.id)).filter(item =>
     item.title.toLowerCase().includes(query.toLowerCase()) ||
@@ -72,13 +73,14 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
             <input
               ref={inputRef}
               type="text"
-              placeholder="Поиск по меню, заказам, водителям (Ctrl + K)..."
+              placeholder={text.placeholder}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="w-full bg-transparent text-sm font-medium text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none"
             />
             <button
               onClick={onClose}
+              aria-label={text.close}
               className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700"
             >
               <X className="w-4 h-4" />
@@ -89,7 +91,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
           <div className="max-h-80 overflow-y-auto p-3 space-y-1">
             {filtered.length === 0 ? (
               <div className="py-8 text-center text-xs text-slate-400">
-                Ничего не найдено по запросу «{query}»
+                {text.nothingFound(query)}
               </div>
             ) : (
               filtered.map((item) => {
@@ -101,7 +103,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
                       onNavigate(item.id);
                       onClose();
                     }}
-                    className="w-full p-3 rounded-2xl flex items-center justify-between text-left hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors group cursor-pointer"
+                    className="w-full p-3 rounded-2xl flex items-center justify-between text-start hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors group cursor-pointer"
                   >
                     <div className="flex items-center gap-3">
                       <div className="p-2 bg-slate-100 dark:bg-slate-700/60 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
@@ -112,7 +114,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
                         <div className="text-[10px] text-slate-400 uppercase tracking-wider">{item.category}</div>
                       </div>
                     </div>
-                    <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity rtl:rotate-180" />
                   </button>
                 );
               })
@@ -122,9 +124,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
           {/* Footer Shortcuts */}
           <div className="p-3 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-700/60 flex items-center justify-between text-[11px] text-slate-400">
             <span className="flex items-center gap-1">
-              <Command className="w-3.5 h-3.5" /> + <b>K</b> чтобы открыть / закрыть
+              <Command className="w-3.5 h-3.5" /> <span dir="ltr">+ <b>K</b></span> {text.toggle}
             </span>
-            <span>Нажмите <b>Esc</b> для выхода</span>
+            <span>{text.press} <b>Esc</b> {text.toExit}</span>
           </div>
         </motion.div>
       </div>

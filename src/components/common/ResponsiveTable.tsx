@@ -1,4 +1,5 @@
 import React, { Children, Fragment, cloneElement, isValidElement, type ReactNode } from 'react';
+import { useOptionalLanguage } from '../../contexts/LanguageContext';
 
 function textContent(node: ReactNode): string {
   return Children.toArray(node).map(child => {
@@ -19,6 +20,7 @@ function cells(node: ReactNode): React.ReactElement<any>[] {
 /** Keeps the same cells, controls and row handlers when a table becomes cards. */
 export function ResponsiveTable({ children, className = '', wide = false, ...props }:
   React.TableHTMLAttributes<HTMLTableElement> & { wide?: boolean }) {
+  const selectAll = useOptionalLanguage()?.t('selectAll') ?? 'Выбрать все';
   const headers = cells(children).map(cell => textContent(cell.props.children));
   function decorate(nodes: ReactNode): ReactNode {
     return Children.map(nodes, node => {
@@ -39,7 +41,7 @@ export function ResponsiveTable({ children, className = '', wide = false, ...pro
               ? { 'data-label': headers[index] } : {}),
             ...(cell.props.colSpan > 1 ? { 'data-full-row': true } : {}),
           }, selectionHeader ? <label className="inline-flex items-center gap-2">
-            {cell.props.children}<span className="crm-select-all-label">Выбрать все</span>
+            {cell.props.children}<span className="crm-select-all-label">{selectAll}</span>
           </label> : cell.props.children);
         }));
       }

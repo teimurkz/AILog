@@ -5,21 +5,24 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { cn } from '../../lib/utils';
 import type { UserProfile } from '../../types';
 import { SECTION_MENU } from '../common/sections';
+import { useSectionText } from '../../i18n/useSectionText';
+import { ADMIN_TEXTS } from './admin-i18n';
 
 const editable = new Set<string>(CRM_SECTIONS.filter(section => section.editable).map(section => section.id));
 const sameAccess = (a: AccessMap, b: AccessMap) => CRM_SECTIONS.every(({ id }) => (a[id] || '') === (b[id] || ''));
 
 /** Short summary for the users table: "по роли" or how many sections are open. */
-export function accessSummary(user: UserProfile) {
+export function accessSummary(user: UserProfile, text = ADMIN_TEXTS.ru.access) {
   const saved = cleanAccess(user.access);
-  if (!saved) return 'По роли';
+  if (!saved) return text.byRole;
   const open = Object.keys(saved).length;
-  return open ? `Своё: ${open} из ${CRM_SECTIONS.length}` : 'Всё скрыто';
+  return open ? text.custom(open, CRM_SECTIONS.length) : text.allHidden;
 }
 
 /** Checkboxes "видит / изменяет" per CRM section for one user. */
 export const AccessEditor = ({ user, onSave }: { user: UserProfile; onSave: (access: AccessMap | null) => Promise<unknown> }) => {
   const { t, isRTL } = useLanguage();
+  const text = useSectionText(ADMIN_TEXTS).text.access;
   const saved = cleanAccess(user.access);
   const byRole = roleAccess(user.role);
   const [draft, setDraft] = React.useState<AccessMap>(() => saved || byRole);
@@ -52,11 +55,11 @@ export const AccessEditor = ({ user, onSave }: { user: UserProfile; onSave: (acc
     <div className="space-y-4 bg-slate-50/70 px-4 py-4 sm:px-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <div className="flex flex-wrap items-center gap-2">
         <p className="me-auto text-xs text-slate-500">
-          {saved ? 'Права настроены вручную — роль на них не влияет.' : 'Сейчас действуют права по роли. Измените галочки и сохраните, чтобы настроить вручную.'}
+          {saved ? text.customNote : text.roleNote}
         </p>
-        <button type="button" className={cn(button, 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100')} onClick={() => all('edit')}>Всё</button>
-        <button type="button" className={cn(button, 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100')} onClick={() => all('view')}>Только просмотр</button>
-        <button type="button" className={cn(button, 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100')} onClick={() => all(null)}>Ничего</button>
+        <button type="button" className={cn(button, 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100')} onClick={() => all('edit')}>{text.all}</button>
+        <button type="button" className={cn(button, 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100')} onClick={() => all('view')}>{text.viewOnly}</button>
+        <button type="button" className={cn(button, 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100')} onClick={() => all(null)}>{text.nothing}</button>
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -67,16 +70,16 @@ export const AccessEditor = ({ user, onSave }: { user: UserProfile; onSave: (acc
             <div key={section.id} className={cn('flex items-center gap-3 rounded-xl border bg-white px-3 py-2.5', level ? 'border-blue-200' : 'border-slate-200 opacity-80')}>
               <Icon className={cn('h-4 w-4 shrink-0', level ? 'text-blue-600' : 'text-slate-400')} />
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{t(section.labelKey as any) || section.fallback}</span>
-              <label className="flex cursor-pointer items-center gap-1 text-xs text-slate-600" title="Раздел виден в меню">
+              <label className="flex cursor-pointer items-center gap-1 text-xs text-slate-600" title={text.seesTitle}>
                 <input type="checkbox" className="h-4 w-4 accent-blue-600" checked={Boolean(level)}
                   onChange={event => set(section.id, event.target.checked ? 'view' : null)} />
-                <Eye className="h-3.5 w-3.5" />Видит
+                <Eye className="h-3.5 w-3.5" />{text.sees}
               </label>
               {editable.has(section.id) && (
-                <label className="flex cursor-pointer items-center gap-1 text-xs text-slate-600" title="Может добавлять, менять и удалять записи">
+                <label className="flex cursor-pointer items-center gap-1 text-xs text-slate-600" title={text.editsTitle}>
                   <input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={level === 'edit'}
                     onChange={event => set(section.id, event.target.checked ? 'edit' : level ? 'view' : null)} />
-                  <Pencil className="h-3.5 w-3.5" />Изменяет
+                  <Pencil className="h-3.5 w-3.5" />{text.edits}
                 </label>
               )}
             </div>
@@ -87,16 +90,16 @@ export const AccessEditor = ({ user, onSave }: { user: UserProfile; onSave: (acc
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" disabled={!dirty || state === 'saving'} onClick={() => save(draft)}
           className={cn(button, 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700')}>
-          <Check className="h-3.5 w-3.5" />{state === 'saving' ? 'Сохраняю…' : 'Сохранить права'}
+          <Check className="h-3.5 w-3.5" />{state === 'saving' ? text.saving : text.save}
         </button>
         {saved && (
           <button type="button" disabled={state === 'saving'} onClick={() => save(null)}
             className={cn(button, 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100')}>
-            <RotateCcw className="h-3.5 w-3.5" />Вернуть права роли
+            <RotateCcw className="h-3.5 w-3.5" />{text.reset}
           </button>
         )}
-        {state === 'saved' && <span className="text-xs font-medium text-emerald-700">Сохранено. У пользователя меню обновится сразу.</span>}
-        {state === 'error' && <span className="text-xs font-medium text-red-700">Не удалось сохранить. Проверьте, что опубликованы новые правила Firestore, и повторите.</span>}
+        {state === 'saved' && <span className="text-xs font-medium text-emerald-700">{text.saved}</span>}
+        {state === 'error' && <span className="text-xs font-medium text-red-700">{text.failed}</span>}
       </div>
     </div>
   );

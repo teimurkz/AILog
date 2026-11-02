@@ -34,7 +34,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         const parsed = JSON.parse(this.state.error?.message || "");
         errorDetails = JSON.stringify(parsed, null, 2);
       } catch {
-        errorDetails = this.state.error?.message || "Unknown error";
+        errorDetails = this.state.error?.message || this.props.t('unknownError');
       }
 
       return (
