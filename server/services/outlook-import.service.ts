@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { Firestore } from 'firebase-admin/firestore';
-import { autoShipmentName, emailKey, invoiceKey, refreshDays, senderAllowed, singleSender, validateOutlookSettings, validateRefreshUrl, type MailRefreshResult, validateMailImportSettings, type PowerAutomateStatus, type MailDocument, type OutlookSettings, type OutlookStatus, type OutlookLogin, type OutlookImportLog } from '../../shared/outlook-import.js';
+import { autoShipmentName, emailKey, invoiceKey, refreshDays, refreshSearchQuery, senderAllowed, singleSender, validateOutlookSettings, validateRefreshUrl, type MailRefreshResult, validateMailImportSettings, type PowerAutomateStatus, type MailDocument, type OutlookSettings, type OutlookStatus, type OutlookLogin, type OutlookImportLog } from '../../shared/outlook-import.js';
 import { OutlookGraph, OutlookError, microsoftTokenRequest, outlookScopes, type GraphAttachment, type GraphMessage } from './outlook-graph.js';
 import { ImportReview, invoiceName, parseInvoiceWorkbook, mergeMailShipment, mailInvoiceNumbers, shipmentMatchesNumber, type InvoiceDraft } from './outlook-invoice.js';
 import type { Shipment } from '../../src/types/index.js';
@@ -490,7 +490,7 @@ export function createOutlookImportService(deps: Dependencies) {
     let response: Response;
     try {
       response = await call(saved.refreshUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(30000),
-        body: JSON.stringify({ from, to, days, searchQueries: days.map(day => `received:${day}`), mailbox: saved.settings.mailbox }) });
+        body: JSON.stringify({ from, to, days, searchQueries: days.map(day => refreshSearchQuery(day, saved.settings.sender || '')), mailbox: saved.settings.mailbox }) });
     } catch { throw await failed('Поток Power Automate не ответил. Проверьте, что он включён, и повторите.'); }
     if (!response.ok) throw await failed(`Поток Power Automate отклонил запрос (HTTP ${response.status}). Проверьте ссылку и что поток включён.`);
     // Review emails whose original is kept may resolve now (e.g. after a shipment appeared).

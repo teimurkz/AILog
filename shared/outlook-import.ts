@@ -140,6 +140,17 @@ export const autoShipmentName = (number: string, prefix?: string) => (prefix?.tr
 
 const isoDay = /^\d{4}-\d{2}-\d{2}$/;
 /** Calendar days of a manual refresh period (inclusive), at most 92 days, not in the future (Almaty). */
+/**
+ * Outlook search for one day of a refresh, limited to the CRM's senders: other emails in the
+ * mailbox (WMS notices and the like) would only be rejected by the CRM and fail the flow run.
+ */
+export function refreshSearchQuery(day: string, rules: string): string {
+  let list: string[];
+  try { list = senderRules(rules); } catch { return `received:${day}`; }
+  const from = list.map(rule => `from:${rule.replace(/^@/, '')}`);
+  return `received:${day} ${from.length === 1 ? from[0] : `(${from.join(' OR ')})`}`;
+}
+
 export function refreshDays(from: string, to: string, now = Date.now()): string[] {
   if (!isoDay.test(from) || !isoDay.test(to) || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) throw new Error('Укажите даты периода.');
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(now));

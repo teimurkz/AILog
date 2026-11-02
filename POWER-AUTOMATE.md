@@ -173,7 +173,7 @@ CRM без доступа к Azure не читает почту сама: пис
    `X-CRM-Ingest-Key`, Body = **Body** of Export email (V2), Secure inputs/outputs, chunking Off,
    retry Fixed interval 4 × PT1M), except **X-CRM-Received-At:** `items('Apply_to_each_2')?['receivedDateTime']`.
 
-CRM sends one search query per day: `received:2026-10-28`. **Get emails (V3)** returns at most 25 emails
+CRM sends one search query per day, limited to the senders from «Письма от»: `received:2026-10-28 from:al.babaei@solico-group.ir`. Other emails in the folder (for example WMS notices) are not resent. **Get emails (V3)** returns at most 25 emails
 per query; if more than 25 emails with attachments arrive in one day, run the refresh for a shorter period
 or narrow the folder. If a test run returns no emails for a day that has them, open the run, check the
 Search Query value and try the same text in Outlook search. Emails rejected by CRM (for example, review)

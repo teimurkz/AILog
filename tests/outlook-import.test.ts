@@ -4,7 +4,7 @@ import ExcelJS from 'exceljs';
 import { createOutlookImportService } from '../server/services/outlook-import.service.js';
 import { parseInvoiceWorkbook, mergeMailShipment, ImportReview, invoiceName, mailInvoiceNumbers, shipmentMatchesNumber } from '../server/services/outlook-invoice.js';
 import { OutlookGraph, OutlookError, graphUrl, microsoftTokenRequest, outlookScopes } from '../server/services/outlook-graph.js';
-import { invoiceKey, senderAllowed, senderRules, singleSender, validateMailImportSettings, validateOutlookSettings } from '../shared/outlook-import.js';
+import { invoiceKey, refreshSearchQuery, senderAllowed, senderRules, singleSender, validateMailImportSettings, validateOutlookSettings } from '../shared/outlook-import.js';
 import { shipmentDaysPassed } from '../src/utils/shipmentUtils.js';
 import express from 'express';
 import http from 'node:http';
@@ -509,6 +509,8 @@ test('sender list accepts addresses and whole domains, normalises them and rejec
   assert.equal(validateMailImportSettings({ ...settings, sender: 'solico-group.ir, partner@example.test' }).sender, '@solico-group.ir, partner@example.test');
   assert.throws(() => senderRules('not a sender'), /не адрес и не домен/);
   assert.throws(() => senderRules('  '), /от 1 до 50/);
+  assert.equal(refreshSearchQuery('2026-10-28', 'al.babaei@solico-group.ir'), 'received:2026-10-28 from:al.babaei@solico-group.ir');
+  assert.equal(refreshSearchQuery('2026-10-28', 'not a sender'), 'received:2026-10-28');
   assert.equal(senderAllowed('Al.Babaei@solico-group.ir', '@solico-group.ir'), true);
   assert.equal(senderAllowed('x@mail.solico-group.ir', '@solico-group.ir'), false); // no subdomains
   assert.equal(senderAllowed('x@solico-group.ir.evil.test', '@solico-group.ir'), false);
@@ -686,7 +688,9 @@ test('"Обновить отправления" asks the flow to resend a period
   const result = await service.refreshPeriod('2026-09-09', '2026-09-11');
   assert.equal(calls.length, 1); assert.equal(calls[0].url, new URL(flowUrl).toString());
   assert.deepEqual(calls[0].body.days, ['2026-09-09', '2026-09-10', '2026-09-11']);
-  assert.deepEqual(calls[0].body.searchQueries, ['received:2026-09-09', 'received:2026-09-10', 'received:2026-09-11']);
+  // Only the CRM's senders: other emails in the mailbox (e.g. WMS notices) are not resent and rejected.
+  assert.deepEqual(calls[0].body.searchQueries, ['2026-09-09', '2026-09-10', '2026-09-11']
+    .map(day => `received:${day} (from:partner@example.test OR from:solico-group.ir)`));
   assert.equal(result.days, 3); assert.equal(result.rechecked, 1); assert.equal(result.resolved, 1);
   assert.equal(((await f.db.collection('shipments').doc('a').get()).data() as any).mail_documents.length, 3);
   assert.deepEqual((await service.powerStatus()).lastRefresh, result);
