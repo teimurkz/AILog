@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { KustoExpiryItem } from '../../types';
+import { useSectionText } from '../../i18n/useSectionText';
+import { KUSTO_TEXT, KustoText } from './kusto-i18n';
 
 const LOCAL_STORAGE_KEY = 'kusto_expiry_stock_data_v3';
 const LOCAL_STORAGE_MAP_KEY = 'kusto_expiry_stock_col_map_v3';
@@ -66,10 +68,46 @@ const DEFAULT_COLUMN_MAPPING: KustoColumnMapping = {
   freeStock: 15
 };
 
-const formatNum = (val: number | null | undefined): string => {
-  if (val === null || val === undefined || isNaN(val)) return '0';
-  return Number(val).toLocaleString('ru-RU');
+// Report fields in the order of the official 16-column template
+const FIELD_ORDER = Object.keys(DEFAULT_COLUMN_MAPPING) as (keyof KustoColumnMapping)[];
+
+// A column of the uploaded sheet; `field` names the template field when no file has been read yet
+interface SourceColumn {
+  index: number;
+  header: string;
+  sample: string | null;
+  field?: keyof KustoColumnMapping;
+}
+
+const formatNum = (val: number | null | undefined, locale: string): string => {
+  if (val === null || val === undefined || isNaN(val)) return (0).toLocaleString(locale);
+  return Number(val).toLocaleString(locale);
 };
+
+// Report dates are kept as the report writes them ("dd.mm.yyyy[г.][ hh:mm[:ss]]"); show them in the interface language
+const formatReportDate = (value: string, locale: string): string => {
+  const match = value.trim().match(/^(\d{2})\.(\d{2})\.(\d{4})(?:г\.?)?(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (!match) return value;
+  const [, day, month, year, hours, minutes, seconds] = match;
+  const date = new Date(Date.UTC(+year, +month - 1, +day, +(hours ?? 0), +(minutes ?? 0), +(seconds ?? 0)));
+  if (isNaN(date.getTime())) return value;
+  return date.toLocaleString(locale, {
+    timeZone: 'UTC',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    ...(hours ? { hour: '2-digit', minute: '2-digit', ...(seconds ? { second: '2-digit' } : {}) } : {}),
+  } as Intl.DateTimeFormatOptions);
+};
+
+const columnLetter = (index: number) => String.fromCharCode(65 + index);
+
+const sourceColumnLabel = (col: SourceColumn, text: KustoText, locale: string) =>
+  text.columnOption(
+    columnLetter(col.index),
+    formatNum(col.index + 1, locale),
+    col.header || (col.field ? text.columns[col.field] : text.columnFallback(columnLetter(col.index)))
+  );
 
 // Clean string and quotes
 const cleanText = (v: any): string => {
@@ -641,6 +679,8 @@ const INITIAL_SAMPLE_DATA: KustoExpiryItem[] = [
 ];
 
 export const KustoExpiryStock: React.FC = () => {
+  const { text, locale, isRTL } = useSectionText(KUSTO_TEXT);
+  const num = (val: number | null | undefined) => formatNum(val, locale);
   const [items, setItems] = useState<KustoExpiryItem[]>(() => {
     try {
       const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -676,7 +716,7 @@ export const KustoExpiryStock: React.FC = () => {
   // Column Mapping & Diagnostic State
   const [isMappingModalOpen, setIsMappingModalOpen] = useState(false);
   const [rawWorkbookData, setRawWorkbookData] = useState<any[][] | null>(null);
-  const [availableColumns, setAvailableColumns] = useState<{ index: number; label: string; sample: string }[]>([]);
+  const [availableColumns, setAvailableColumns] = useState<SourceColumn[]>([]);
   const [dataStartRowIndex, setDataStartRowIndex] = useState<number>(3);
   const [columnMapping, setColumnMapping] = useState<KustoColumnMapping>(() => {
     try {
@@ -687,7 +727,12 @@ export const KustoExpiryStock: React.FC = () => {
     }
     return DEFAULT_COLUMN_MAPPING;
   });
-  const [mappingNotification, setMappingNotification] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
+  // Kept as a kind and count, so the message follows a language switch
+  const [mappingNotification, setMappingNotification] = useState<{ kind: 'loaded' | 'notRecognized' | 'applied'; count: number; type: 'success' | 'info' | 'warning' } | null>(null);
+  const notificationMessage = (notice: NonNullable<typeof mappingNotification>) =>
+    notice.kind === 'loaded' ? text.loaded(num(notice.count))
+      : notice.kind === 'applied' ? text.mappingApplied(num(notice.count))
+      : text.notRecognized;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -814,7 +859,7 @@ export const KustoExpiryStock: React.FC = () => {
     mapping: KustoColumnMapping;
     startRow: number;
     detectedReportDate: string | null;
-    columns: { index: number; label: string; sample: string }[];
+    columns: SourceColumn[];
   } => {
     const norm = (v: any) => String(v || '')
       .replace(/[\r\n]+/g, ' ')
@@ -1059,15 +1104,13 @@ export const KustoExpiryStock: React.FC = () => {
     });
 
     // Column headers for configuration UI
-    const columns = [];
+    const columns: SourceColumn[] = [];
     for (let c = 0; c < Math.min(maxCols, 26); c++) {
-      const colLetter = String.fromCharCode(65 + c);
-      const label = compositeHeaders[c] || `Колонка ${colLetter}`;
       const sampleVal = sampleRows.map(r => r[c]).find(v => v !== null && v !== undefined && String(v).trim() !== '');
       const sample = sampleVal !== undefined ? String(sampleVal).slice(0, 35) : '—';
       columns.push({
         index: c,
-        label: `Кол. ${colLetter} [${c + 1}]: ${label ? label.slice(0, 30) : 'Без названия'}`,
+        header: (compositeHeaders[c] || '').slice(0, 30),
         sample
       });
     }
@@ -1100,7 +1143,7 @@ export const KustoExpiryStock: React.FC = () => {
         const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
 
         if (!rawData || rawData.length === 0) {
-          alert('Файл Excel пуст или содержит некорректные данные.');
+          alert(text.emptyFile);
           setIsUploading(false);
           return;
         }
@@ -1122,20 +1165,14 @@ export const KustoExpiryStock: React.FC = () => {
 
         if (parsedItems.length > 0) {
           setItems(parsedItems);
-          setMappingNotification({
-            message: `Успешно загружено ${parsedItems.length} позиций! Колонки сопоставлены автоматически.`,
-            type: 'success'
-          });
+          setMappingNotification({ kind: 'loaded', count: parsedItems.length, type: 'success' });
         } else {
-          setMappingNotification({
-            message: 'Файл загружен, но строки с товарами не распознаны автоматически. Откройте "Настройка колонок" для проверки сопоставления.',
-            type: 'warning'
-          });
+          setMappingNotification({ kind: 'notRecognized', count: 0, type: 'warning' });
           setIsMappingModalOpen(true);
         }
       } catch (err: any) {
         console.error('Error parsing Excel file:', err);
-        alert(`Ошибка при чтении файла Excel: ${err.message || 'Неизвестная ошибка'}`);
+        alert(text.readError(err.message || text.unknownError));
       } finally {
         setIsUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -1154,12 +1191,9 @@ export const KustoExpiryStock: React.FC = () => {
       const parsedItems = executeParsing(rawWorkbookData, newMapping, newStartRow);
       if (parsedItems.length > 0) {
         setItems(parsedItems);
-        setMappingNotification({
-          message: `Сопоставление применено: обновлено ${parsedItems.length} позиций!`,
-          type: 'success'
-        });
+        setMappingNotification({ kind: 'applied', count: parsedItems.length, type: 'success' });
       } else {
-        alert('По выбранным колонкам не удалось прочитать строки. Проверьте правильность выбранных полей.');
+        alert(text.noRowsForMapping);
       }
     }
     setIsMappingModalOpen(false);
@@ -1167,7 +1201,7 @@ export const KustoExpiryStock: React.FC = () => {
 
   // Reset data back to default sample
   const handleResetData = () => {
-    if (confirm('Сбросить данные к исходному отчету остатков Кусто?')) {
+    if (confirm(text.resetConfirm)) {
       setItems(INITIAL_SAMPLE_DATA);
       setFileName(null);
       setReportDateInfo('20.08.2026 10:00:25');
@@ -1178,26 +1212,14 @@ export const KustoExpiryStock: React.FC = () => {
 
   // Export current filtered view to Excel with full 16 columns matching official template
   const handleExportExcel = () => {
-    const exportRows = filteredItems.map((item) => ({
-      'Группа': item.group,
-      'Артикул': item.article,
-      'Наименование': item.name,
-      'РСВ': item.rsv,
-      'Ед.изм.': item.unit,
-      'Партия': item.batch,
-      'Дата произв.': item.productionDate,
-      'Срок годности': item.expiryDate,
-      'Мин.дней до С.Г.': item.minDaysLimit,
-      'Дней до С.Г.': item.daysToExpiry,
-      'Срок коммерциализации': item.commercializationDeadline,
-      'Дней до окончания коммерц.': item.daysToDeadline,
-      'Тип стока': item.stockType,
-      'Всего в стоке (шт)': item.totalStock,
-      'Зарезервировано в заказы (шт)': item.reservedStock,
-      'Свободный сток (шт)': item.freeStock
+    const dateFields = new Set<keyof KustoColumnMapping>(['productionDate', 'expiryDate', 'commercializationDeadline']);
+    const header = FIELD_ORDER.map(field => text.columns[field]);
+    const exportRows = filteredItems.map(item => FIELD_ORDER.map(field => {
+      const value = item[field];
+      return dateFields.has(field) ? formatReportDate(String(value), locale) : value;
     }));
 
-    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    const worksheet = XLSX.utils.aoa_to_sheet([header, ...exportRows]);
     worksheet['!cols'] = [
       { wch: 12 }, { wch: 15 }, { wch: 45 },
       { wch: 6 }, { wch: 12 }, { wch: 14 }, { wch: 14 },
@@ -1206,8 +1228,9 @@ export const KustoExpiryStock: React.FC = () => {
     ];
 
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Остатки Кусто');
-    XLSX.writeFile(workbook, `Отчет_остатки_Кусто_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    if (isRTL) workbook.Workbook = { Views: [{ RTL: true }] };
+    XLSX.utils.book_append_sheet(workbook, worksheet, text.sheetName);
+    XLSX.writeFile(workbook, `${text.fileName}_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   // Filter & Search Logic
@@ -1341,34 +1364,34 @@ export const KustoExpiryStock: React.FC = () => {
   const getStockTypeBadge = (type: string, daysExpiry: number, daysDeadline: number) => {
     if (type === 'E' || daysExpiry < 0) {
       return {
-        label: 'E — Просрочено',
+        label: text.stockTypes.E,
         bg: 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-200 border-rose-300 dark:border-rose-700',
         dot: 'bg-rose-500'
       };
     }
     if (type === 'H' || daysDeadline < 0) {
       return {
-        label: 'H — Холд / Контроль',
+        label: text.stockTypes.H,
         bg: 'bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-200 border-purple-300 dark:border-purple-700',
         dot: 'bg-purple-500'
       };
     }
     if (type === 'B' || daysExpiry <= 30) {
       return {
-        label: 'B — Зона риска',
+        label: text.stockTypes.B,
         bg: 'bg-orange-100 text-orange-800 dark:bg-orange-900/60 dark:text-orange-200 border-orange-300 dark:border-orange-700',
         dot: 'bg-orange-500'
       };
     }
     if (type === 'A' || daysExpiry <= 90) {
       return {
-        label: 'A — Внимание',
+        label: text.stockTypes.A,
         bg: 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 border-amber-300 dark:border-amber-700',
         dot: 'bg-amber-500'
       };
     }
     return {
-      label: 'N — Свежий сток',
+      label: text.stockTypes.N,
       bg: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700',
       dot: 'bg-emerald-500'
     };
@@ -1384,23 +1407,23 @@ export const KustoExpiryStock: React.FC = () => {
     <div className="space-y-6 pb-12">
       {/* Header Banner */}
       <div className="crm-page-header relative">
-        <div className="absolute top-0 right-0 -mt-8 -mr-8 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-0 end-0 -mt-8 -me-8 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
             <div className="crm-eyebrow inline-flex items-center gap-2 px-3 py-1 bg-white/10 backdrop-blur-md rounded-full text-xs font-semibold text-slate-600 mb-3">
               <Calendar className="w-3.5 h-3.5" />
-              <span>Склады КУСТО — Отчет по остаткам и срокам годности</span>
+              <span>{text.eyebrow}</span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Остатки по срокам КУСТО
+              {text.title}
             </h2>
             <p className="text-slate-600 text-sm mt-1 max-w-2xl">
-              Точный импорт и мониторинг отчетов WMS/1C: артикул, наименование, партия, сроки годности и коммерциализации, статусы стока (N, A, B, H, E).
+              {text.subtitle}
             </p>
             {reportDateInfo && (
               <div className="inline-flex items-center gap-1.5 mt-2.5 text-xs text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
                 <Clock className="w-3.5 h-3.5 text-blue-600" />
-                <span>Дата формирования отчета: <strong className="text-slate-900">{reportDateInfo}</strong></span>
+                <span>{text.reportDate} <strong className="text-slate-900">{formatReportDate(reportDateInfo, locale)}</strong></span>
               </div>
             )}
           </div>
@@ -1421,7 +1444,7 @@ export const KustoExpiryStock: React.FC = () => {
               className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-2 cursor-pointer"
             >
               <Upload className="w-4 h-4" />
-              <span>{isUploading ? 'Импорт файла...' : 'Загрузить отчет (.xlsx)'}</span>
+              <span>{isUploading ? text.importing : text.upload}</span>
             </button>
 
             {/* Column Mapping Configuration Button */}
@@ -1429,37 +1452,21 @@ export const KustoExpiryStock: React.FC = () => {
               onClick={() => {
                 if (!rawWorkbookData && availableColumns.length === 0) {
                   // Build available columns from full 16 official Kusto headers without shortening
-                  const dummyCols = [
-                    'Группа',
-                    'Артикул',
-                    'Наименование',
-                    'РСВ',
-                    'Ед.изм.',
-                    'Партия',
-                    'Дата произв.',
-                    'Срок годности',
-                    'Мин.дней до С.Г.',
-                    'Дней до С.Г.',
-                    'Срок коммерциализации',
-                    'Дней до окончания коммерц.',
-                    'Тип стока',
-                    'Всего в стоке (шт)',
-                    'Зарезервировано в заказы (шт)',
-                    'Свободный сток (шт)'
-                  ].map((lbl, idx) => ({
+                  const dummyCols: SourceColumn[] = FIELD_ORDER.map((field, idx) => ({
                     index: idx,
-                    label: `Кол. ${String.fromCharCode(65 + idx)} [${idx + 1}]: ${lbl}`,
-                    sample: 'Пример данных'
+                    header: '',
+                    sample: null,
+                    field
                   }));
                   setAvailableColumns(dummyCols);
                 }
                 setIsMappingModalOpen(true);
               }}
-              title="Настройка соответствия колонок из Excel"
+              title={text.mappingButtonTitle}
               className="px-4 py-2.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-indigo-500/30 font-bold text-sm rounded-xl transition-all flex items-center gap-2 cursor-pointer"
             >
               <SlidersHorizontal className="w-4 h-4 text-blue-600" />
-              <span>Настройка колонок</span>
+              <span>{text.mappingButton}</span>
             </button>
 
             <button
@@ -1467,12 +1474,13 @@ export const KustoExpiryStock: React.FC = () => {
               className="px-4 py-2.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 font-bold text-sm rounded-xl transition-all flex items-center gap-2 cursor-pointer"
             >
               <Download className="w-4 h-4" />
-              <span>Экспорт отчета</span>
+              <span>{text.exportReport}</span>
             </button>
 
             <button
               onClick={handleResetData}
-              title="Сбросить к исходному отчету"
+              title={text.resetTitle}
+              aria-label={text.resetTitle}
               className="p-2.5 bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-900 border border-slate-200 rounded-xl transition-colors cursor-pointer"
             >
               <RotateCcw className="w-4 h-4" />
@@ -1486,20 +1494,20 @@ export const KustoExpiryStock: React.FC = () => {
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
             <span>
               {fileName ? (
-                <>Загруженный файл: <strong className="text-slate-900">{fileName}</strong></>
+                <>{text.loadedFile} <strong className="text-slate-900">{fileName}</strong></>
               ) : (
-                'Используется базовый отчет остатков КУСТО'
+                text.baseReport
               )}
             </span>
           </span>
-          
+
           <div className="flex items-center gap-3 text-slate-500">
-            <span>Всего позиций в таблице: <strong className="text-slate-900">{items.length}</strong></span>
+            <span>{text.totalInTable} <strong className="text-slate-900">{num(items.length)}</strong></span>
             <button
               onClick={() => setIsMappingModalOpen(true)}
               className="text-xs text-blue-600 hover:text-indigo-300 font-semibold underline cursor-pointer"
             >
-              ⚙️ Проверить сопоставление полей
+              ⚙️ {text.checkMapping}
             </button>
           </div>
         </div>
@@ -1515,10 +1523,11 @@ export const KustoExpiryStock: React.FC = () => {
           }`}>
             <div className="flex items-center gap-2">
               <Info className="w-4 h-4 shrink-0" />
-              <span>{mappingNotification.message}</span>
+              <span>{notificationMessage(mappingNotification)}</span>
             </div>
-            <button 
+            <button
               onClick={() => setMappingNotification(null)}
+              aria-label={text.closeNotice}
               className="text-white/60 hover:text-white cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
@@ -1532,71 +1541,71 @@ export const KustoExpiryStock: React.FC = () => {
         {/* Total Free Stock Card */}
         <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Свободный сток</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider">{text.freeStock}</span>
             <Package className="w-4 h-4 text-blue-500" />
           </div>
           <div className="text-xl font-black text-slate-900 dark:text-white">
-            {formatNum(metrics.totalFree)} <span className="text-xs font-normal text-slate-500">шт</span>
+            {num(metrics.totalFree)} <span className="text-xs font-normal text-slate-500">{text.pcs}</span>
           </div>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 flex items-center justify-between">
-            <span>Позиций: <strong>{metrics.totalPositions}</strong></span>
-            <span>Резерв: <strong>{formatNum(metrics.totalReserved)}</strong></span>
+            <span>{text.positions} <strong>{num(metrics.totalPositions)}</strong></span>
+            <span>{text.reserve} <strong>{num(metrics.totalReserved)}</strong></span>
           </div>
         </div>
 
         {/* Fresh Stock N */}
         <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-emerald-200 dark:border-emerald-900/50 shadow-sm">
           <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 mb-1.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Свежий (N)</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider">{text.freshCard}</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="text-xl font-black text-emerald-700 dark:text-emerald-400">
-            {formatNum(metrics.normalFree)} <span className="text-xs font-normal">шт</span>
+            {num(metrics.normalFree)} <span className="text-xs font-normal">{text.pcs}</span>
           </div>
           <div className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 mt-1.5">
-            Позиций: <strong>{metrics.normalCount}</strong> (&gt; 90 дн.)
+            {text.positions} <strong>{num(metrics.normalCount)}</strong> {text.over90}
           </div>
         </div>
 
         {/* Attention A */}
         <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-amber-200 dark:border-amber-900/50 shadow-sm">
           <div className="flex items-center justify-between text-amber-700 dark:text-amber-400 mb-1.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Внимание (A)</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider">{text.attentionCard}</span>
             <Clock className="w-4 h-4 text-amber-500" />
           </div>
           <div className="text-xl font-black text-amber-700 dark:text-amber-400">
-            {formatNum(metrics.attentionFree)} <span className="text-xs font-normal">шт</span>
+            {num(metrics.attentionFree)} <span className="text-xs font-normal">{text.pcs}</span>
           </div>
           <div className="text-[11px] text-amber-600/80 dark:text-amber-400/80 mt-1.5">
-            Позиций: <strong>{metrics.attentionCount}</strong> (30-90 дн.)
+            {text.positions} <strong>{num(metrics.attentionCount)}</strong> {text.from30to90}
           </div>
         </div>
 
         {/* Risk B */}
         <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-orange-200 dark:border-orange-900/50 shadow-sm">
           <div className="flex items-center justify-between text-orange-700 dark:text-orange-400 mb-1.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Зона риска (B)</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider">{text.riskCard}</span>
             <AlertTriangle className="w-4 h-4 text-orange-500" />
           </div>
           <div className="text-xl font-black text-orange-700 dark:text-orange-400">
-            {formatNum(metrics.riskFree)} <span className="text-xs font-normal">шт</span>
+            {num(metrics.riskFree)} <span className="text-xs font-normal">{text.pcs}</span>
           </div>
           <div className="text-[11px] text-orange-600/80 dark:text-orange-400/80 mt-1.5">
-            Позиций: <strong>{metrics.riskCount}</strong> (&le; 30 дн.)
+            {text.positions} <strong>{num(metrics.riskCount)}</strong> {text.upTo30}
           </div>
         </div>
 
         {/* Hold H */}
         <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-purple-200 dark:border-purple-900/50 shadow-sm">
           <div className="flex items-center justify-between text-purple-700 dark:text-purple-400 mb-1.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Холд / Срок комм. (H)</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider">{text.holdCard}</span>
             <ShieldAlert className="w-4 h-4 text-purple-500" />
           </div>
           <div className="text-xl font-black text-purple-700 dark:text-purple-400">
-            {formatNum(metrics.holdFree)} <span className="text-xs font-normal">шт</span>
+            {num(metrics.holdFree)} <span className="text-xs font-normal">{text.pcs}</span>
           </div>
           <div className="text-[11px] text-purple-600/80 dark:text-purple-400/80 mt-1.5">
-            Позиций: <strong>{metrics.holdCount}</strong> (Истек срок комм.)
+            {text.positions} <strong>{num(metrics.holdCount)}</strong> {text.deadlinePassed}
           </div>
         </div>
 
@@ -1607,14 +1616,14 @@ export const KustoExpiryStock: React.FC = () => {
             : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
         }`}>
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400">Просрочено (E)</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400">{text.expiredCard}</span>
             <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
           </div>
           <div className="text-xl font-black text-rose-700 dark:text-rose-300">
-            {formatNum(metrics.expiredFree)} <span className="text-xs font-normal">шт</span>
+            {num(metrics.expiredFree)} <span className="text-xs font-normal">{text.pcs}</span>
           </div>
           <div className="text-[11px] text-rose-600 dark:text-rose-400 mt-1.5 font-medium">
-            Позиций: <strong>{metrics.expiredCount}</strong> (&lt; 0 дн.)
+            {text.positions} <strong>{num(metrics.expiredCount)}</strong> {text.below0}
           </div>
         </div>
       </div>
@@ -1625,9 +1634,9 @@ export const KustoExpiryStock: React.FC = () => {
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
             <div>
-              <h4 className="font-bold text-sm">Внимание: Обнаружена просроченная продукция!</h4>
+              <h4 className="font-bold text-sm">{text.expiredAlertTitle}</h4>
               <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
-                На складе числится <strong>{metrics.expiredCount}</strong> позиций со статусом <strong>"E"</strong> на остатке <strong>{formatNum(metrics.expiredFree)} шт</strong>.
+                {text.expiredAlertBody(num(metrics.expiredCount), num(metrics.expiredFree))}
               </p>
             </div>
           </div>
@@ -1635,7 +1644,7 @@ export const KustoExpiryStock: React.FC = () => {
             onClick={() => { setSelectedStockType('E'); setSelectedUrgency('expired'); }}
             className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg shrink-0 shadow-sm cursor-pointer"
           >
-            Показать просрочку
+            {text.showExpired}
           </button>
         </div>
       )}
@@ -1645,13 +1654,13 @@ export const KustoExpiryStock: React.FC = () => {
         <div className="crm-filters">
           {/* Search Input */}
           <div className="relative sm:col-span-2">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search className="w-4 h-4 absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Поиск по названию, артикулу, партии..."
-              className="w-full pl-9 pr-3 py-2 text-xs font-medium bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              placeholder={text.searchPlaceholder}
+              className="w-full ps-9 pe-3 py-2 text-xs font-medium bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             />
           </div>
 
@@ -1662,7 +1671,7 @@ export const KustoExpiryStock: React.FC = () => {
               onChange={e => setSelectedGroup(e.target.value)}
               className="w-full px-3 py-2 text-xs font-medium bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             >
-              <option value="all">Все группы ({uniqueGroups.length})</option>
+              <option value="all">{text.allGroups(num(uniqueGroups.length))}</option>
               {uniqueGroups.map(grp => (
                 <option key={grp} value={grp}>{grp}</option>
               ))}
@@ -1676,12 +1685,12 @@ export const KustoExpiryStock: React.FC = () => {
               onChange={e => setSelectedStockType(e.target.value)}
               className="w-full px-3 py-2 text-xs font-medium bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             >
-              <option value="all">Все типы стока (N, A, B, H, E)</option>
-              <option value="N">🟢 N — Свежий сток</option>
-              <option value="A">🟡 A — Близкий к окончанию</option>
-              <option value="B">🟠 B — Зона риска (Срочно)</option>
-              <option value="H">🟣 H — Холд / Контроль</option>
-              <option value="E">🔴 E — Просроченный сток</option>
+              <option value="all">{text.allStockTypes}</option>
+              <option value="N">🟢 {text.stockTypeOptions.N}</option>
+              <option value="A">🟡 {text.stockTypeOptions.A}</option>
+              <option value="B">🟠 {text.stockTypeOptions.B}</option>
+              <option value="H">🟣 {text.stockTypeOptions.H}</option>
+              <option value="E">🔴 {text.stockTypeOptions.E}</option>
             </select>
           </div>
 
@@ -1692,12 +1701,12 @@ export const KustoExpiryStock: React.FC = () => {
               onChange={e => setSelectedUrgency(e.target.value)}
               className="w-full px-3 py-2 text-xs font-medium bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             >
-              <option value="all">Все сроки годности</option>
-              <option value="expired">🔴 Просрочено (&lt; 0 дней)</option>
-              <option value="hold">🟣 Истек срок комм. (H)</option>
-              <option value="critical">🟠 Критично (&le; 30 дней)</option>
-              <option value="warning">🟡 Скоро (30 - 90 дней)</option>
-              <option value="normal">🟢 В норме (&gt; 90 дней)</option>
+              <option value="all">{text.allExpiry}</option>
+              <option value="expired">🔴 {text.urgencyOptions.expired}</option>
+              <option value="hold">🟣 {text.urgencyOptions.hold}</option>
+              <option value="critical">🟠 {text.urgencyOptions.critical}</option>
+              <option value="warning">🟡 {text.urgencyOptions.warning}</option>
+              <option value="normal">🟢 {text.urgencyOptions.normal}</option>
             </select>
           </div>
 
@@ -1708,12 +1717,12 @@ export const KustoExpiryStock: React.FC = () => {
               onChange={e => setSortBy(e.target.value)}
               className="w-full px-3 py-2 text-xs font-medium bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             >
-              <option value="days_asc">⏳ Дней до С.Г. (по возрастанию)</option>
-              <option value="days_desc">⏳ Дней до С.Г. (по убыванию)</option>
-              <option value="stock_desc">📦 Свободный сток (по убыванию)</option>
-              <option value="stock_asc">📦 Свободный сток (по возрастанию)</option>
-              <option value="name_asc">🔤 Название товара (А-Я)</option>
-              <option value="article_asc">🔢 Артикул</option>
+              <option value="days_asc">⏳ {text.sortOptions.days_asc}</option>
+              <option value="days_desc">⏳ {text.sortOptions.days_desc}</option>
+              <option value="stock_desc">📦 {text.sortOptions.stock_desc}</option>
+              <option value="stock_asc">📦 {text.sortOptions.stock_asc}</option>
+              <option value="name_asc">🔤 {text.sortOptions.name_asc}</option>
+              <option value="article_asc">🔢 {text.sortOptions.article_asc}</option>
             </select>
           </div>
         </div>
@@ -1721,7 +1730,7 @@ export const KustoExpiryStock: React.FC = () => {
         {/* Active Filters Bar */}
         <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-700/50">
           <div>
-            Найдено позиций: <strong className="text-slate-900 dark:text-white">{filteredItems.length}</strong> из {items.length}
+            {text.found} <strong className="text-slate-900 dark:text-white">{num(filteredItems.length)}</strong> {text.ofTotal(num(items.length))}
           </div>
           {(selectedStockType !== 'all' || selectedUrgency !== 'all' || searchQuery || selectedGroup !== 'all') && (
             <button
@@ -1733,7 +1742,7 @@ export const KustoExpiryStock: React.FC = () => {
               }}
               className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
             >
-              Сбросить фильтры
+              {text.resetFilters}
             </button>
           )}
         </div>
@@ -1742,26 +1751,26 @@ export const KustoExpiryStock: React.FC = () => {
       {/* Main 16-Column Excel Data Table */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700 shadow-sm overflow-hidden">
         <div className="min-w-0 overflow-y-auto custom-scrollbar max-h-[700px]">
-          <ResponsiveTable wide className="w-full text-left text-xs border-collapse">
+          <ResponsiveTable wide className="w-full text-start text-xs border-collapse">
             <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-900/95 backdrop-blur-md text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 text-[11px]">
               <tr>
-                <th className="px-3 py-3 w-8 text-center">№</th>
-                <th className="px-3 py-3 whitespace-nowrap">Группа</th>
-                <th className="px-3 py-3 whitespace-nowrap">Артикул</th>
-                <th className="px-3 py-3 min-w-[260px]">Наименование</th>
-                <th className="px-2 py-3 text-center w-12 whitespace-nowrap">РСВ</th>
-                <th className="px-3 py-3 whitespace-nowrap">Ед.изм.</th>
-                <th className="px-3 py-3 whitespace-nowrap">Партия</th>
-                <th className="px-3 py-3 whitespace-nowrap">Дата произв.</th>
-                <th className="px-3 py-3 whitespace-nowrap">Срок годности</th>
-                <th className="px-2 py-3 text-center whitespace-nowrap">Мин.дней до С.Г.</th>
-                <th className="px-3 py-3 text-center whitespace-nowrap">Дней до С.Г.</th>
-                <th className="px-3 py-3 whitespace-nowrap">Срок коммерциализации</th>
-                <th className="px-3 py-3 text-center whitespace-nowrap">Дней до окончания коммерц.</th>
-                <th className="px-3 py-3 text-center whitespace-nowrap">Тип стока</th>
-                <th className="px-3 py-3 text-right whitespace-nowrap">Всего в стоке (шт)</th>
-                <th className="px-3 py-3 text-right whitespace-nowrap">Зарезервировано в заказы (шт)</th>
-                <th className="px-3 py-3 text-right whitespace-nowrap bg-indigo-50/60 dark:bg-indigo-950/40">Свободный сток (шт)</th>
+                <th className="px-3 py-3 w-8 text-center">{text.rowNumber}</th>
+                <th className="px-3 py-3 whitespace-nowrap">{text.columns.group}</th>
+                <th className="px-3 py-3 whitespace-nowrap">{text.columns.article}</th>
+                <th className="px-3 py-3 min-w-[260px]">{text.columns.name}</th>
+                <th className="px-2 py-3 text-center w-12 whitespace-nowrap">{text.columns.rsv}</th>
+                <th className="px-3 py-3 whitespace-nowrap">{text.columns.unit}</th>
+                <th className="px-3 py-3 whitespace-nowrap">{text.columns.batch}</th>
+                <th className="px-3 py-3 whitespace-nowrap">{text.columns.productionDate}</th>
+                <th className="px-3 py-3 whitespace-nowrap">{text.columns.expiryDate}</th>
+                <th className="px-2 py-3 text-center whitespace-nowrap">{text.columns.minDaysLimit}</th>
+                <th className="px-3 py-3 text-center whitespace-nowrap">{text.columns.daysToExpiry}</th>
+                <th className="px-3 py-3 whitespace-nowrap">{text.columns.commercializationDeadline}</th>
+                <th className="px-3 py-3 text-center whitespace-nowrap">{text.columns.daysToDeadline}</th>
+                <th className="px-3 py-3 text-center whitespace-nowrap">{text.columns.stockType}</th>
+                <th className="px-3 py-3 text-end whitespace-nowrap">{text.columns.totalStock}</th>
+                <th className="px-3 py-3 text-end whitespace-nowrap">{text.columns.reservedStock}</th>
+                <th className="px-3 py-3 text-end whitespace-nowrap bg-indigo-50/60 dark:bg-indigo-950/40">{text.columns.freeStock}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-700/60 font-medium">
@@ -1769,8 +1778,8 @@ export const KustoExpiryStock: React.FC = () => {
                 <tr>
                   <td colSpan={17} className="text-center py-12 text-slate-400">
                     <Package className="w-10 h-10 mx-auto mb-2 opacity-50" />
-                    <p className="font-semibold text-sm">Позиции не найдены</p>
-                    <p className="text-xs">Попробуйте изменить параметры поиска или загрузить файл отчета Excel</p>
+                    <p className="font-semibold text-sm">{text.emptyTitle}</p>
+                    <p className="text-xs">{text.emptyHint}</p>
                   </td>
                 </tr>
               ) : (
@@ -1790,16 +1799,16 @@ export const KustoExpiryStock: React.FC = () => {
                           : ''
                       }`}
                     >
-                      <td className="px-3 py-2.5 text-center text-slate-400 font-normal">{index + 1}</td>
+                      <td className="px-3 py-2.5 text-center text-slate-400 font-normal">{num(index + 1)}</td>
                       <td className="px-3 py-2.5 font-bold text-slate-600 dark:text-slate-400">{item.group}</td>
                       <td className="px-3 py-2.5 font-mono text-slate-800 dark:text-slate-200 font-semibold">{item.article}</td>
                       <td className="px-3 py-2.5 font-semibold text-slate-900 dark:text-white">{item.name}</td>
                       <td className="px-2 py-2.5 text-center text-slate-500">{item.rsv}</td>
                       <td className="px-3 py-2.5 text-slate-600 dark:text-slate-400">{item.unit}</td>
                       <td className="px-3 py-2.5 font-mono text-slate-600 dark:text-slate-400">{item.batch || '—'}</td>
-                      <td className="px-3 py-2.5 text-slate-600 dark:text-slate-400 whitespace-nowrap">{item.productionDate}</td>
-                      <td className="px-3 py-2.5 text-slate-900 dark:text-white font-semibold whitespace-nowrap">{item.expiryDate}</td>
-                      <td className="px-2 py-2.5 text-center text-slate-500">{item.minDaysLimit}</td>
+                      <td className="px-3 py-2.5 text-slate-600 dark:text-slate-400 whitespace-nowrap">{formatReportDate(item.productionDate, locale)}</td>
+                      <td className="px-3 py-2.5 text-slate-900 dark:text-white font-semibold whitespace-nowrap">{formatReportDate(item.expiryDate, locale)}</td>
+                      <td className="px-2 py-2.5 text-center text-slate-500">{num(item.minDaysLimit)}</td>
                       
                       {/* Days to Expiry Badge */}
                       <td className="px-3 py-2.5 text-center">
@@ -1812,11 +1821,11 @@ export const KustoExpiryStock: React.FC = () => {
                             ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/80 dark:text-amber-200'
                             : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/80 dark:text-emerald-200'
                         }`}>
-                          {item.daysToExpiry}
+                          {num(item.daysToExpiry)}
                         </span>
                       </td>
 
-                      <td className="px-3 py-2.5 text-slate-600 dark:text-slate-400 whitespace-nowrap">{item.commercializationDeadline}</td>
+                      <td className="px-3 py-2.5 text-slate-600 dark:text-slate-400 whitespace-nowrap">{formatReportDate(item.commercializationDeadline, locale)}</td>
                       
                       {/* Days to Deadline */}
                       <td className="px-3 py-2.5 text-center">
@@ -1825,22 +1834,22 @@ export const KustoExpiryStock: React.FC = () => {
                             ? 'text-rose-600 dark:text-rose-400' 
                             : 'text-slate-700 dark:text-slate-300'
                         }`}>
-                          {item.daysToDeadline}
+                          {num(item.daysToDeadline)}
                         </span>
                       </td>
 
                       {/* Stock Type Code */}
                       <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${badge.bg}`}>
+                        <span title={badge.label} className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${badge.bg}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
                           {item.stockType}
                         </span>
                       </td>
 
-                      <td className="px-3 py-2.5 text-right font-mono text-slate-600 dark:text-slate-400">{formatNum(item.totalStock)}</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-slate-500">{formatNum(item.reservedStock)}</td>
-                      <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-900 dark:text-white bg-indigo-50/30 dark:bg-indigo-950/20 text-xs">
-                        {formatNum(item.freeStock)}
+                      <td className="px-3 py-2.5 text-end font-mono text-slate-600 dark:text-slate-400">{num(item.totalStock)}</td>
+                      <td className="px-3 py-2.5 text-end font-mono text-slate-500">{num(item.reservedStock)}</td>
+                      <td className="px-3 py-2.5 text-end font-mono font-bold text-slate-900 dark:text-white bg-indigo-50/30 dark:bg-indigo-950/20 text-xs">
+                        {num(item.freeStock)}
                       </td>
                     </tr>
                   );
@@ -1850,17 +1859,17 @@ export const KustoExpiryStock: React.FC = () => {
             {filteredItems.length > 0 && (
               <tfoot className="sticky bottom-0 z-10 bg-slate-100 dark:bg-slate-900 font-bold border-t-2 border-slate-300 dark:border-slate-700">
                 <tr>
-                  <td colSpan={14} className="px-3 py-3 text-right uppercase tracking-wider text-slate-700 dark:text-slate-300 text-[11px]">
-                    Итого ({filteredItems.length} поз.):
+                  <td colSpan={14} className="px-3 py-3 text-end uppercase tracking-wider text-slate-700 dark:text-slate-300 text-[11px]">
+                    {text.totalRow(num(filteredItems.length))}
                   </td>
-                  <td className="px-3 py-3 text-right font-mono text-slate-800 dark:text-slate-200">
-                    {formatNum(pageTotals.totalStock)}
+                  <td className="px-3 py-3 text-end font-mono text-slate-800 dark:text-slate-200">
+                    {num(pageTotals.totalStock)}
                   </td>
-                  <td className="px-3 py-3 text-right font-mono text-slate-600 dark:text-slate-400">
-                    {formatNum(pageTotals.reservedStock)}
+                  <td className="px-3 py-3 text-end font-mono text-slate-600 dark:text-slate-400">
+                    {num(pageTotals.reservedStock)}
                   </td>
-                  <td className="px-3 py-3 text-right font-mono text-indigo-700 dark:text-indigo-300 bg-indigo-100/50 dark:bg-indigo-900/50 text-sm">
-                    {formatNum(pageTotals.freeStock)}
+                  <td className="px-3 py-3 text-end font-mono text-indigo-700 dark:text-indigo-300 bg-indigo-100/50 dark:bg-indigo-900/50 text-sm">
+                    {num(pageTotals.freeStock)}
                   </td>
                 </tr>
               </tfoot>
@@ -1900,7 +1909,7 @@ interface ColumnMappingModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentMapping: KustoColumnMapping;
-  availableColumns: { index: number; label: string; sample: string }[];
+  availableColumns: SourceColumn[];
   dataStartRow: number;
   previewRows: any[][];
   rawWorkbookData: any[][] | null;
@@ -1921,25 +1930,16 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
 }) => {
   const [localMapping, setLocalMapping] = useState<KustoColumnMapping>(currentMapping);
   const [localStartRow, setLocalStartRow] = useState<number>(dataStartRow);
+  const { text, locale } = useSectionText(KUSTO_TEXT);
+  const num = (val: number | null | undefined) => formatNum(val, locale);
 
-  const fieldsList: { key: keyof KustoColumnMapping; label: string; description: string; required?: boolean }[] = [
-    { key: 'group', label: '1. Группа', description: 'Цех, подраздел или склад (например: MEHKAZ)' },
-    { key: 'article', label: '2. Артикул', description: 'Код номенклатуры / артикул товара (например: 00000000410, 30000215)', required: true },
-    { key: 'name', label: '3. Наименование', description: 'Полное наименование товара / номенклатуры', required: true },
-    { key: 'rsv', label: '4. РСВ', description: 'Коэффициент или признак РСВ / РСБ (обычно 1)' },
-    { key: 'unit', label: '5. Ед.изм.', description: 'Единица измерения (Штука, Килограмм, шт, кг)' },
-    { key: 'batch', label: '6. Партия', description: 'Номер партии или серии продукции (например: 20032026, -)' },
-    { key: 'productionDate', label: '7. Дата произв.', description: 'Дата производства / выработки (например: 18.08.2026)' },
-    { key: 'expiryDate', label: '8. Срок годности', description: 'Дата окончания срока годности (например: 15.04.2027г.)', required: true },
-    { key: 'minDaysLimit', label: '9. Мин.дней до С.Г.', description: 'Минимальный порог годности в днях (например: 14)' },
-    { key: 'daysToExpiry', label: '10. Дней до С.Г.', description: 'Количество оставшихся дней до окончания срока годности' },
-    { key: 'commercializationDeadline', label: '11. Срок коммерциализации', description: 'Дедлайн коммерциализации по регламенту' },
-    { key: 'daysToDeadline', label: '12. Дней до окончания коммерц.', description: 'Остаток дней до окончания коммерциализации' },
-    { key: 'stockType', label: '13. Тип стока', description: 'Категория годности стока (N, A, B, H, E)' },
-    { key: 'totalStock', label: '14. Всего в стоке (шт)', description: 'Общий физический остаток на складе' },
-    { key: 'reservedStock', label: '15. Зарезервировано в заказы (шт)', description: 'Количество, зарезервированное под клиентские заказы' },
-    { key: 'freeStock', label: '16. Свободный сток (шт)', description: 'Доступный для свободной реализации остаток', required: true }
-  ];
+  const requiredFields = new Set<keyof KustoColumnMapping>(['article', 'name', 'expiryDate', 'freeStock']);
+  const fieldsList = FIELD_ORDER.map((key, idx) => ({
+    key,
+    label: `${num(idx + 1)}. ${text.columns[key]}`,
+    description: text.fieldHints[key],
+    required: requiredFields.has(key)
+  }));
 
   const handleFieldChange = (field: keyof KustoColumnMapping, colIndex: number) => {
     setLocalMapping(prev => ({
@@ -1960,15 +1960,16 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
             </div>
             <div>
               <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                Настройка соответствия колонок (Excel)
+                {text.mappingTitle}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Укажите, из каких колонок вашего Excel-файла считывать каждое поле отчета
+                {text.mappingSubtitle}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
+            aria-label={text.close}
             className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -1982,14 +1983,14 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
           <div className="bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-800/40 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-indigo-900 dark:text-indigo-300">
-                Начальная строка данных
+                {text.startRowTitle}
               </span>
               <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-                Номер строки в Excel, с которой начинаются первые товары (пропуская шапку и заголовок)
+                {text.startRowHint}
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-xs font-medium text-slate-500">Строка №:</span>
+              <span className="text-xs font-medium text-slate-500">{text.rowNo}</span>
               <input
                 type="number"
                 min={1}
@@ -2006,7 +2007,7 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                 <Layers className="w-4 h-4 text-indigo-500" />
-                Сопоставление 16 колонок
+                {text.mappingGrid}
               </h4>
               {rawWorkbookData && (
                 <button
@@ -2015,7 +2016,7 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
                   className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  Автоопределение
+                  {text.autoDetect}
                 </button>
               )}
             </div>
@@ -2032,10 +2033,10 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
                           {field.label}
-                          {field.required && <span className="text-rose-500 ml-1">*</span>}
+                          {field.required && <span className="text-rose-500 ms-1">*</span>}
                         </span>
                         <span className="text-[11px] font-mono font-medium px-2 py-0.5 bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg">
-                          Колонка {String.fromCharCode(65 + selectedCol)} ({selectedCol + 1})
+                          {text.columnBadge(columnLetter(selectedCol), num(selectedCol + 1))}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
@@ -2050,7 +2051,7 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
                     >
                       {availableColumns.map(col => (
                         <option key={col.index} value={col.index}>
-                          {col.label} {col.sample !== '—' ? `[Пример: ${col.sample}]` : ''}
+                          {sourceColumnLabel(col, text, locale)} {col.sample !== '—' ? text.sample(col.sample ?? text.sampleData) : ''}
                         </option>
                       ))}
                     </select>
@@ -2065,19 +2066,19 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
             <div className="border border-slate-200 dark:border-slate-700 rounded-2xl p-4 bg-slate-50/50 dark:bg-slate-900/30">
               <div className="flex items-center gap-2 mb-2 text-xs font-bold text-slate-700 dark:text-slate-300">
                 <Eye className="w-4 h-4 text-indigo-500" />
-                Предпросмотр данных с текущим сопоставлением (первые 2 строки):
+                {text.previewTitle}
               </div>
               <div className="min-w-0 text-xs">
                 <ResponsiveTable wide className="w-full border-collapse">
                   <thead>
                     <tr className="bg-slate-200 dark:bg-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">
-                      <th className="p-2">Артикул</th>
-                      <th className="p-2">Наименование</th>
-                      <th className="p-2">Партия</th>
-                      <th className="p-2">Срок годности</th>
-                      <th className="p-2">Дней до СГ</th>
-                      <th className="p-2">Тип</th>
-                      <th className="p-2">Свободно</th>
+                      <th className="p-2">{text.preview.article}</th>
+                      <th className="p-2">{text.preview.name}</th>
+                      <th className="p-2">{text.preview.batch}</th>
+                      <th className="p-2">{text.preview.expiryDate}</th>
+                      <th className="p-2">{text.preview.daysToExpiry}</th>
+                      <th className="p-2">{text.preview.stockType}</th>
+                      <th className="p-2">{text.preview.freeStock}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-700 font-mono text-[11px]">
@@ -2086,10 +2087,10 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
                         <td className="p-2 font-bold">{cleanArticle(row[localMapping.article]) || '—'}</td>
                         <td className="p-2 font-sans font-medium">{cleanText(row[localMapping.name]) || '—'}</td>
                         <td className="p-2">{cleanText(row[localMapping.batch]) || '—'}</td>
-                        <td className="p-2">{cleanDateStr(row[localMapping.expiryDate]) || '—'}</td>
-                        <td className="p-2 text-center">{parseSignedNum(row[localMapping.daysToExpiry])}</td>
+                        <td className="p-2">{formatReportDate(cleanDateStr(row[localMapping.expiryDate]), locale) || '—'}</td>
+                        <td className="p-2 text-center">{num(parseSignedNum(row[localMapping.daysToExpiry]))}</td>
                         <td className="p-2 text-center font-bold text-indigo-600">{cleanText(row[localMapping.stockType]) || 'N'}</td>
-                        <td className="p-2 text-right font-bold">{formatNum(parseSignedNum(row[localMapping.freeStock]))}</td>
+                        <td className="p-2 text-end font-bold">{num(parseSignedNum(row[localMapping.freeStock]))}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2106,7 +2107,7 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
             onClick={onClose}
             className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
           >
-            Отмена
+            {text.cancel}
           </button>
 
           <button
@@ -2115,7 +2116,7 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
             className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-2 cursor-pointer"
           >
             <Check className="w-4 h-4" />
-            <span>Применить сопоставление</span>
+            <span>{text.applyMapping}</span>
           </button>
         </div>
       </div>
