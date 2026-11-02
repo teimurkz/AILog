@@ -8,6 +8,8 @@ import { shipmentsApi } from '../../services/api';
 import { Shipment, RouteType, ShipmentStatus } from '../../types';
 import { cn } from '../../lib/utils';
 import { addDays, isValid } from 'date-fns';
+import { useSectionText } from '../../i18n/useSectionText';
+import { SHIPMENTS_TEXT } from '../shipments/shipments-i18n';
 
 interface ParsedData {
   invoice_id: string;
@@ -33,7 +35,9 @@ interface ParsedData {
 }
 
 export const ExcelImport = () => {
-  const { t, isRTL } = useLanguage();
+  const { t } = useLanguage();
+  const { text: sectionText, locale } = useSectionText(SHIPMENTS_TEXT);
+  const text = sectionText.excel;
   const [data, setData] = useState<ParsedData[]>([]);
   const [existingMap, setExistingMap] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(false);
@@ -470,7 +474,7 @@ export const ExcelImport = () => {
       if (itemsToProcess.length === 0) {
         setSkipped(data.length);
         setSuccess(0);
-        setError("Внимание: Все отгрузки из этого файла уже имеются в базе данных. Новых отгрузок не найдено.");
+        setError(text.allExist);
         setImporting(false);
         return;
       }
@@ -485,7 +489,7 @@ export const ExcelImport = () => {
         setImportProgress({
           current: i + 1,
           total: totalItems,
-          message: `Сохранение в базу (${i + 1} из ${totalItems})...`
+          message: text.saving(i + 1, totalItems)
         });
 
         const arrival_deadline = addDays(new Date(item.departure_date), 14).toISOString();
@@ -536,7 +540,7 @@ export const ExcelImport = () => {
             <h3 className="text-lg font-bold text-slate-900 dark:text-white">{t('excelImport')}</h3>
             <span className="px-2.5 py-0.5 bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 text-xs font-bold rounded-full flex items-center gap-1 border border-emerald-300 dark:border-emerald-800">
               <Zap className="w-3.5 h-3.5 fill-current" />
-              <span>Пакетная ускоренная загрузка</span>
+              <span>{text.fastBatch}</span>
             </span>
           </div>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{t('uploadShipmentsDescription')}</p>
@@ -575,7 +579,7 @@ export const ExcelImport = () => {
                 }}
                 className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 dark:border-slate-600"
               />
-              <span className="font-bold text-slate-900 dark:text-white">⚡ Только новые отгрузки (быстрый режим)</span>
+              <span className="font-bold text-slate-900 dark:text-white">⚡ {text.onlyNew}</span>
             </label>
 
             {!onlyNew && (
@@ -586,7 +590,7 @@ export const ExcelImport = () => {
                   onChange={(e) => setUpdateExisting(e.target.checked)}
                   className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 border-slate-300 dark:border-slate-600"
                 />
-                <span>Обновлять дублирующиеся данные в базе</span>
+                <span>{text.updateExisting}</span>
               </label>
             )}
           </div>
@@ -599,7 +603,7 @@ export const ExcelImport = () => {
               className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-600"
             />
             <Languages className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Авто-перевод товаров Gemini AI</span>
+            <span>{text.autoTranslate}</span>
           </label>
         </div>
 
@@ -641,7 +645,7 @@ export const ExcelImport = () => {
               <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600" />
               <p className="font-bold text-base">{t('importSuccess')}</p>
             </div>
-            <p className="text-sm pl-8 text-emerald-900 dark:text-emerald-200 font-medium mt-1">
+            <p className="text-sm ps-8 text-emerald-900 dark:text-emerald-200 font-medium mt-1">
               {t('addedNew')}: <strong className="text-emerald-700 dark:text-emerald-300 font-bold text-base">{success}</strong>.
               {skipped !== null && skipped > 0 && (
                 <span> {t('skippedDuplicates')}: <strong className="text-amber-700 dark:text-amber-300 font-bold text-base">{skipped}</strong>.</span>
@@ -656,19 +660,19 @@ export const ExcelImport = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-100 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700">
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                  Найдено в файле: <strong>{data.length}</strong>
+                  {text.foundInFile} <strong>{data.length}</strong>
                 </span>
 
                 {previewStats && (
                   <>
                     <span className="px-2.5 py-1 bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 text-xs font-bold rounded-lg border border-emerald-500/30 flex items-center gap-1">
                       <Zap className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Новые: {previewStats.newCount}</span>
+                      <span>{text.newCount(previewStats.newCount)}</span>
                     </span>
 
                     <span className="px-2.5 py-1 bg-amber-500/15 text-amber-800 dark:text-amber-300 text-xs font-bold rounded-lg border border-amber-500/30 flex items-center gap-1">
                       <Filter className="w-3.5 h-3.5 text-amber-600" />
-                      <span>Уже есть в базе (дубли): {previewStats.duplicateCount}</span>
+                      <span>{text.duplicateCount(previewStats.duplicateCount)}</span>
                     </span>
                   </>
                 )}
@@ -682,18 +686,18 @@ export const ExcelImport = () => {
                 {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
                 <span>
                   {onlyNew 
-                    ? `Загрузить новые (${previewStats ? previewStats.newCount : data.length})` 
-                    : `Загрузить все (${data.length})`
+                    ? text.loadNew(previewStats ? previewStats.newCount : data.length)
+                    : text.loadAll(data.length)
                   }
                 </span>
               </button>
             </div>
 
             <div className="min-w-0 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl max-h-[450px]">
-              <ResponsiveTable className="w-full text-left border-collapse text-sm">
+              <ResponsiveTable className="w-full text-start border-collapse text-sm">
                 <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 z-10">
                   <tr>
-                    <th className="px-4 py-3 font-bold text-slate-700 dark:text-slate-300">Статус в БД</th>
+                    <th className="px-4 py-3 font-bold text-slate-700 dark:text-slate-300">{text.dbStatus}</th>
                     <th className="px-4 py-3 font-bold text-slate-700 dark:text-slate-300">{t('invoice')}</th>
                     <th className="px-4 py-3 font-bold text-slate-700 dark:text-slate-300">{t('departure')}</th>
                     <th className="px-4 py-3 font-bold text-slate-700 dark:text-slate-300">{t('items')}</th>
@@ -710,21 +714,21 @@ export const ExcelImport = () => {
                         <td className="px-4 py-3 text-xs">
                           {isDuplicate ? (
                             <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold border border-amber-200 dark:border-amber-800">
-                              Есть в БД
+                              {text.inDb}
                             </span>
                           ) : (
                             <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800">
-                              Новая
+                              {text.isNew}
                             </span>
                           )}
                         </td>
                         <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">{row.invoice_id}</td>
-                        <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{new Date(row.departure_date).toLocaleDateString()}</td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{new Date(row.departure_date).toLocaleDateString(locale)}</td>
                         <td className="px-4 py-3 max-w-[220px] truncate text-slate-700 dark:text-slate-300" title={row.items.join(', ')}>
                           {row.items.join(', ')}
                         </td>
-                        <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.customs_date ? new Date(row.customs_date).toLocaleDateString() : '-'}</td>
-                        <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.actual_arrival_date ? new Date(row.actual_arrival_date).toLocaleDateString() : '-'}</td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.customs_date ? new Date(row.customs_date).toLocaleDateString(locale) : '-'}</td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{row.actual_arrival_date ? new Date(row.actual_arrival_date).toLocaleDateString(locale) : '-'}</td>
                         <td className="px-4 py-3">
                           <span className={cn(
                             "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase",

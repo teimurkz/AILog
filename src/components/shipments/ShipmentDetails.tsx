@@ -26,6 +26,8 @@ import { isShipmentDelayed, shipmentDaysPassed } from '../../utils/shipmentUtils
 import { useAuth } from '../../contexts/AuthContext';
 import { auth } from '../../firebase';
 import { useMinuteClock } from '../../hooks/useMinuteClock';
+import { useSectionText } from '../../i18n/useSectionText';
+import { SHIPMENTS_TEXT, shipmentDateTime, shipmentDay, shipmentDayMonth } from './shipments-i18n';
 
 interface ShipmentDetailsProps {
   shipment: Shipment;
@@ -34,6 +36,7 @@ interface ShipmentDetailsProps {
 
 export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
   const { t, isRTL } = useLanguage();
+  const { text, locale } = useSectionText(SHIPMENTS_TEXT);
   const { isAdmin, canEdit, user } = useAuth();
   const isLogistics = canEdit('shipments');
   const [logs, setLogs] = useState<ShipmentLog[]>([]);
@@ -148,7 +151,7 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
           setUploading(false);
         } catch (err) {
           console.error("Upload error:", err);
-          alert("Не удалось загрузить файл");
+          alert(text.details.uploadFailed);
           setUploading(false);
         }
       };
@@ -206,8 +209,8 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
 
   return (
     <div className="space-y-6">
-      <div className={cn("flex flex-col sm:flex-row sm:items-center justify-between gap-4", isRTL && "sm:flex-row-reverse")}>
-        <div className={cn("flex items-center gap-2 sm:gap-4", isRTL && "flex-row-reverse")}>
+      <div className={cn("flex flex-col sm:flex-row sm:items-center justify-between gap-4")}>
+        <div className={cn("flex items-center gap-2 sm:gap-4")}>
           <button onClick={onBack} className="p-2 hover:bg-white rounded-xl transition-colors shrink-0">
             <ChevronRight className={cn("w-5 h-5 sm:w-6 sm:h-6 text-slate-600", isRTL ? "" : "rotate-180")} />
           </button>
@@ -216,7 +219,7 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
             <p className="text-xs sm:text-sm text-slate-500 truncate">{shipment.route}</p>
           </div>
         </div>
-        <div className={cn("flex items-center gap-2 sm:gap-4 w-full sm:w-auto", isRTL && "flex-row-reverse")}>
+        <div className={cn("flex items-center gap-2 sm:gap-4 w-full sm:w-auto")}>
           {(isAdmin || (isLogistics && shipment.createdBy === auth.currentUser?.uid)) && (
             <button
               onClick={() => setShowDeleteConfirm(true)}
@@ -241,18 +244,18 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white p-4 sm:p-8 rounded-2xl shadow-sm border border-slate-100">
-            <div className={cn("flex flex-col sm:flex-row items-center justify-between mb-8 gap-6 sm:gap-0", isRTL && "sm:flex-row-reverse")}>
+            <div className={cn("flex flex-col sm:flex-row items-center justify-between mb-8 gap-6 sm:gap-0")}>
               <div className="text-center">
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-2">
                   <MapPin className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
                 </div>
                 <p className="text-sm font-bold text-slate-900">{shipment.route.split(' - ')[0]}</p>
-                <p className="text-[10px] sm:text-xs text-slate-500">{t('departureDate')}: {format(parseISO(shipment.departure_date), 'MMM d')}</p>
+                <p className="text-[10px] sm:text-xs text-slate-500">{t('departureDate')}: {shipmentDayMonth(shipment.departure_date, locale)}</p>
               </div>
               <div className="flex-1 w-full sm:w-auto min-h-24 sm:min-h-20 px-4 sm:px-8 relative py-4 sm:py-0">
-                <div className="h-0.5 w-full bg-slate-100 absolute top-10 sm:top-6 left-0" />
+                <div className="h-0.5 w-full bg-slate-100 absolute top-10 sm:top-6 start-0" />
                 <div 
-                  className={cn("h-0.5 absolute top-10 sm:top-6 left-0 transition-all duration-1000", isDelayed ? 'bg-red-500' : 'bg-blue-600')}
+                  className={cn("h-0.5 absolute top-10 sm:top-6 start-0 transition-all duration-1000", isDelayed ? 'bg-red-500' : 'bg-blue-600')}
                   style={{ width: `${progress}%` }}
                 />
                 <div className="absolute top-4 sm:top-0 left-1/2 -translate-x-1/2 flex flex-col items-center">
@@ -268,21 +271,21 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
                   <Navigation className="w-5 h-5 sm:w-6 sm:h-6 text-slate-400" />
                 </div>
                 <p className="text-sm font-bold text-slate-900">{shipment.route.split(' - ')[1]}</p>
-                <p className="text-[10px] sm:text-xs text-slate-500">Deadline: {format(parseISO(shipment.arrival_deadline), 'MMM d')}</p>
+                <p className="text-[10px] sm:text-xs text-slate-500">{t('deadline')}: {shipmentDayMonth(shipment.arrival_deadline, locale)}</p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
               <div className="p-3 sm:p-4 bg-slate-50 rounded-xl">
-                <div className={cn("flex items-center gap-2 text-slate-500 mb-1", isRTL && "flex-row-reverse")}>
+                <div className={cn("flex items-center gap-2 text-slate-500 mb-1")}>
                   <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   <span className="text-xs font-medium">{t('truckId')}</span>
                 </div>
                 <p className={cn("text-sm font-bold text-slate-900", isRTL && "text-right")}>{shipment.invoice_id}</p>
               </div>
               <div className="p-3 sm:p-4 bg-slate-50 rounded-xl relative group">
-                <div className={cn("flex items-center justify-between mb-1", isRTL && "flex-row-reverse")}>
-                  <div className={cn("flex items-center gap-2 text-slate-500", isRTL && "flex-row-reverse")}>
+                <div className={cn("flex items-center justify-between mb-1")}>
+                  <div className={cn("flex items-center gap-2 text-slate-500")}>
                     <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     <span className="text-xs font-medium">{t('departureDate')}</span>
                   </div>
@@ -304,12 +307,12 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
                   />
                 ) : (
                   <p className={cn("text-sm font-bold text-slate-900", isRTL && "text-right")}>
-                    {format(parseISO(shipment.departure_date), 'yyyy-MM-dd')}
+                    {shipmentDay(shipment.departure_date, locale)}
                   </p>
                 )}
               </div>
               <div className="p-3 sm:p-4 bg-slate-50 rounded-xl">
-                <div className={cn("flex items-center gap-2 text-slate-500 mb-1", isRTL && "flex-row-reverse")}>
+                <div className={cn("flex items-center gap-2 text-slate-500 mb-1")}>
                   <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   <span className="text-xs font-medium">{t('timeElapsed')}</span>
                 </div>
@@ -323,23 +326,23 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-6 pt-6 border-t border-slate-100">
                 {shipment.customs_date && (
                   <div className="p-3 sm:p-4 bg-indigo-50/50 rounded-xl border border-indigo-100">
-                    <div className={cn("flex items-center gap-2 text-indigo-600 mb-1", isRTL && "flex-row-reverse")}>
+                    <div className={cn("flex items-center gap-2 text-indigo-600 mb-1")}>
                       <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                      <span className="text-xs font-bold uppercase tracking-wider">{t('customs')} (СВХ)</span>
+                      <span className="text-xs font-bold uppercase tracking-wider">{t('customs')} ({text.svh})</span>
                     </div>
                     <p className={cn("text-sm font-bold text-slate-900", isRTL && "text-right")}>
-                      {format(parseISO(shipment.customs_date), 'yyyy-MM-dd')}
+                      {shipmentDay(shipment.customs_date, locale)}
                     </p>
                   </div>
                 )}
                 {shipment.actual_arrival_date && (
                   <div className="p-3 sm:p-4 bg-emerald-50/50 rounded-xl border border-emerald-100">
-                    <div className={cn("flex items-center gap-2 text-emerald-600 mb-1", isRTL && "flex-row-reverse")}>
+                    <div className={cn("flex items-center gap-2 text-emerald-600 mb-1")}>
                       <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                      <span className="text-xs font-bold uppercase tracking-wider">{t('delivered')} (Алматы)</span>
+                      <span className="text-xs font-bold uppercase tracking-wider">{t('delivered')} ({text.almaty})</span>
                     </div>
                     <p className={cn("text-sm font-bold text-slate-900", isRTL && "text-right")}>
-                      {format(parseISO(shipment.actual_arrival_date), 'yyyy-MM-dd')}
+                      {shipmentDay(shipment.actual_arrival_date, locale)}
                     </p>
                   </div>
                 )}
@@ -348,7 +351,7 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
 
             {shipment.status_message && (
               <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 mb-6">
-                <div className={cn("flex items-center gap-2 text-blue-700 mb-2", isRTL && "flex-row-reverse")}>
+                <div className={cn("flex items-center gap-2 text-blue-700 mb-2")}>
                   <AlertCircle className="w-5 h-5" />
                   <h4 className="font-bold">{t('currentStatusMessage')}</h4>
                 </div>
@@ -363,13 +366,13 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
                 {shipment.customs_date && (
                   <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{t('customsInDate')}</p>
-                    <p className="text-sm font-bold text-slate-700">{format(parseISO(shipment.customs_date), 'dd.MM.yyyy HH:mm')}</p>
+                    <p className="text-sm font-bold text-slate-700">{shipmentDateTime(shipment.customs_date, locale)}</p>
                   </div>
                 )}
                 {shipment.actual_arrival_date && (
                   <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{t('warehouseArrivalDate')}</p>
-                    <p className="text-sm font-bold text-slate-700">{format(parseISO(shipment.actual_arrival_date), 'dd.MM.yyyy HH:mm')}</p>
+                    <p className="text-sm font-bold text-slate-700">{shipmentDateTime(shipment.actual_arrival_date, locale)}</p>
                   </div>
                 )}
                 {shipment.customs_date && shipment.actual_arrival_date && (
@@ -426,7 +429,7 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
                 </div>
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('loadingDate')}</p>
-                  <p className="font-bold text-slate-800 mt-0.5">{shipment.loading_date || (shipment.departure_date ? format(parseISO(shipment.departure_date), 'dd.MM.yyyy') : '-')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.loading_date || (shipment.departure_date ? shipmentDay(shipment.departure_date, locale) : '-')}</p>
                 </div>
 
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
@@ -435,11 +438,11 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
                 </div>
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('customsArrival')}</p>
-                  <p className="font-bold text-slate-800 mt-0.5">{shipment.customs_arrival_date || (shipment.customs_date ? format(parseISO(shipment.customs_date), 'dd.MM.yyyy') : '-')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.customs_arrival_date || (shipment.customs_date ? shipmentDay(shipment.customs_date, locale) : '-')}</p>
                 </div>
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('unlDate')}</p>
-                  <p className="font-bold text-slate-800 mt-0.5">{shipment.unl_date || (shipment.actual_arrival_date ? format(parseISO(shipment.actual_arrival_date), 'dd.MM.yyyy') : '-')}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{shipment.unl_date || (shipment.actual_arrival_date ? shipmentDay(shipment.actual_arrival_date, locale) : '-')}</p>
                 </div>
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('transitTime')}</p>
@@ -450,7 +453,7 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
 
             {shipment.items && shipment.items.length > 0 && (
               <div className="mt-6 pt-6 border-t border-slate-100">
-                <div className={cn("flex items-center gap-2 text-slate-500 mb-4", isRTL && "flex-row-reverse")}>
+                <div className={cn("flex items-center gap-2 text-slate-500 mb-4")}>
                   <Package className="w-4 h-4" />
                   <span className="text-xs font-bold uppercase tracking-wider">{t('items')}</span>
                 </div>
@@ -469,7 +472,7 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
           </div>
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <div className={cn("flex items-center justify-between mb-6", isRTL && "flex-row-reverse")}>
+            <div className={cn("flex items-center justify-between mb-6")}>
               <h3 className="text-lg font-bold text-slate-900">{t('files')}</h3>
               {isLogistics && (
                 <div className="flex flex-col items-end gap-2">
@@ -490,10 +493,10 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
               )}
             </div>
             {shipment.documents_received_at && <div className="mb-4 rounded-xl bg-blue-50 p-3 text-sm text-blue-900">
-              <p className="font-semibold">Документы получены: {new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Almaty' }).format(new Date(shipment.documents_received_at))} (Алматы)</p>
-              {shipment.transit_start_source === 'email' && <p className="mt-1">Отсчёт пути начинается с первого письма с документами.</p>}
-              {shipment.commercial_invoice_number && <p className="mt-1">Инвойс: {shipment.commercial_invoice_number}{shipment.invoice_date ? ` от ${shipment.invoice_date}` : ''}</p>}
-              <div className="mt-2 flex flex-wrap gap-3">{shipment.source_email_urls?.map((url, index) => <a key={url} href={url} target="_blank" rel="noopener noreferrer" className="underline">Скачать исходное письмо {index + 1}</a>)}</div>
+              <p className="font-semibold">{text.details.documentsReceived(shipmentDateTime(shipment.documents_received_at, locale, 'Asia/Almaty'))}</p>
+              {shipment.transit_start_source === 'email' && <p className="mt-1">{text.details.transitFromEmail}</p>}
+              {shipment.commercial_invoice_number && <p className="mt-1">{text.details.invoice(shipment.commercial_invoice_number, shipment.invoice_date || '')}</p>}
+              <div className="mt-2 flex flex-wrap gap-3">{shipment.source_email_urls?.map((url, index) => <a key={url} href={url} target="_blank" rel="noopener noreferrer" className="underline">{text.details.sourceEmail(index + 1)}</a>)}</div>
             </div>}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {shipment.documents_url?.map((url, idx) => (
@@ -503,19 +506,18 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
                     target="_blank" 
                     rel="noopener noreferrer"
                     className={cn(
-                      "min-w-0 p-3 bg-slate-50 border border-slate-100 rounded-xl hover:border-blue-200 hover:bg-blue-50 transition-all flex items-center gap-3 group",
-                      isRTL && "flex-row-reverse"
+                      "min-w-0 p-3 bg-slate-50 border border-slate-100 rounded-xl hover:border-blue-200 hover:bg-blue-50 transition-all flex items-center gap-3 group"
                     )}
                   >
                     <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm group-hover:text-blue-600">
                       <FileText className="w-4 h-4" />
                     </div>
-                    <span className="text-xs font-medium text-slate-600 break-all">{shipment.mail_documents?.find(file => file.url === url)?.fileName || `Doc ${idx + 1}`}</span>
+                    <span className="text-xs font-medium text-slate-600 break-all">{shipment.mail_documents?.find(file => file.url === url)?.fileName || text.details.document(idx + 1)}</span>
                   </a>
                   {isLogistics && (
                     <button
                       onClick={() => setFileToDelete(url)}
-                      className="absolute -top-2 -right-2 w-6 h-6 bg-red-100 text-red-600 rounded-full flex items-center justify-center opacity-0 group-hover/file:opacity-100 transition-opacity shadow-sm hover:bg-red-200"
+                      className="absolute -top-2 -end-2 w-6 h-6 bg-red-100 text-red-600 rounded-full flex items-center justify-center opacity-0 group-hover/file:opacity-100 transition-opacity shadow-sm hover:bg-red-200"
                       title={t('deleteFile')}
                     >
                       <X className="w-3.5 h-3.5" />
@@ -541,14 +543,14 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
                     "absolute top-1.5 w-3 h-3 rounded-full bg-blue-600 border-4 border-white shadow-sm",
                     isRTL ? "-right-7.5" : "-left-7.5"
                   )} />
-                  <div className={cn("flex items-center justify-between mb-1", isRTL && "flex-row-reverse")}>
+                  <div className={cn("flex items-center justify-between mb-1")}>
                     <p className="text-sm font-bold text-slate-900">{log.location}</p>
                     <span className="text-[10px] font-medium text-slate-400">
-                      {format(parseISO(log.timestamp), 'MMM d, HH:mm')}
+                      {shipmentDateTime(log.timestamp, locale)}
                     </span>
                   </div>
                   <p className={cn("text-sm text-slate-600 mb-1", isRTL && "text-right")}>{log.message}</p>
-                  <p className={cn("text-[10px] text-slate-400", isRTL && "text-right")}>Updated by {log.updatedBy}</p>
+                  <p className={cn("text-[10px] text-slate-400", isRTL && "text-right")}>{text.details.updatedBy(log.updatedBy)}</p>
                 </div>
               ))}
             </div>
@@ -604,7 +606,7 @@ export const ShipmentDetails = ({ shipment, onBack }: ShipmentDetailsProps) => {
           )}
 
           <div className="bg-amber-50 p-6 rounded-2xl border border-amber-100">
-            <div className={cn("flex items-center gap-2 text-amber-700 mb-2", isRTL && "flex-row-reverse")}>
+            <div className={cn("flex items-center gap-2 text-amber-700 mb-2")}>
               <AlertCircle className="w-5 h-5" />
               <h4 className="font-bold">{t('shipmentNotes')}</h4>
             </div>

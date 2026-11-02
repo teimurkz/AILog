@@ -6,6 +6,8 @@ import { shipmentsApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { cn } from '../../lib/utils';
+import { useSectionText } from '../../i18n/useSectionText';
+import { SHIPMENTS_TEXT } from './shipments-i18n';
 
 interface NewShipmentModalProps {
   isOpen: boolean;
@@ -14,6 +16,7 @@ interface NewShipmentModalProps {
 
 export const NewShipmentModal = ({ isOpen, onClose }: NewShipmentModalProps) => {
   const { t } = useLanguage();
+  const text = useSectionText(SHIPMENTS_TEXT).text.newShipment;
   const [formData, setFormData] = useState({
     invoice_id: '',
     route: 'Tehran - Almaty' as 'Tehran - Almaty' | 'Amol - Almaty',
@@ -63,7 +66,7 @@ export const NewShipmentModal = ({ isOpen, onClose }: NewShipmentModalProps) => 
       onClose();
     } catch (error: any) {
       console.error("Failed to create shipment:", error);
-      alert(error.message || "Ошибка при создании рейса");
+      alert(error.message || text.createFailed);
     } finally {
       setLoading(false);
     }
@@ -89,7 +92,7 @@ export const NewShipmentModal = ({ isOpen, onClose }: NewShipmentModalProps) => 
                 value={formData.invoice_id}
                 onChange={e => setFormData({...formData, invoice_id: e.target.value})}
                 className="w-full px-4 py-2.5 sm:py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm sm:text-base"
-                placeholder="e.g. Mehkaz 65"
+                placeholder={text.invoicePlaceholder}
               />
             </div>
             <div className="space-y-2">
