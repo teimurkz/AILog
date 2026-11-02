@@ -96,6 +96,18 @@ export function stageRoles(stages: TruckStage[]) {
   return { arrived: arrived?.id, unloaded: unloaded?.id, moved: moved?.id };
 }
 
+/** Saturday or Sunday. */
+export const isWeekend = (day: string) => [0, 6].includes(new Date(`${day}T00:00:00Z`).getUTCDay());
+/**
+ * Trucks that enter the yard on Saturday or Sunday are booked in the CRM on the following Monday.
+ * Then the partner's weekend date is the real one: we pay parking from it.
+ */
+export function weekendBookedMonday(partnerDay: string | null, crmDay: string | null) {
+  if (!partnerDay || !crmDay || !isWeekend(partnerDay)) return false;
+  const shift = daysBetween(partnerDay, crmDay);
+  return shift > 0 && shift <= 2 && new Date(`${crmDay}T00:00:00Z`).getUTCDay() === 1;
+}
+
 const trailingNumber = (value: string) => value.trim().match(/(\d+)\s*$/)?.[1];
 
 /**
@@ -118,6 +130,10 @@ export interface ReconcileRow {
   crm: { id: string; invoice: string; arrived: string | null; unloaded: string | null; moved: string | null } | null;
   status: ReconcileStatus;
   issues: string[];
+  /** Explanations that are not discrepancies (weekend arrival booked on Monday). */
+  notes: string[];
+  /** The truck entered on a weekend and the CRM has the following Monday. */
+  weekendArrival: boolean;
   partnerUnload: UnloadPlace;
   crmUnload: UnloadPlace | null;
   partnerDays: number | null; partnerOpen: boolean;
@@ -151,7 +167,7 @@ export function reconcile(allRows: PartnerRow[], entries: TruckTrackingEntry[], 
     const counted = parkingDays(partner.arrived.day, partner.unloaded.day, partner.moved.day, today);
     // An unreadable end date must not turn into "parked until today".
     const parking = counted.open && (partner.unloaded.bad || partner.moved.bad) ? { days: null, open: false } : counted;
-    const base = { partner, partnerDays: parking.days, partnerOpen: parking.open, partnerUnload: unloadPlace(partner.unloaded.day, partner.moved.day), crmUnload: null };
+    const base = { partner, partnerDays: parking.days, partnerOpen: parking.open, partnerUnload: unloadPlace(partner.unloaded.day, partner.moved.day), crmUnload: null, notes: [] as string[], weekendArrival: false };
     if (!partner.invoice) return { ...base, crm: null, status: 'no-invoice', issues, crmDays: null, crmOpen: false, diff: null };
     const candidates = byNumber.get(partner.invoice) || [];
     if (candidates.length !== 1) {
@@ -167,8 +183,13 @@ export function reconcile(allRows: PartnerRow[], entries: TruckTrackingEntry[], 
       unloaded: roles.unloaded ? stageDate(entry, roles.unloaded) || null : null,
       moved: roles.moved ? stageDate(entry, roles.moved) || null : null,
     };
+    const weekendArrival = weekendBookedMonday(partner.arrived.day, crm.arrived);
+    const notes = weekendArrival
+      ? [text.weekendArrival(text.weekdays[new Date(`${partner.arrived.day}T00:00:00Z`).getUTCDay()], formatDay(partner.arrived.day), formatDay(crm.arrived))]
+      : [];
     for (const field of ['arrived', 'unloaded', 'moved'] as const) {
       const theirs = partner[field].day, ours = crm[field];
+      if (field === 'arrived' && weekendArrival) continue;
       if (field === 'unloaded' && !theirs && ours && partner.moved.day && !partner.unloaded.bad) {
         issues.push(text.partnerWarehouse(formatDay(partner.moved.day), formatDay(ours)));
       } else if (field === 'unloaded' && theirs && !ours && crm.moved) {
@@ -179,9 +200,10 @@ export function reconcile(allRows: PartnerRow[], entries: TruckTrackingEntry[], 
       } else if (theirs && !ours) issues.push(text.noCrmDate(LABEL[field], formatDay(theirs)));
       else if (!theirs && ours && !partner[field].bad) issues.push(text.noPartnerDate(LABEL[field], formatDay(ours)));
     }
-    const ours = parkingDays(crm.arrived, crm.unloaded, crm.moved, today);
+    // A weekend arrival is counted from the partner's date: the truck really stood there.
+    const ours = parkingDays(weekendArrival ? partner.arrived.day : crm.arrived, crm.unloaded, crm.moved, today);
     const diff = parking.days !== null && ours.days !== null ? parking.days - ours.days : null;
-    return { ...base, crm, crmUnload: unloadPlace(crm.unloaded, crm.moved), status: issues.length ? 'mismatch' : 'ok', issues, crmDays: ours.days, crmOpen: ours.open, diff };
+    return { ...base, crm, crmUnload: unloadPlace(crm.unloaded, crm.moved), status: issues.length ? 'mismatch' : 'ok', issues, notes, weekendArrival, crmDays: ours.days, crmOpen: ours.open, diff };
   });
 
   // Trucks we recorded in the period that the partner's file does not list at all
@@ -208,6 +230,8 @@ export function reconcile(allRows: PartnerRow[], entries: TruckTrackingEntry[], 
       mismatch: rows.filter(row => row.status === 'mismatch').length,
       notFound: rows.filter(row => row.status === 'not-found' || row.status === 'ambiguous').length,
       noInvoice: rows.filter(row => row.status === 'no-invoice').length,
+      /** Weekend arrivals booked on Monday in the CRM (not discrepancies). */
+      weekend: rows.filter(row => row.weekendArrival).length,
       partnerDays: sum(compared.map(row => row.partnerDays)),
       crmDays: sum(compared.map(row => row.crmDays)),
       allPartnerDays: sum(rows.map(row => row.partnerDays)),

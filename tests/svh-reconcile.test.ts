@@ -111,6 +111,35 @@ test('unloading place: SVH, or straight to the commercial warehouse when the SVH
   assert.deepEqual(rows.map(item => item.partnerDays), [4, 4]);
 });
 
+test('weekend arrival booked on Monday in the CRM: the partner is right and parking counts from the weekend', () => {
+  // 03.10.2026 is a Saturday, 04.10 a Sunday, 05.10 the Monday.
+  const sheet = [
+    header,
+    row(1, '10/3/26', '20260903-351', null, '10/8/26'),
+    row(2, '10/4/26', '20260914-398', null, '10/8/26'),
+    row(3, '10/3/26', '20260924-436', null, '10/8/26'),
+    row(4, '10/2/26', '20260924-437', null, '10/8/26'),
+  ];
+  const entries = [
+    { id: 'a', invoice: '351', productName: 'Cream', status: 'unloaded', stageDates: { arrived: '2026-10-05', unloaded: '2026-10-08' } },
+    { id: 'b', invoice: '398', productName: 'Milk', status: 'unloaded', stageDates: { arrived: '2026-10-05', unloaded: '2026-10-08' } },
+    // Tuesday is not the weekend rule, Friday is not a weekend.
+    { id: 'c', invoice: '436', productName: 'Cheese', status: 'unloaded', stageDates: { arrived: '2026-10-06', unloaded: '2026-10-08' } },
+    { id: 'd', invoice: '437', productName: 'Butter', status: 'unloaded', stageDates: { arrived: '2026-10-05', unloaded: '2026-10-08' } },
+  ];
+  const { rows, summary } = reconcile(parsePartnerSheet(sheet, today), entries, DEFAULT_STAGES, today);
+  assert.deepEqual(rows.map(item => item.status), ['ok', 'ok', 'mismatch', 'mismatch']);
+  assert.deepEqual(rows.map(item => item.weekendArrival), [true, true, false, false]);
+  assert.deepEqual(rows[0].issues, []);
+  assert.match(rows[0].notes[0], /выходной.*сб 03\.10\.2026.*05\.10\.2026/);
+  // We pay from Saturday: CRM days are counted from the partner's weekend date.
+  assert.deepEqual(rows.map(item => [item.partnerDays, item.crmDays, item.diff]), [[5, 5, 0], [4, 4, 0], [5, 2, 3], [6, 3, 3]]);
+  assert.equal(summary.weekend, 2);
+  assert.equal(parkingCost(rows, 1000).diff, 6000);
+  const english = reconcile(parsePartnerSheet(sheet, today), entries, DEFAULT_STAGES, today, null, 'en');
+  assert.match(english.rows[1].notes[0], /weekend.*Sun 04\.10\.2026/);
+});
+
 test('parking cost in tenge by a daily rate', () => {
   const sheet = [header, row(1, '10/1/26', '20260903-351', null, '10/5/26'), row(2, '10/2/26', '', null, '10/4/26')];
   const entries = [{ id: 'a', invoice: '351', productName: 'Cream', status: 'unloaded', stageDates: { arrived: '2026-10-02', unloaded: '2026-10-05' } }];

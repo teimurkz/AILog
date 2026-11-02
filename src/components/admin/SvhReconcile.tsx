@@ -27,11 +27,12 @@ const readRate = () => { try { return Number(localStorage.getItem(RATE_KEY)) || 
 const latinDigits = (value: string) => value.replace(/[۰-۹]/g, digit => String(digit.charCodeAt(0) - 0x06f0)).replace(/[٠-٩]/g, digit => String(digit.charCodeAt(0) - 0x0660));
 
 /** Partner's date above ours, with a badge: ✓ same, ±N days, or missing on one side. */
-const DateCompare = ({ partner, partnerRaw, bad, crm, compare }: { partner: string | null; partnerRaw?: string; bad?: boolean; crm?: string | null; compare: boolean }) => {
+const DateCompare = ({ partner, partnerRaw, bad, crm, compare, weekend }: { partner: string | null; partnerRaw?: string; bad?: boolean; crm?: string | null; compare: boolean; weekend?: boolean }) => {
   const text = useSectionText(ADMIN_TEXTS).text.svh;
   let badge: React.ReactNode = null;
   if (compare) {
     if (bad) badge = <span className="rounded-md bg-rose-100 px-1.5 text-[10px] font-bold text-rose-700">{text.error}</span>;
+    else if (weekend) badge = <span className="rounded-md bg-sky-100 px-1.5 text-[10px] font-bold text-sky-700" title={text.weekendTitle}>{text.weekend} ✓</span>;
     else if (partner && crm && partner === crm) badge = <span className="rounded-md bg-emerald-100 px-1.5 text-[10px] font-bold text-emerald-700">✓</span>;
     else if (partner && crm) {
       const shift = daysBetween(crm, partner);
@@ -135,7 +136,7 @@ export const SvhReconcile = () => {
         row.partner.moved.bad ? row.partner.moved.raw : formatDay(row.partner.moved.day), formatDay(row.crm?.moved),
         days(row.partnerDays, row.partnerOpen), row.crm ? days(row.crmDays, row.crmOpen) : '', row.diff,
         money(row.partnerDays), row.crm ? money(row.crmDays) : null, row.crm ? money(row.diff) : null,
-        text.status[row.status], row.issues.join('; '),
+        text.status[row.status], [...row.issues, ...row.notes].join('; '),
       ]),
     };
     const totals: ReportTable = { title: excel.totals, header: excel.totalsHeader, rows: [
@@ -232,6 +233,10 @@ export const SvhReconcile = () => {
             ))}
           </div>
 
+          {result.summary.weekend > 0 && (
+            <p className="rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-2 text-xs text-sky-800">{text.weekendCount(result.summary.weekend)}</p>
+          )}
+
           <div className={`${card} p-4 space-y-3`}>
             <div className="flex flex-wrap items-center gap-2">
               {filters.map(item => (
@@ -271,7 +276,7 @@ export const SvhReconcile = () => {
                           <div className="text-[11px] text-slate-400 truncate" title={row.partner.product}>{row.partner.product}</div>
                         </td>
                         <td className="py-2.5 px-3">
-                          <DateCompare partner={row.partner.arrived.day} partnerRaw={row.partner.arrived.raw} bad={row.partner.arrived.bad} crm={row.crm?.arrived} compare={compare} />
+                          <DateCompare partner={row.partner.arrived.day} partnerRaw={row.partner.arrived.raw} bad={row.partner.arrived.bad} crm={row.crm?.arrived} compare={compare} weekend={row.weekendArrival} />
                         </td>
                         <td className="py-2.5 px-3">
                           <div className="flex flex-wrap items-center gap-1 mb-1">
@@ -304,6 +309,7 @@ export const SvhReconcile = () => {
                         <td className="py-2.5 px-3 min-w-[220px]">
                           <span className={`inline-block px-2 py-0.5 rounded-full border text-[11px] font-semibold whitespace-nowrap ${STATUS_TONE[row.status]}`}>{text.status[row.status]}</span>
                           {row.issues.length > 0 && <ul className="mt-1 space-y-0.5 text-[11px] text-slate-500">{row.issues.map(issue => <li key={issue}>• {issue}</li>)}</ul>}
+                          {row.notes.length > 0 && <ul className="mt-1 space-y-0.5 text-[11px] text-sky-700">{row.notes.map(note => <li key={note}>• {note}</li>)}</ul>}
                         </td>
                       </tr>
                     );

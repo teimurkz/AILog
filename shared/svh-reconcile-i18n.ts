@@ -13,6 +13,8 @@ const ru = {
   differs: (field: string, theirs: string, ours: string, shift: string) => `${field}: у партнёра ${theirs}, в CRM ${ours} (${shift} дн.)`,
   noCrmDate: (field: string, theirs: string) => `${field}: в CRM нет даты (у партнёра ${theirs})`,
   noPartnerDate: (field: string, ours: string) => `${field}: у партнёра нет даты (в CRM ${ours})`,
+  weekdays: ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'],
+  weekendArrival: (weekday: string, theirs: string, ours: string) => `Заезд в выходной (${weekday} ${theirs}), в CRM записан понедельник ${ours}: прав партнёр, стоянка считается с ${theirs}`,
 };
 
 const en: typeof ru = {
@@ -25,6 +27,8 @@ const en: typeof ru = {
   differs: (field, theirs, ours, shift) => `${field}: partner ${theirs}, CRM ${ours} (${shift} days)`,
   noCrmDate: (field, theirs) => `${field}: no date in the CRM (partner: ${theirs})`,
   noPartnerDate: (field, ours) => `${field}: no date from the partner (CRM: ${ours})`,
+  weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+  weekendArrival: (weekday, theirs, ours) => `Arrived on the weekend (${weekday} ${theirs}), CRM has the Monday ${ours}: the partner is right, parking counts from ${theirs}`,
 };
 
 const fa: typeof ru = {
@@ -37,6 +41,8 @@ const fa: typeof ru = {
   differs: (field, theirs, ours, shift) => `${field}: طرف قرارداد ${theirs}، CRM ${ours} (${shift} روز)`,
   noCrmDate: (field, theirs) => `${field}: در CRM تاریخی ثبت نشده (طرف قرارداد: ${theirs})`,
   noPartnerDate: (field, ours) => `${field}: طرف قرارداد تاریخی ندارد (CRM: ${ours})`,
+  weekdays: ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'],
+  weekendArrival: (weekday, theirs, ours) => `ورود در روز تعطیل (${weekday} ${theirs})، در CRM دوشنبه ${ours} ثبت شده: حق با طرف قرارداد است، توقف از ${theirs} محاسبه می‌شود`,
 };
 
 export const SVH_ISSUE_TEXTS: SectionTexts<typeof ru> = { ru, en, fa };
