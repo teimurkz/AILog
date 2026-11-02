@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Truck, AlertCircle, ArrowUpRight } from 'lucide-react';
-import { signInWithPopup, GoogleAuthProvider, signInAnonymously } from 'firebase/auth';
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { auth } from '../../firebase';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -22,19 +22,6 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
     } catch (err: any) {
       console.error("Firebase Auth Error:", err);
       setError(firebaseSignInError(err, t('signInError'), language));
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleGuestSignIn = async () => {
-    setError(null);
-    setAuthLoading(true);
-    try {
-      await signInAnonymously(auth);
-    } catch (err: any) {
-      console.error("Guest Sign-in Error:", err);
-      setError(firebaseSignInError(err, t('guestSignInError'), language));
     } finally {
       setAuthLoading(false);
     }
@@ -71,26 +58,9 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
 
         <div className="space-y-3">
           <button
-            onClick={handleGuestSignIn}
-            disabled={authLoading}
-            className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-emerald-500/10 text-sm"
-          >
-            ⚡ {t('signInGuest')}
-          </button>
-
-          <div className="relative py-1">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-200"></div>
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white px-2 text-slate-400 font-medium">{t('or')}</span>
-            </div>
-          </div>
-
-          <button
             onClick={handleGoogleSignIn}
             disabled={authLoading}
-            className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 text-slate-700 font-medium rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer border border-slate-200 text-xs"
+            className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-blue-500/10 text-sm"
           >
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/layout/google.svg" className="w-4 h-4 bg-white rounded-full p-0.5" alt="Google" />
             {t('signInGoogle')}
