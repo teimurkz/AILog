@@ -32,8 +32,14 @@ import {
 import { MailingSubscriber, MailingSettings, MailingLog } from '../../types';
 import { normalizeMailingDiagnostics, type MailingDiagnostics } from '../../../shared/mailing-diagnostics';
 import { MailingDiagnosticsPanel } from './MailingDiagnosticsPanel';
+import { MAILING_TEXT } from './mailing-i18n';
+import { useSectionText } from '../../i18n/useSectionText';
+
+// Department values are stored in Russian; the dictionary gives their labels.
+const DEPARTMENTS = ['Логистика / Склад', 'Закупки', 'Продажи', 'Руководство', 'Внешний клиент / Партнер'];
 
 export const WarehouseAutoMailing: React.FC = () => {
+  const { text: t, language, locale } = useSectionText(MAILING_TEXT);
   const [subscribers, setSubscribers] = useState<MailingSubscriber[]>([]);
   const [settings, setSettings] = useState<MailingSettings>({
     enabled: true,
@@ -94,10 +100,10 @@ export const WarehouseAutoMailing: React.FC = () => {
     try {
       const res = await firebaseFetch('/api/mailing/check-scheduler');
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || 'Не удалось получить диагностику службы.');
+      if (!res.ok) throw new Error(d.error || t.diagnosticsFailed);
       setDiagInfo(normalizeMailingDiagnostics(d));
     } catch (e: any) {
-      setSendErrorMsg(e.message || 'Не удалось получить диагностику службы.');
+      setSendErrorMsg(e.message || t.diagnosticsFailed);
     } finally {
       setCheckingDiag(false);
     }
@@ -111,13 +117,13 @@ export const WarehouseAutoMailing: React.FC = () => {
       const res = await firebaseFetch('/api/mailing/force-cron-trigger', { method: 'POST', signal: AbortSignal.timeout(240000) });
       const data = await res.json();
       if (res.ok && data.success) {
-        setSendSuccessMsg(data.warning || data.message || 'Отправка выполнена.');
+        setSendSuccessMsg(data.warning || data.message || t.sendDone);
         fetchData();
       } else {
-        setSendErrorMsg(data.error || data.message || 'Ошибка отправки отчета');
+        setSendErrorMsg(data.error || data.message || t.reportSendFailed);
       }
     } catch (e: any) {
-      setSendErrorMsg(e.message || 'Ошибка сервера');
+      setSendErrorMsg(e.message || t.serverError);
     } finally {
       setSending(false);
     }
@@ -135,13 +141,13 @@ export const WarehouseAutoMailing: React.FC = () => {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setSendSuccessMsg(data.message || `Время рассылки установлено на ${data.sendTime}!`);
+        setSendSuccessMsg(data.message || t.quickTimeSet(data.sendTime));
         fetchData();
       } else {
-        setSendErrorMsg(data.error || 'Ошибка установки быстрого времени');
+        setSendErrorMsg(data.error || t.quickTimeFailed);
       }
     } catch (e: any) {
-      setSendErrorMsg(e.message || 'Ошибка сервера');
+      setSendErrorMsg(e.message || t.serverError);
     } finally {
       setSending(false);
     }
@@ -162,7 +168,7 @@ export const WarehouseAutoMailing: React.FC = () => {
         const d = await subsRes.json();
         setSubscribers(d.subscribers || []);
       }
-      if (!subsRes.ok || !setRes.ok || !logsRes.ok || !statusRes.ok) { setSendErrorMsg('Не удалось загрузить состояние рассылки из Firebase. Проверьте службу и подключение.'); }
+      if (!subsRes.ok || !setRes.ok || !logsRes.ok || !statusRes.ok) { setSendErrorMsg(t.loadFailed); }
       if (setRes.ok) {
         const d = await setRes.json();
         if (d.settings) setSettings(d.settings);
@@ -211,15 +217,15 @@ export const WarehouseAutoMailing: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         if (data.settings) setSettings(data.settings);
-        setSendSuccessMsg('Настройки рассылки и SMTP успешно сохранены!');
+        setSendSuccessMsg(t.settingsSaved);
         setTimeout(() => setSendSuccessMsg(null), 4000);
       } else {
         const data = await res.json();
-        setSendErrorMsg(data.error || 'Не удалось сохранить настройки в Firebase');
+        setSendErrorMsg(data.error || t.settingsSaveFailed);
       }
     } catch (err) {
       console.error('Failed to save settings:', err);
-      setSendErrorMsg('Не удалось сохранить настройки');
+      setSendErrorMsg(t.settingsSaveFailed);
     }
   };
 
@@ -238,12 +244,12 @@ export const WarehouseAutoMailing: React.FC = () => {
       const data = await res.json();
 
       if (res.ok && data.success) {
-        setSendSuccessMsg(data.message || 'Подключение к SMTP серверу успешно!');
+        setSendSuccessMsg(data.message || t.smtpOk);
       } else {
-        setSendErrorMsg(data.error || 'Ошибка проверки SMTP подключения');
+        setSendErrorMsg(data.error || t.smtpFailed);
       }
     } catch (err: any) {
-      setSendErrorMsg(err.message || 'Ошибка связи с сервером при проверке SMTP');
+      setSendErrorMsg(err.message || t.smtpNetworkFailed);
     } finally {
       setTestingSmtp(false);
     }
@@ -355,7 +361,7 @@ export const WarehouseAutoMailing: React.FC = () => {
 
   // Delete Subscriber
   const handleDeleteSubscriber = async (id: string) => {
-    if (!confirm('Удалить этого получателя из списка рассылки?')) return;
+    if (!confirm(t.confirmDelete)) return;
     try {
       await firebaseFetch(`/api/mailing/subscribers/${id}`, { method: 'DELETE' });
       fetchData();
@@ -383,13 +389,13 @@ export const WarehouseAutoMailing: React.FC = () => {
 
       const result = await res.json();
       if (res.ok && result.success) {
-        setSendSuccessMsg(result.warning || result.message || 'Отправка выполнена.');
+        setSendSuccessMsg(result.warning || result.message || t.sendDone);
         fetchData();
       } else {
-        setSendErrorMsg(result.error || result.message || 'Ошибка отправки рассылки');
+        setSendErrorMsg(result.error || result.message || t.mailingSendFailed);
       }
     } catch (err: any) {
-      setSendErrorMsg('Не получено подтверждение результата отправки. Проверьте журнал и почту перед повтором.');
+      setSendErrorMsg(t.sendUnconfirmed);
     } finally {
       setSending(false);
     }
@@ -398,7 +404,7 @@ export const WarehouseAutoMailing: React.FC = () => {
   // Send Single Test Email
   const handleSendTestEmail = async () => {
     if (!testEmail || !testEmail.includes('@')) {
-      alert('Введите корректный email адрес!');
+      alert(t.invalidEmail);
       return;
     }
 
@@ -419,14 +425,14 @@ export const WarehouseAutoMailing: React.FC = () => {
 
       const result = await res.json();
       if (res.ok && result.success) {
-        setSendSuccessMsg(result.warning || result.message || 'Отправка выполнена.');
+        setSendSuccessMsg(result.warning || result.message || t.sendDone);
         setTestEmail('');
         fetchData();
       } else {
-        setSendErrorMsg(result.error || result.message || 'Ошибка тестовой отправки');
+        setSendErrorMsg(result.error || result.message || t.testSendFailed);
       }
     } catch (err: any) {
-      setSendErrorMsg('Не получено подтверждение результата отправки. Проверьте журнал и почту перед повтором.');
+      setSendErrorMsg(t.sendUnconfirmed);
     } finally {
       setSendingTest(false);
     }
@@ -453,13 +459,13 @@ export const WarehouseAutoMailing: React.FC = () => {
           <div className="space-y-2">
             <div className="crm-eyebrow inline-flex items-center gap-2 px-3 py-1 bg-white/15 backdrop-blur-md rounded-full text-xs font-semibold text-blue-100">
               <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              <span>Авто-рассылка остатков Google Таблицы (Excel)</span>
+              <span>{t.eyebrow}</span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Ежедневный отчет по складам
+              {t.title}
             </h2>
             <p className="text-sm text-blue-100/90 max-w-2xl">
-              Автоматически берет онлайн Google Таблицу складов, форматирует её со сводкой и итогами паллет и отправляет коллегам каждый день в 09:00.
+              {t.subtitle}
             </p>
           </div>
 
@@ -470,7 +476,7 @@ export const WarehouseAutoMailing: React.FC = () => {
               className="crm-button-secondary px-4 py-2.5 font-medium text-sm rounded-xl transition-all flex items-center gap-2 border"
             >
               <Download className="w-4 h-4 text-emerald-300" />
-              <span>Скачать свежий Excel</span>
+              <span>{t.downloadExcel}</span>
             </button>
 
             <button
@@ -483,7 +489,7 @@ export const WarehouseAutoMailing: React.FC = () => {
               ) : (
                 <Send className="w-4 h-4" />
               )}
-              <span>Отправить рассылку сейчас ({activeCount})</span>
+              <span>{t.sendNow(activeCount)}</span>
             </button>
           </div>
         </div>
@@ -496,7 +502,7 @@ export const WarehouseAutoMailing: React.FC = () => {
             <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
             <span className="text-sm font-semibold">{sendSuccessMsg}</span>
           </div>
-          <button onClick={() => setSendSuccessMsg(null)} className="text-emerald-500 hover:text-emerald-700">
+          <button onClick={() => setSendSuccessMsg(null)} className="text-emerald-500 hover:text-emerald-700" aria-label={t.close}>
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -508,7 +514,7 @@ export const WarehouseAutoMailing: React.FC = () => {
             <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
             <span className="text-sm font-semibold">{sendErrorMsg}</span>
           </div>
-          <button onClick={() => setSendErrorMsg(null)} className="text-rose-500 hover:text-rose-700">
+          <button onClick={() => setSendErrorMsg(null)} className="text-rose-500 hover:text-rose-700" aria-label={t.close}>
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -531,25 +537,26 @@ export const WarehouseAutoMailing: React.FC = () => {
               <div className="flex items-center gap-2">
                 <span className={`inline-block w-2.5 h-2.5 rounded-full ${automaticReady ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
                 <h2 className="text-base sm:text-lg font-bold">
-                  {!settings.enabled || settings.scheduleType === 'manual' ? 'Автоматическая отправка выключена' : !schedulerHealthy ? 'Запуск по расписанию не подтверждён' : schedulerError ? 'Служба работает, последняя проверка с ошибкой' : 'Служба рассылки работает'}
+                  {!settings.enabled || settings.scheduleType === 'manual' ? t.statusOff : !schedulerHealthy ? t.statusUnconfirmed : schedulerError ? t.statusLastCheckFailed : t.statusOk}
                 </h2>
               </div>
-              {settings.enabled && !schedulerHealthy && <p className="text-xs text-amber-200 mt-1">Нет свежего сигнала от службы. Проверьте, опубликовано ли задание рассылки Firebase.</p>}
+              {settings.enabled && !schedulerHealthy && <p className="text-xs text-amber-200 mt-1">{t.noHeartbeat}</p>}
               {schedulerError && <p className="text-xs text-amber-200 mt-1">{schedulerError}</p>}
               <div className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span>
-                  <b>График:</b> {settings.scheduleType === 'daily' && `Ежедневно в ${settings.sendTime}`}
-                  {settings.scheduleType === 'workdays' && `По рабочим дням в ${settings.sendTime}`}
-                  {settings.scheduleType === 'weekly' && `Раз в неделю в ${settings.sendTime}`}
-                  {settings.scheduleType === 'on_change' && `При каждом изменении в Гугл Таблице`}
-                  {settings.scheduleType === 'manual' && `Только вручную`}
+                  <b>{t.scheduleLabel}</b> {settings.scheduleType === 'daily' && t.scheduleDaily(settings.sendTime)}
+                  {settings.scheduleType === 'workdays' && t.scheduleWorkdays(settings.sendTime)}
+                  {settings.scheduleType === 'weekly' && t.scheduleWeekly(settings.sendTime)}
+                  {settings.scheduleType === 'test_interval' && t.scheduleTestInterval(settings.intervalMinutes || 1)}
+                  {settings.scheduleType === 'on_change' && t.scheduleOnChange}
+                  {settings.scheduleType === 'manual' && t.scheduleManual}
                 </span>
                 <span>•</span>
-                <span><b>Часовой пояс:</b> {settings.timezone || 'Asia/Almaty'}</span>
+                <span><b>{t.timezoneLabel}</b> <bdi dir="ltr">{settings.timezone || 'Asia/Almaty'}</bdi></span>
                 {statusInfo?.currentZonedTime && (
                   <>
                     <span>•</span>
-                    <span><b>Серверное время:</b> {statusInfo.currentZonedTime}</span>
+                    <span><b>{t.serverTimeLabel}</b> <bdi dir="ltr">{statusInfo.currentZonedTime}</bdi></span>
                   </>
                 )}
               </div>
@@ -565,7 +572,7 @@ export const WarehouseAutoMailing: React.FC = () => {
               className="px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 text-xs font-bold rounded-xl border border-blue-400/30 transition-all flex items-center gap-1.5"
             >
               {checkingDiag ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />}
-              <span>Диагностика службы</span>
+              <span>{t.checkService}</span>
             </button>
 
             <button
@@ -575,12 +582,12 @@ export const WarehouseAutoMailing: React.FC = () => {
               className="px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 text-xs font-bold rounded-xl border border-purple-400/30 transition-all flex items-center gap-1.5"
             >
               <Zap className="w-3.5 h-3.5 text-purple-300" />
-              <span>Отправить по настройкам</span>
+              <span>{t.sendBySettings}</span>
             </button>
 
-            <div className="flex items-center gap-3 bg-slate-900/90 p-2 px-3 rounded-xl border border-slate-700/80 ml-auto">
+            <div className="flex items-center gap-3 bg-slate-900/90 p-2 px-3 rounded-xl border border-slate-700/80 ms-auto">
               <span className="text-xs font-bold text-slate-200">
-                {settings.enabled ? 'Активна' : 'Выключена'}
+                {settings.enabled ? t.mailingOn : t.mailingOff}
               </span>
               <button
                 type="button"
@@ -592,17 +599,20 @@ export const WarehouseAutoMailing: React.FC = () => {
                       body: JSON.stringify({ enabled: !settings.enabled })
                     });
                     const data = await response.json();
-                    if (!response.ok) throw new Error(data.error || 'Не удалось сохранить настройку');
+                    if (!response.ok) throw new Error(data.error || t.settingSaveFailed);
                     setSettings(data.settings);
                   } catch (error: any) { setSendErrorMsg(error.message); }
                 }}
+                role="switch"
+                aria-checked={settings.enabled}
+                aria-label={t.toggleMailing}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
                   settings.enabled ? 'bg-emerald-500' : 'bg-slate-600'
                 }`}
               >
                 <span
                   className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    settings.enabled ? 'translate-x-6' : 'translate-x-1'
+                    settings.enabled ? 'translate-x-6 rtl:-translate-x-6' : 'translate-x-1 rtl:-translate-x-1'
                   }`}
                 />
               </button>
@@ -610,14 +620,14 @@ export const WarehouseAutoMailing: React.FC = () => {
           </div>
         </div>
 
-        {diagInfo && <MailingDiagnosticsPanel diagnostics={diagInfo} onClose={() => setDiagInfo(null)} />}
+        {diagInfo && <MailingDiagnosticsPanel diagnostics={diagInfo} onClose={() => setDiagInfo(null)} language={language} />}
 
         {/* Diagnostic alert if SMTP password missing */}
         {(!settings.smtpConfigured && !settings.smtpPass && !statusInfo?.hasSmtpPass) && (
           <div className="mt-4 p-3 bg-rose-950/80 border border-rose-500/40 rounded-xl text-xs text-rose-200 flex items-center gap-2.5">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
             <span>
-              <b>Внимание:</b> Введите 16-значный <b>Пароль Приложения Google</b> в настройках SMTP ниже для вашей почты <b>ti07kz@gmail.com</b> и нажмите "Сохранить", чтобы автоматическая рассылка работала без ошибок!
+              <b>{t.smtpWarningLead}</b> {t.smtpWarning(settings.smtpUser || 'ti07kz@gmail.com')}
             </span>
           </div>
         )}
@@ -631,10 +641,10 @@ export const WarehouseAutoMailing: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Получатели
+              {t.recipients}
             </p>
             <p className="text-2xl font-bold text-slate-900 dark:text-white mt-0.5">
-              {activeCount} <span className="text-xs font-normal text-slate-400">/ всего {subscribers.length}</span>
+              {activeCount} <span className="text-xs font-normal text-slate-400">{t.ofTotal(subscribers.length)}</span>
             </p>
           </div>
         </div>
@@ -645,14 +655,15 @@ export const WarehouseAutoMailing: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              График отправки
+              {t.sendSchedule}
             </p>
             <p className="text-base font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">
-              {settings.scheduleType === 'daily' && `Ежедневно в ${settings.sendTime}`}
-              {settings.scheduleType === 'workdays' && `Пн-Пт в ${settings.sendTime}`}
-              {settings.scheduleType === 'weekly' && `Раз в неделю в ${settings.sendTime}`}
-              {settings.scheduleType === 'on_change' && `При изменении остатков`}
-              {settings.scheduleType === 'manual' && `По кнопке (Ручной)`}
+              {settings.scheduleType === 'daily' && t.scheduleDaily(settings.sendTime)}
+              {settings.scheduleType === 'workdays' && t.scheduleWorkdaysShort(settings.sendTime)}
+              {settings.scheduleType === 'weekly' && t.scheduleWeekly(settings.sendTime)}
+              {settings.scheduleType === 'test_interval' && t.scheduleTestInterval(settings.intervalMinutes || 1)}
+              {settings.scheduleType === 'on_change' && t.scheduleOnChangeShort}
+              {settings.scheduleType === 'manual' && t.scheduleManualShort}
             </p>
           </div>
         </div>
@@ -663,13 +674,13 @@ export const WarehouseAutoMailing: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Формат файла
+              {t.fileFormat}
             </p>
             <p className="text-xl font-bold text-slate-900 dark:text-white mt-0.5">
               Excel (.xlsx)
             </p>
             <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-              Google Таблица складов
+              {t.warehouseSheet}
             </p>
           </div>
         </div>
@@ -680,7 +691,7 @@ export const WarehouseAutoMailing: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Записей в журнале
+              {t.logEntries}
             </p>
             <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-0.5">
               {logs.length}
@@ -698,10 +709,10 @@ export const WarehouseAutoMailing: React.FC = () => {
             <div>
               <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Users className="w-5 h-5 text-blue-600" />
-                <span>Список получателей таблицы склада</span>
+                <span>{t.recipientsTitle}</span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Люди, которые получают актуальный файл Excel по электронной почте
+                {t.recipientsHint}
               </p>
             </div>
 
@@ -710,20 +721,20 @@ export const WarehouseAutoMailing: React.FC = () => {
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs sm:text-sm rounded-xl transition-colors flex items-center gap-2 shadow-sm"
             >
               <UserPlus className="w-4 h-4" />
-              <span>Добавить человека</span>
+              <span>{t.addPerson}</span>
             </button>
           </div>
 
           {/* Filters Bar */}
           <div className="p-4 border-b border-slate-200 dark:border-slate-700/60 bg-white dark:bg-slate-800 flex flex-wrap items-center gap-3">
             <div className="relative min-w-0 flex-1 basis-52">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Поиск по имени, email или отделу..."
+                placeholder={t.searchPlaceholder}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full ps-9 pe-3 py-1.5 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -732,9 +743,9 @@ export const WarehouseAutoMailing: React.FC = () => {
               onChange={(e) => setDepartmentFilter(e.target.value)}
               className="px-3 py-1.5 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="all">Все отделы</option>
+              <option value="all">{t.allDepartments}</option>
               {departments.map(dept => (
-                <option key={dept} value={dept}>{dept}</option>
+                <option key={dept} value={dept}>{t.departments[dept!] || dept}</option>
               ))}
             </select>
           </div>
@@ -744,13 +755,13 @@ export const WarehouseAutoMailing: React.FC = () => {
             {loading ? (
               <div className="p-12 text-center text-slate-400 flex flex-col items-center gap-3">
                 <RefreshCw className="w-6 h-6 animate-spin text-blue-500" />
-                <span>Загрузка списка получателей...</span>
+                <span>{t.loadingRecipients}</span>
               </div>
             ) : filteredSubscribers.length === 0 ? (
               <div className="p-12 text-center text-slate-400 space-y-2">
                 <Users className="w-8 h-8 text-slate-300 mx-auto" />
-                <p className="font-semibold text-slate-600 dark:text-slate-300 text-sm">Получатели не найдены</p>
-                <p className="text-xs text-slate-400">Нажмите "Добавить человека", чтобы внести первого получателя в рассылку</p>
+                <p className="font-semibold text-slate-600 dark:text-slate-300 text-sm">{t.noRecipients}</p>
+                <p className="text-xs text-slate-400">{t.noRecipientsHint}</p>
               </div>
             ) : (
               filteredSubscribers.map((sub) => (
@@ -769,32 +780,32 @@ export const WarehouseAutoMailing: React.FC = () => {
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-bold text-sm text-slate-900 dark:text-white">
-                          {sub.name || 'Без имени'}
+                          {sub.name || t.noName}
                         </span>
                         <span className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-md">
-                          {sub.department || 'Логистика'}
+                          {t.departments[sub.department || 'Логистика'] || sub.department}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                         <Mail className="w-3.5 h-3.5 text-blue-500" />
-                        <span>{sub.email}</span>
+                        <bdi dir="ltr">{sub.email}</bdi>
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <div className="text-right hidden sm:block">
+                    <div className="text-end hidden sm:block">
                       <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
                         sub.isActive 
                           ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300' 
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
                       }`}>
                         {sub.isActive ? <Check className="w-3 h-3" /> : null}
-                        {sub.isActive ? 'Активен' : 'Приостановлен'}
+                        {sub.isActive ? t.active : t.paused}
                       </span>
                       {sub.lastSentAt && (
                         <p className="text-[10px] text-slate-400 mt-0.5">
-                          Отправлено: {new Date(sub.lastSentAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          {t.lastSent(new Date(sub.lastSentAt).toLocaleString(locale, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}
                         </p>
                       )}
                     </div>
@@ -802,7 +813,8 @@ export const WarehouseAutoMailing: React.FC = () => {
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => handleSendNow([sub.id])}
-                        title="Отправить Excel этому человеку"
+                        title={t.sendToPerson}
+                        aria-label={t.sendToPerson}
                         className="p-1.5 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors"
                       >
                         <Send className="w-4 h-4" />
@@ -810,7 +822,8 @@ export const WarehouseAutoMailing: React.FC = () => {
 
                       <button
                         onClick={() => handleToggleActive(sub)}
-                        title={sub.isActive ? "Приостановить рассылку" : "Активировать"}
+                        title={sub.isActive ? t.pause : t.activate}
+                        aria-label={sub.isActive ? t.pause : t.activate}
                         className={`p-1.5 rounded-lg transition-colors ${
                           sub.isActive 
                             ? 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40' 
@@ -822,7 +835,8 @@ export const WarehouseAutoMailing: React.FC = () => {
 
                       <button
                         onClick={() => handleOpenModal(sub)}
-                        title="Редактировать"
+                        title={t.edit}
+                        aria-label={t.edit}
                         className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors"
                       >
                         <Edit3 className="w-4 h-4" />
@@ -830,7 +844,8 @@ export const WarehouseAutoMailing: React.FC = () => {
 
                       <button
                         onClick={() => handleDeleteSubscriber(sub.id)}
-                        title="Удалить"
+                        title={t.delete}
+                        aria-label={t.delete}
                         className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -851,12 +866,14 @@ export const WarehouseAutoMailing: React.FC = () => {
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700/60 pb-3">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Server className="w-5 h-5 text-blue-600" />
-                <span>Отправка через Gmail (ti07kz@gmail.com)</span>
+                <span>{t.smtpTitle(settings.smtpUser || 'ti07kz@gmail.com')}</span>
               </h3>
               <button
                 type="button"
                 onClick={() => setShowSmtpSettings(!showSmtpSettings)}
                 className="text-slate-400 hover:text-slate-600 p-1"
+                aria-label={t.toggleSmtp}
+                aria-expanded={showSmtpSettings}
               >
                 {showSmtpSettings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
               </button>
@@ -867,22 +884,22 @@ export const WarehouseAutoMailing: React.FC = () => {
                 <div className="p-3 bg-emerald-50/80 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800/60 text-xs text-emerald-900 dark:text-emerald-200 space-y-2">
                   <p className="font-bold flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>Авторизация Google почты (ti07kz@gmail.com)</span>
+                    <span>{t.googleAuthTitle(settings.smtpUser || 'ti07kz@gmail.com')}</span>
                   </p>
                   <p className="text-[11px] text-emerald-800/90 dark:text-emerald-300/90 leading-relaxed">
-                    Для отправки писем с вашего аккаунта Google нужен <strong>Пароль Приложения (App Password)</strong>. Получить его за 30 секунд:
+                    {t.googleAuthIntro}
                   </p>
-                  <ol className="list-decimal list-inside text-[11px] space-y-1 font-medium text-emerald-900 dark:text-emerald-200 pl-1">
-                    <li>Перейдите на страницу Google: <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" className="underline font-bold text-emerald-700 dark:text-emerald-300 hover:text-emerald-900">myaccount.google.com/apppasswords</a></li>
-                    <li>Введите название приложения (например, <i>"Складской Учет"</i>) и нажмите <strong>Создать</strong>.</li>
-                    <li>Вставьте сгенерированный 16-значный пароль в поле ниже и нажмите <strong>Проверить подключение</strong>.</li>
+                  <ol className="list-decimal list-inside text-[11px] space-y-1 font-medium text-emerald-900 dark:text-emerald-200 ps-1">
+                    <li>{t.googleStep1} <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" className="underline font-bold text-emerald-700 dark:text-emerald-300 hover:text-emerald-900">myaccount.google.com/apppasswords</a></li>
+                    <li>{t.googleStep2}</li>
+                    <li>{t.googleStep3}</li>
                   </ol>
                 </div>
 
                 {/* Presets */}
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                    Быстрые шаблоны серверов:
+                    {t.presets}
                   </label>
                   <div className="flex flex-wrap gap-1.5">
                     <button
@@ -891,7 +908,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                       className="px-2.5 py-1 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-300 font-bold text-[11px] rounded-lg border border-rose-200 dark:border-rose-800 transition-colors flex items-center gap-1"
                     >
                       <Globe className="w-3 h-3 text-rose-600" />
-                      Google Gmail (Рекомендуется)
+                      {t.presetGmail}
                     </button>
                     <button
                       type="button"
@@ -914,7 +931,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                 <div className="grid grid-cols-3 gap-2">
                   <div className="col-span-2">
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      SMTP Хост:
+                      {t.smtpHost}
                     </label>
                     <input
                       type="text"
@@ -926,7 +943,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Порт:
+                      {t.port}
                     </label>
                     <input
                       type="number"
@@ -941,7 +958,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                 {/* Login User */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Ваша почта Gmail (Логин):
+                    {t.smtpUser}
                   </label>
                   <input
                     type="email"
@@ -955,14 +972,14 @@ export const WarehouseAutoMailing: React.FC = () => {
                 {/* Password */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                    <span>Пароль Приложения Google (16 символов):</span>
+                    <span>{t.smtpPass}</span>
                     <a
                       href="https://myaccount.google.com/apppasswords"
                       target="_blank"
                       rel="noreferrer"
                       className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-normal"
                     >
-                      Получить пароль →
+                      {t.getPassword}
                     </a>
                   </label>
                   <input
@@ -977,7 +994,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                 {/* Sender From Header */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Имя отправителя в письме (From):
+                    {t.smtpFrom}
                   </label>
                   <input
                     type="text"
@@ -992,7 +1009,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                 <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
                   <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                   <span>
-                    <b>Защищённое подключение:</b> порт 465 использует TLS, порт 587 — STARTTLS. Временный сбой до передачи письма допускает повтор. Если результат отправки неизвестен, сначала проверьте почту получателей.
+                    <b>{t.secureLead}</b> {t.secureInfo}
                   </span>
                 </div>
 
@@ -1009,7 +1026,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                     ) : (
                       <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
                     )}
-                    <span>Проверить подключение SMTP</span>
+                    <span>{t.testSmtp}</span>
                   </button>
 
                   <button
@@ -1017,7 +1034,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                     onClick={handleSaveSettings}
                     className="w-full py-2 bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition-colors shadow-sm"
                   >
-                    Сохранить параметры SMTP
+                    {t.saveSmtp}
                   </button>
                 </div>
               </div>
@@ -1028,25 +1045,25 @@ export const WarehouseAutoMailing: React.FC = () => {
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm p-5 space-y-4">
             <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 border-b border-slate-100 dark:border-slate-700/60 pb-3">
               <Settings className="w-5 h-5 text-indigo-600" />
-              <span>Расписание & Текст письма</span>
+              <span>{t.scheduleTitle}</span>
             </h3>
 
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Режим автоматической отправки:
+                  {t.scheduleMode}
                 </label>
                 <select
                   value={settings.scheduleType}
                   onChange={(e) => setSettings({ ...settings, scheduleType: e.target.value as any })}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
                 >
-                  <option value="daily">Ежедневно (в фиксированное время)</option>
-                  <option value="workdays">По рабочим дням (Пн-Пт в выбранное время)</option>
-                  <option value="weekly">Раз в неделю (по Понедельникам)</option>
-                  <option value="test_interval">🧪 Тестовый режим (Каждые N минут для быстрой проверки)</option>
-                  <option value="on_change">⚡ Авто-триггер при изменении в Гугл Таблице</option>
-                  <option value="manual">Только по вашей кнопке (Ручной запуск)</option>
+                  <option value="daily">{t.modeDaily}</option>
+                  <option value="workdays">{t.modeWorkdays}</option>
+                  <option value="weekly">{t.modeWeekly}</option>
+                  <option value="test_interval">{t.modeTestInterval}</option>
+                  <option value="on_change">{t.modeOnChange}</option>
+                  <option value="manual">{t.modeManual}</option>
                 </select>
               </div>
 
@@ -1054,7 +1071,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                 <div className="p-3 bg-purple-50 dark:bg-purple-950/40 rounded-xl border border-purple-200 dark:border-purple-800 text-xs text-purple-900 dark:text-purple-200 space-y-2">
                   <label className="block font-bold flex items-center gap-1.5 text-purple-900 dark:text-purple-300">
                     <Sparkles className="w-4 h-4 text-purple-600" />
-                    <span>Интервал регулярной отправки для тестов:</span>
+                    <span>{t.testIntervalLabel}</span>
                   </label>
                   <div className="flex flex-wrap gap-1.5">
                     {[1, 2, 5, 10, 15].map((m) => (
@@ -1068,7 +1085,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                             : 'bg-white dark:bg-slate-800 text-purple-900 dark:text-purple-200 border border-purple-300 dark:border-purple-700 hover:bg-purple-100'
                         }`}
                       >
-                        Каждые {m} мин
+                        {t.everyMinutes(m)}
                       </button>
                     ))}
                   </div>
@@ -1078,7 +1095,7 @@ export const WarehouseAutoMailing: React.FC = () => {
               {/* Timezone Selector */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                  <span>Часовой пояс для графика:</span>
+                  <span>{t.timezoneForSchedule}</span>
                   <Globe className="w-3.5 h-3.5 text-blue-500" />
                 </label>
                 <select
@@ -1086,18 +1103,16 @@ export const WarehouseAutoMailing: React.FC = () => {
                   onChange={(e) => setSettings({ ...settings, timezone: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                 >
-                  <option value="Asia/Almaty">🇰🇿 Казахстан (Алматы / Астана UTC+5)</option>
-                  <option value="Asia/Tashkent">🇺🇿 Узбекистан (Ташкент UTC+5)</option>
-                  <option value="Asia/Bishkek">🇰🇬 Кыргызстан (Бишкек UTC+6)</option>
-                  <option value="Europe/Moscow">🇷🇺 Москва / Минск (UTC+3)</option>
-                  <option value="UTC">🌐 Всемирное время (UTC+0)</option>
+                  {Object.entries(t.timezones).map(([zone, label]) => (
+                    <option key={zone} value={zone}>{label}</option>
+                  ))}
                 </select>
               </div>
 
               {(settings.scheduleType === 'daily' || settings.scheduleType === 'workdays' || settings.scheduleType === 'weekly') && (
                 <div className="space-y-2">
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Время отправки писем:
+                    {t.sendTime}
                   </label>
                   <div className="flex flex-wrap gap-2 items-center">
                     <input
@@ -1131,14 +1146,14 @@ export const WarehouseAutoMailing: React.FC = () => {
                     className="w-full py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-sm"
                   >
                     <Zap className="w-3.5 h-3.5" />
-                    <span>⚡ Установить [Текущее время + 1 мин] для быстрой проверки</span>
+                    <span>{t.quickTime}</span>
                   </button>
                 </div>
               )}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Тема электронного письма:
+                  {t.emailSubject}
                 </label>
                 <input
                   type="text"
@@ -1150,7 +1165,7 @@ export const WarehouseAutoMailing: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Текст сопровождения письма:
+                  {t.emailBody}
                 </label>
                 <textarea
                   rows={3}
@@ -1158,6 +1173,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                   onChange={(e) => setSettings({ ...settings, emailBody: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium resize-none"
                 />
+                <p className="text-[11px] text-slate-400 mt-1">{t.emailContentHint}</p>
               </div>
 
               <button
@@ -1165,7 +1181,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                 className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 text-white font-bold text-xs rounded-xl transition-colors shadow-sm flex items-center justify-center gap-2"
               >
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Сохранить параметры расписания</span>
+                <span>{t.saveSchedule}</span>
               </button>
             </div>
           </div>
@@ -1174,10 +1190,10 @@ export const WarehouseAutoMailing: React.FC = () => {
           <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm space-y-3">
             <h3 className="text-sm font-bold flex items-center gap-2 text-blue-300">
               <Mail className="w-4 h-4" />
-              <span>Тестовая отправка на любой адрес</span>
+              <span>{t.testTitle}</span>
             </h3>
             <p className="text-xs text-slate-300">
-              Введите ваш e-mail, чтобы моментально получить тестовое письмо с выгруженным файлом Excel:
+              {t.testHint}
             </p>
 
             <div className="flex flex-wrap gap-2">
@@ -1194,7 +1210,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                 className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 shrink-0 disabled:opacity-50"
               >
                 {sendingTest ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                <span>Тест</span>
+                <span>{t.test}</span>
               </button>
             </div>
           </div>
@@ -1207,16 +1223,16 @@ export const WarehouseAutoMailing: React.FC = () => {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700/60 pb-3">
           <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <History className="w-5 h-5 text-purple-600" />
-            <span>Журнал проведенных отправок</span>
+            <span>{t.logTitle}</span>
           </h3>
           <span className="text-xs text-slate-500 font-medium">
-            Всего записей: {logs.length}
+            {t.logTotal(logs.length)}
           </span>
         </div>
 
         {logs.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-xs">
-            История отправок пуста. Нажмите "Отправить рассылку сейчас", чтобы совершить первую отправку.
+            {t.logEmpty}
           </div>
         ) : (
           <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
@@ -1236,22 +1252,22 @@ export const WarehouseAutoMailing: React.FC = () => {
                       <span className="text-slate-400">({log.fileSize || 'Excel'})</span>
                     </div>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      Получатели ({log.recipientsCount}): {log.recipientEmails.slice(0, 3).join(', ')}{log.recipientEmails.length > 3 ? '...' : ''}
+                      {t.logRecipients(log.recipientsCount)} <bdi dir="ltr">{log.recipientEmails.slice(0, 3).join(', ')}{log.recipientEmails.length > 3 ? '...' : ''}</bdi>
                     </p>
                     {log.errorMessage && (
                       <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 mt-1">
-                        ⚠️ Причина ошибки: {log.errorMessage}
+                        ⚠️ {t.logError} {log.errorMessage}
                       </p>
                     )}
                   </div>
                 </div>
 
-                <div className="text-right">
+                <div className="text-end">
                   <span className="font-medium text-slate-600 dark:text-slate-300">
-                    {new Date(log.timestamp).toLocaleString('ru-RU')}
+                    {new Date(log.timestamp).toLocaleString(locale)}
                   </span>
                   <p className="text-[10px] text-slate-400 capitalize mt-0.5">
-                    Источник: {log.triggerSource === 'manual' ? 'Ручной запуск' : log.triggerSource === 'test' ? 'Тестовая отправка' : 'Автоматически'}
+                    {t.logSource} {log.triggerSource === 'manual' ? t.sourceManual : log.triggerSource === 'test' ? t.sourceTest : t.sourceAuto}
                   </p>
                 </div>
               </div>
@@ -1267,9 +1283,9 @@ export const WarehouseAutoMailing: React.FC = () => {
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-blue-600" />
-                <span>{editingSub ? 'Редактировать получателя' : 'Добавить получателя рассылки'}</span>
+                <span>{editingSub ? t.dialogEdit : t.dialogAdd}</span>
               </h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600" aria-label={t.close}>
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1277,12 +1293,12 @@ export const WarehouseAutoMailing: React.FC = () => {
             <form onSubmit={handleSaveSubscriber} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  ФИО или Имя получателя:
+                  {t.fieldName}
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="Например: Алина (Менеджер закупа)"
+                  placeholder={t.fieldNamePlaceholder}
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1291,7 +1307,7 @@ export const WarehouseAutoMailing: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  E-mail адрес получателя:
+                  {t.fieldEmail}
                 </label>
                 <input
                   type="email"
@@ -1305,18 +1321,14 @@ export const WarehouseAutoMailing: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Отдел / Роль:
+                  {t.fieldDepartment}
                 </label>
                 <select
                   value={formData.department}
                   onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                   className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                 >
-                  <option value="Логистика / Склад">Логистика / Склад</option>
-                  <option value="Закупки">Отдел Закупок</option>
-                  <option value="Продажи">Отдел Продаж</option>
-                  <option value="Руководство">Руководство</option>
-                  <option value="Внешний клиент / Партнер">Внешний клиент / Партнер</option>
+                  {DEPARTMENTS.map(dept => <option key={dept} value={dept}>{t.departments[dept]}</option>)}
                 </select>
               </div>
 
@@ -1329,7 +1341,7 @@ export const WarehouseAutoMailing: React.FC = () => {
                   className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
                 />
                 <label htmlFor="sub-active-chk" className="text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
-                  Получатель активен (включать в авто-рассылку)
+                  {t.fieldActive}
                 </label>
               </div>
 
@@ -1339,13 +1351,13 @@ export const WarehouseAutoMailing: React.FC = () => {
                   onClick={() => setIsModalOpen(false)}
                   className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900"
                 >
-                  Отмена
+                  {t.cancel}
                 </button>
                 <button
                   type="submit"
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-sm transition-colors"
                 >
-                  {editingSub ? 'Сохранить изменения' : 'Добавить получателя'}
+                  {editingSub ? t.saveChanges : t.addRecipient}
                 </button>
               </div>
             </form>
