@@ -131,9 +131,8 @@ export const SvhReconcile = () => {
       rows: result.rows.map((row: ReconcileRow) => [
         row.partner.no, row.partner.invoice, row.partner.invoiceRaw, row.partner.truck, row.partner.product,
         row.partner.arrived.bad ? row.partner.arrived.raw : formatDay(row.partner.arrived.day), formatDay(row.crm?.arrived),
-        row.partnerUnload.place ? text.place[row.partnerUnload.place] : '', formatDay(row.partnerUnload.day),
-        row.crmUnload?.place ? text.place[row.crmUnload.place] : '', formatDay(row.crmUnload?.day),
-        row.partner.moved.bad ? row.partner.moved.raw : formatDay(row.partner.moved.day), formatDay(row.crm?.moved),
+        formatDay(row.partnerUnload.day), formatDay(row.crmUnload?.day),
+        row.partnerUnload.place ? text.place[row.partnerUnload.place] : '',
         days(row.partnerDays, row.partnerOpen), row.crm ? days(row.crmDays, row.crmOpen) : '', row.diff,
         money(row.partnerDays), row.crm ? money(row.crmDays) : null, row.crm ? money(row.diff) : null,
         text.status[row.status], [...row.issues, ...row.notes].join('; '),
@@ -257,14 +256,13 @@ export const SvhReconcile = () => {
                       <th key={title} className="py-2.5 px-3 font-semibold whitespace-nowrap text-start">{title}</th>)}
                   </tr>
                   <tr className="text-[10px] text-slate-400">
-                    {['', text.sides, text.whereWhen, text.sides, text.sidesDiff, rate ? text.perDay(tenge(rate)) : text.enterRate, ''].map((note, index) =>
+                    {['', text.sides, text.sides, text.sidesDiff, rate ? text.perDay(tenge(rate)) : text.enterRate, ''].map((note, index) =>
                       <th key={index} className="px-3 pb-1.5 font-normal border-b border-slate-200 whitespace-nowrap text-start">{note}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {visible.map(row => {
                     const compare = Boolean(row.crm);
-                    const placeDiffers = compare && row.crmUnload?.place && row.partnerUnload.place && row.crmUnload.place !== row.partnerUnload.place;
                     return (
                       <tr key={row.partner.row} className={`border-b border-slate-100 align-top hover:bg-blue-50/30 ${row.status === 'mismatch' ? 'bg-rose-50/40' : ''}`}>
                         <td className="py-2.5 px-3 max-w-[240px]">
@@ -279,16 +277,10 @@ export const SvhReconcile = () => {
                           <DateCompare partner={row.partner.arrived.day} partnerRaw={row.partner.arrived.raw} bad={row.partner.arrived.bad} crm={row.crm?.arrived} compare={compare} weekend={row.weekendArrival} />
                         </td>
                         <td className="py-2.5 px-3">
-                          <div className="flex flex-wrap items-center gap-1 mb-1">
-                            <PlaceTag value={row.partnerUnload} />
-                            {placeDiffers && <><span className="text-[10px] text-rose-600 font-bold">≠ CRM:</span><PlaceTag value={row.crmUnload} /></>}
-                          </div>
-                          <DateCompare partner={row.partnerUnload.day} partnerRaw={row.partner.unloaded.raw} bad={row.partner.unloaded.bad} crm={row.crmUnload?.day} compare={compare} />
-                        </td>
-                        <td className="py-2.5 px-3">
-                          {row.partnerUnload.place === 'warehouse' && (!compare || row.crmUnload?.place !== 'svh')
-                            ? <span className="text-[11px] text-slate-400">{text.sameAsUnloading}</span>
-                            : <DateCompare partner={row.partner.moved.day} partnerRaw={row.partner.moved.raw} bad={row.partner.moved.bad} crm={row.crm?.moved} compare={compare} />}
+                          {/* The SVH date, or the commercial warehouse when the partner left it empty. */}
+                          {row.partnerUnload.place === 'warehouse' && <div className="mb-1"><PlaceTag value={row.partnerUnload} /></div>}
+                          <DateCompare partner={row.partnerUnload.day} partnerRaw={row.partner.unloaded.bad ? row.partner.unloaded.raw : row.partner.moved.raw}
+                            bad={row.partner.unloaded.bad || (!row.partner.unloaded.day && row.partner.moved.bad)} crm={row.crmUnload?.day} compare={compare} />
                         </td>
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           <div className="text-base font-black text-slate-900">{days(row.partnerDays, row.partnerOpen)}</div>

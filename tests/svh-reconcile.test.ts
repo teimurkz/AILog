@@ -62,7 +62,9 @@ test('sheet parsing skips month rows and reconciles with "Слежка авто"
   // Partner says arrival 03.10, we recorded 04.10: one day more to pay.
   assert.match(rows[1].issues[0], /Заезд: у партнёра 03\.10\.2026, в CRM 04\.10\.2026 \(-1 дн\.\)/);
   assert.equal(rows[1].partnerDays, 5); assert.equal(rows[1].crmDays, 4); assert.equal(rows[1].diff, 1);
-  assert.ok(rows[2].issues.some(issue => issue.includes('непонятная дата «вопрос????»')));
+  // The SVH unloading date is a typo: that is what decides the parking days, the transfer date is not checked.
+  assert.ok(rows[2].issues.some(issue => issue.includes('непонятная дата «10/19/20»')));
+  assert.ok(!rows[2].issues.some(issue => issue.includes('вопрос')));
   assert.equal(rows[2].partnerDays, null); // unreadable end dates: no guessed parking days
   assert.match(rows[3].issues[0], /Инвойса 999 нет/);
   assert.deepEqual(missing.map(item => item.invoice), ['500']);
@@ -138,6 +140,27 @@ test('weekend arrival booked on Monday in the CRM: the partner is right and park
   assert.equal(parkingCost(rows, 1000).diff, 6000);
   const english = reconcile(parsePartnerSheet(sheet, today), entries, DEFAULT_STAGES, today, null, 'en');
   assert.match(english.rows[1].notes[0], /weekend.*Sun 04\.10\.2026/);
+});
+
+test('only arrival and the end of parking are compared: SVH unloading, or the commercial warehouse when it is empty', () => {
+  const sheet = [
+    header,
+    // Unloaded at the SVH on 05.10; the transfer dates differ (09.10 vs 12.10) but do not matter.
+    row(1, '10/1/26', '20260903-351', '10/9/26', '10/5/26'),
+    // Partner: straight to the warehouse 06.10; CRM: "unloaded at the SVH" the same day. Same parking end.
+    row(2, '10/2/26', '20260914-398', '10/6/26', null),
+    // Partner: straight to the warehouse 07.10; CRM: unloaded 08.10 — one day of difference.
+    row(3, '10/2/26', '20260924-436', '10/7/26', null),
+  ];
+  const entries = [
+    { id: 'a', invoice: '351', productName: 'Cream', status: 'moved', stageDates: { arrived: '2026-10-01', unloaded: '2026-10-05', moved: '2026-10-12' } },
+    { id: 'b', invoice: '398', productName: 'Milk', status: 'unloaded', stageDates: { arrived: '2026-10-02', unloaded: '2026-10-06' } },
+    { id: 'c', invoice: '436', productName: 'Cheese', status: 'unloaded', stageDates: { arrived: '2026-10-02', unloaded: '2026-10-08' } },
+  ];
+  const { rows } = reconcile(parsePartnerSheet(sheet, today), entries, DEFAULT_STAGES, today);
+  assert.deepEqual(rows.map(item => item.status), ['ok', 'ok', 'mismatch']);
+  assert.deepEqual(rows[2].issues, ['Выгрузка: у партнёра 07.10.2026, в CRM 08.10.2026 (-1 дн.)']);
+  assert.deepEqual(rows.map(item => [item.partnerDays, item.crmDays, item.diff]), [[4, 4, 0], [4, 4, 0], [5, 6, -1]]);
 });
 
 test('parking cost in tenge by a daily rate', () => {
