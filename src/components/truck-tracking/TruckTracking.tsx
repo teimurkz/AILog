@@ -3,7 +3,7 @@ import {
   AlertTriangle, ArrowDown, ArrowUp, ClipboardPaste, Columns3, Download, FileSpreadsheet, GripVertical, Link2, Loader2, Plus, Search, Settings2, Table2, Trash2, X,
 } from 'lucide-react';
 import {
-  daysInStage, formatTrackingDate, isTruckIdle, stageDate, stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, todayIso,
+  daysInStage, formatTrackingDate, invoiceList, isTruckIdle, searchInvoiceList, stageDate, stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, todayIso,
   type TruckStage, type TruckTrackingEntry, type TruckTrackingImportRow, type TruckTrackingPatch,
 } from '../../../shared/truck-tracking';
 import type { TrackingLanguage, TrackingText } from '../../../shared/truck-tracking-i18n';
@@ -164,12 +164,18 @@ export const TruckTracking = () => {
   }, [entries, stages]);
   const idleCount = entries.filter(entry => isTruckIdle(entry, stages)).length;
 
+  // Several invoices pasted at once: show exactly those trucks and say which were not found.
+  const listSearch = React.useMemo(() => {
+    const list = invoiceList(search);
+    return list ? { list, ...searchInvoiceList(entries, list) } : null;
+  }, [entries, search]);
   const searched = React.useMemo(() => {
     const query = search.trim().toLowerCase();
-    return entries.filter(entry => (!idleOnly || isTruckIdle(entry, stages)) && (!query ||
+    const pool = listSearch ? listSearch.entries : entries;
+    return pool.filter(entry => (!idleOnly || isTruckIdle(entry, stages)) && (listSearch || !query ||
       [entry.invoice, entry.productName, entry.comment, ...stages.map(stage => formatTrackingDate(stageDate(entry, stage.id)))]
         .some(value => value?.toLowerCase().includes(query))));
-  }, [entries, search, idleOnly, stages]);
+  }, [entries, search, listSearch, idleOnly, stages]);
 
   const sorted = React.useMemo(() => [...searched].sort((a, b) => {
     const value = (entry: TruckTrackingEntry) => sort.key === 'status'
@@ -430,7 +436,16 @@ export const TruckTracking = () => {
               dir="auto"
               value={search}
               onChange={event => setSearch(event.target.value)}
+              onPaste={event => {
+                // A column copied from Excel: a one-line field would glue the invoices together.
+                const pasted = event.clipboardData.getData('text/plain');
+                if (/[\r\n\t]/.test(pasted.trim())) {
+                  event.preventDefault();
+                  setSearch(pasted.split(/[\r\n\t]+/).map(part => part.trim()).filter(Boolean).join(', '));
+                }
+              }}
               placeholder={text.searchPlaceholder}
+              title={text.searchListTitle}
               className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pe-8 ps-9 text-sm outline-none focus:border-blue-400 focus:bg-white"
             />
             {search && <button onClick={() => setSearch('')} className="absolute end-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-700" aria-label={text.clearSearch}><X className="h-4 w-4" /></button>}
@@ -475,6 +490,12 @@ export const TruckTracking = () => {
           )}
         </div>
 
+        {listSearch && (
+          <div className="border-b border-blue-200 bg-blue-50 px-4 py-2 text-xs text-blue-900">
+            <b>{text.searchListFound(listSearch.list.length - listSearch.missing.length, listSearch.list.length)}</b>
+            {listSearch.missing.length > 0 && <span className="ms-2 text-rose-700">{text.searchListMissing} <span dir="ltr">{listSearch.missing.join(', ')}</span></span>}
+          </div>
+        )}
         {!canEdit && <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">{text.readOnly}</div>}
         {error && entries.length > 0 && <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">{translateMessage(error, language)}</div>}
 

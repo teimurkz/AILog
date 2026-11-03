@@ -263,3 +263,32 @@ export function parseTruckTrackingPaste(text: string, stages: TruckStage[]): Tru
     };
   }).filter(row => row.invoice || row.productName);
 }
+
+// Several invoices pasted into the search field at once (an Excel column, or numbers
+// separated by commas or spaces) show all of those trucks.
+const invoiceKey = (value: string) => value.toLowerCase().replace(/\s+/g, '');
+const invoiceNumber = (value: string) => { const match = value.match(/(\d+)\s*$/); return match ? String(Number(match[1])) : ''; };
+
+/** The invoices of a pasted list, or null for an ordinary search (one value, words, dates). */
+export function invoiceList(query: string): string[] | null {
+  let parts = query.split(/[\r\n\t,;]+/).map(part => part.trim()).filter(Boolean);
+  if (parts.length < 2) {
+    parts = query.trim().split(/\s+/).filter(Boolean);
+    // Only numbers-like values: "Молоко 1л" or a date stays an ordinary search.
+    if (parts.some(part => (part.match(/\d/g) || []).length < 3 || /^\d{1,2}[./]\d{1,2}[./]\d{2,4}$/.test(part))) return null;
+  }
+  const unique = [...new Map(parts.map(part => [invoiceKey(part), part])).values()];
+  return unique.length >= 2 ? unique : null;
+}
+
+/** Trucks whose invoice is in the list (exactly, or by its number), and the invoices not found. */
+export function searchInvoiceList<T extends { invoice: string }>(entries: T[], list: string[]) {
+  const matches = (entry: T, wanted: string) => {
+    const number = invoiceNumber(wanted);
+    return invoiceKey(entry.invoice || '') === invoiceKey(wanted) || (number !== '' && invoiceNumber(entry.invoice || '') === number);
+  };
+  return {
+    entries: entries.filter(entry => list.some(wanted => matches(entry, wanted))),
+    missing: list.filter(wanted => !entries.some(entry => matches(entry, wanted))),
+  };
+}

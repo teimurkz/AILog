@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as XLSX from 'xlsx';
 import {
-  DEFAULT_STAGES, daysInStage, isTruckIdle, normalizeEntry, parseStageStatus, parseTrackingDate, parseTruckTrackingPaste,
+  DEFAULT_STAGES, daysInStage, invoiceList, isTruckIdle, searchInvoiceList, normalizeEntry, parseStageStatus, parseTrackingDate, parseTruckTrackingPaste,
   stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, type TruckStage,
 } from '../shared/truck-tracking';
 import { truckTrackingFullWorkbook, truckTrackingWorkbook } from '../src/utils/truck-tracking-excel';
@@ -12,6 +12,26 @@ import { findLinkedShipment, shipmentPatchFor, stageShipmentSync } from '../shar
 const today = new Date(2026, 9, 23);
 const stages = DEFAULT_STAGES;
 const entry = (status: string, stageDates: Record<string, string>) => ({ status, stageDates });
+
+test('a pasted list of invoices finds every truck and names the missing ones', () => {
+  const entries = [
+    { id: 'a', invoice: 'Mehkaz 351' }, { id: 'b', invoice: '398' }, { id: 'c', invoice: '3510' },
+    { id: 'd', invoice: 'INV-401' }, { id: 'e', invoice: '405' },
+  ];
+  // An Excel column pasted into the search field, commas, or spaces between numbers.
+  for (const query of ['351\n398\n405\n999', '351, 398; 405, 999', '351 398 405 999', '20260903-351 398 405 999']) {
+    const list = invoiceList(query)!;
+    assert.ok(list, query);
+    const found = searchInvoiceList(entries, list);
+    assert.deepEqual(found.entries.map(entry => entry.id), ['a', 'b', 'e'], query);
+    assert.deepEqual(found.missing, [list.at(-1)], query);
+  }
+  // Ordinary searches stay ordinary: one value, words, a product with a number in it.
+  assert.equal(invoiceList('351'), null);
+  assert.equal(invoiceList('Молоко 1л'), null);
+  assert.equal(invoiceList('01.10.2026'), null);
+  assert.deepEqual(searchInvoiceList(entries, invoiceList('inv-401 405')!).entries.map(entry => entry.id), ['d', 'e']);
+});
 
 test('Excel paste with the team header maps every column', () => {
   const rows = parseTruckTrackingPaste([
