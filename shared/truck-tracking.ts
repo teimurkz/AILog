@@ -292,3 +292,35 @@ export function searchInvoiceList<T extends { invoice: string }>(entries: T[], l
     missing: list.filter(wanted => !entries.some(entry => matches(entry, wanted))),
   };
 }
+
+// Excel export: filtered by the arrival date (the first stage) and statuses, oldest first.
+export interface TrackingExportFilter { from?: string; to?: string; statuses?: string[] }
+
+const arrivalOf = (entry: Pick<TruckTrackingEntry, 'stageDates'>, stages: TruckStage[]) => {
+  const first = sortStages(stages)[0];
+  return first ? stageDate(entry, first.id) : '';
+};
+
+/** Trucks from old to new by arrival date (then by when they were added); no arrival date goes last. */
+export function sortOldToNew<T extends Pick<TruckTrackingEntry, 'stageDates' | 'createdAt' | 'invoice'>>(entries: T[], stages: TruckStage[]): T[] {
+  return [...entries].sort((a, b) => {
+    const [left, right] = [arrivalOf(a, stages), arrivalOf(b, stages)];
+    if (left !== right) return !left ? 1 : !right ? -1 : left.localeCompare(right);
+    return (a.createdAt || '').localeCompare(b.createdAt || '') || (a.invoice || '').localeCompare(b.invoice || '', undefined, { numeric: true });
+  });
+}
+
+export function trackingExportRows<T extends TruckTrackingEntry>(entries: T[], stages: TruckStage[], filter: TrackingExportFilter): T[] {
+  const statuses = filter.statuses?.length ? new Set(filter.statuses) : null;
+  return sortOldToNew(entries.filter(entry => {
+    if (statuses && !statuses.has(entry.status)) return false;
+    if (!filter.from && !filter.to) return true;
+    const arrived = arrivalOf(entry, stages);
+    return Boolean(arrived) && (!filter.from || arrived >= filter.from) && (!filter.to || arrived <= filter.to);
+  }), stages);
+}
+
+/** Months ("2026-10") that have trucks by arrival date, oldest first. */
+export function trackingMonths(entries: Pick<TruckTrackingEntry, 'stageDates'>[], stages: TruckStage[]): string[] {
+  return [...new Set(entries.map(entry => arrivalOf(entry, stages).slice(0, 7)).filter(Boolean))].sort();
+}

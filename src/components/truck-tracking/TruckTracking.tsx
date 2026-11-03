@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  AlertTriangle, ArrowDown, ArrowUp, ClipboardPaste, Columns3, Download, FileSpreadsheet, GripVertical, Link2, Loader2, Plus, Search, Settings2, Table2, Trash2, X,
+  AlertTriangle, ArrowDown, ArrowUp, ClipboardPaste, Columns3, Download, GripVertical, Link2, Loader2, Plus, Search, Settings2, Table2, Trash2, X,
 } from 'lucide-react';
 import {
   daysInStage, formatTrackingDate, invoiceList, isTruckIdle, searchInvoiceList, stageDate, stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, todayIso,
@@ -12,7 +12,7 @@ import { useShipments } from '../../hooks/useShipments';
 import { useShipmentSync } from '../../hooks/useShipmentSync';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { downloadTruckTracking, downloadTruckTrackingAll } from '../../utils/truck-tracking-excel';
+import { ExportModal } from './ExportModal';
 import { DataLoadNotice } from '../common/DataLoadNotice';
 import { EditableCell, type CellMove } from './EditableCell';
 import { PasteImportModal } from './PasteImportModal';
@@ -125,6 +125,7 @@ export const TruckTracking = () => {
   const [quick, setQuick] = React.useState({ invoice: '', productName: '', date: todayIso() });
   const [adding, setAdding] = React.useState(false);
   const [pasteText, setPasteText] = React.useState<string | null>(null);
+  const [exportOpen, setExportOpen] = React.useState(false);
   const [stageDialog, setStageDialog] = React.useState<null | 'edit' | 'new'>(null);
   const [renaming, setRenaming] = React.useState<{ id: string; label: string } | null>(null);
   const [dropTarget, setDropTarget] = React.useState<string | null>(null);
@@ -468,20 +469,12 @@ export const TruckTracking = () => {
             </button>
           )}
           <button
-            onClick={() => downloadTruckTracking(view === 'table' ? visible : sorted, stages, language)}
+            onClick={() => setExportOpen(true)}
             disabled={!entries.length}
             title={text.exportTitle}
             className="crm-button-secondary flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold"
           >
             <Download className="h-3.5 w-3.5" /> {text.export}
-          </button>
-          <button
-            onClick={() => downloadTruckTrackingAll(entries, stages, language)}
-            disabled={!entries.length}
-            title={text.exportAllTitle}
-            className="crm-button-secondary flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold"
-          >
-            <FileSpreadsheet className="h-3.5 w-3.5" /> {text.exportAll}
           </button>
           {canEdit && (
             <button onClick={() => { setView('table'); requestAnimationFrame(() => quickInvoiceRef.current?.focus()); }} className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
@@ -685,6 +678,7 @@ export const TruckTracking = () => {
         )}
       </div>
 
+      {exportOpen && <ExportModal entries={entries} stages={stages} onClose={() => setExportOpen(false)} />}
       {pasteText !== null && (
         <PasteImportModal initialText={pasteText} stages={stages} existingInvoices={existingInvoices} onClose={() => setPasteText(null)} onImport={importRows} />
       )}

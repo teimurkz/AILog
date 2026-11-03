@@ -1,9 +1,11 @@
 import * as XLSX from 'xlsx';
-import { formatTrackingDate, stageDate, stageDateLabel, stageLabel, type TruckStage, type TruckTrackingEntry } from '../../shared/truck-tracking';
+import { formatTrackingDate, sortOldToNew, stageDate, stageDateLabel, stageLabel, type TruckStage, type TruckTrackingEntry } from '../../shared/truck-tracking';
 import { TRACKING_TEXT, type TrackingLanguage } from '../../shared/truck-tracking-i18n';
 
-function entriesSheet(entries: TruckTrackingEntry[], stages: TruckStage[], language: TrackingLanguage) {
+function entriesSheet(unsorted: TruckTrackingEntry[], stages: TruckStage[], language: TrackingLanguage) {
   const text = TRACKING_TEXT[language];
+  // Always old to new by arrival date, as people read a log.
+  const entries = sortOldToNew(unsorted, stages);
   const labels = Object.fromEntries(stages.map(stage => [stage.id, stageLabel(stage, language)]));
   const dateLabels = stages.map(stage => stageDateLabel(stage, language));
   const header = [text.invoice, text.productName, ...dateLabels, text.status, text.comment, text.changedAt, text.changedBy];
@@ -66,12 +68,13 @@ export function truckTrackingFullWorkbook(entries: TruckTrackingEntry[], stages:
 
 const fileDate = () => new Date().toISOString().slice(0, 10);
 
-export function downloadTruckTracking(entries: TruckTrackingEntry[], stages: TruckStage[], language: TrackingLanguage) {
-  XLSX.writeFile(truckTrackingWorkbook(entries, stages, language), `Slezhka_avto_${fileDate()}.xlsx`);
+/** `period` ("2026-10" or "2026-10-01_2026-10-15") goes into the file name instead of today's date. */
+export function downloadTruckTracking(entries: TruckTrackingEntry[], stages: TruckStage[], language: TrackingLanguage, period = '') {
+  XLSX.writeFile(truckTrackingWorkbook(entries, stages, language), `Slezhka_avto_${period || fileDate()}.xlsx`);
 }
 
-export function downloadTruckTrackingAll(entries: TruckTrackingEntry[], stages: TruckStage[], language: TrackingLanguage) {
-  XLSX.writeFile(truckTrackingFullWorkbook(entries, stages, language), `Slezhka_avto_vse_${fileDate()}.xlsx`);
+export function downloadTruckTrackingAll(entries: TruckTrackingEntry[], stages: TruckStage[], language: TrackingLanguage, period = '') {
+  XLSX.writeFile(truckTrackingFullWorkbook(entries, stages, language), `Slezhka_avto_po_statusam_${period || fileDate()}.xlsx`);
 }
 
 /** Reads the first sheet of an uploaded workbook as tab-separated text for the paste parser. */

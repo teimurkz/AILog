@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as XLSX from 'xlsx';
 import {
   DEFAULT_STAGES, daysInStage, invoiceList, isTruckIdle, searchInvoiceList, normalizeEntry, parseStageStatus, parseTrackingDate, parseTruckTrackingPaste,
-  stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, type TruckStage,
+  stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, trackingExportRows, trackingMonths, type TruckStage,
 } from '../shared/truck-tracking';
 import { truckTrackingFullWorkbook, truckTrackingWorkbook } from '../src/utils/truck-tracking-excel';
 import { TRACKING_TEXT } from '../shared/truck-tracking-i18n';
@@ -31,6 +31,28 @@ test('a pasted list of invoices finds every truck and names the missing ones', (
   assert.equal(invoiceList('Молоко 1л'), null);
   assert.equal(invoiceList('01.10.2026'), null);
   assert.deepEqual(searchInvoiceList(entries, invoiceList('inv-401 405')!).entries.map(entry => entry.id), ['d', 'e']);
+});
+
+test('export filters by month and status and lists trucks from old to new', () => {
+  const truck = (id: string, arrived: string, status = 'arrived', createdAt = '2026-01-01') =>
+    ({ id, invoice: id, productName: '', status, comment: '', createdAt, stageDates: arrived ? { arrived } : {} }) as any;
+  const entries = [
+    truck('oct-20', '2026-10-20'), truck('sep-30', '2026-09-30'), truck('oct-02b', '2026-10-02', 'unloaded', '2026-10-03'),
+    truck('none', ''), truck('oct-02a', '2026-10-02', 'arrived', '2026-10-02'), truck('nov-01', '2026-11-01', 'moved'),
+  ];
+  // Everything, oldest first; trucks without an arrival date go last.
+  assert.deepEqual(trackingExportRows(entries, DEFAULT_STAGES, {}).map(entry => entry.id),
+    ['sep-30', 'oct-02a', 'oct-02b', 'oct-20', 'nov-01', 'none']);
+  // One month by the arrival date (the first stage).
+  assert.deepEqual(trackingExportRows(entries, DEFAULT_STAGES, { from: '2026-10-01', to: '2026-10-31' }).map(entry => entry.id),
+    ['oct-02a', 'oct-02b', 'oct-20']);
+  assert.deepEqual(trackingExportRows(entries, DEFAULT_STAGES, { from: '2026-10-01', to: '2026-10-31', statuses: ['unloaded'] }).map(entry => entry.id),
+    ['oct-02b']);
+  assert.deepEqual(trackingMonths(entries, DEFAULT_STAGES), ['2026-09', '2026-10', '2026-11']);
+  // The workbook itself is ordered old to new whatever order it was given.
+  const sheet = truckTrackingWorkbook([entries[0], entries[1], entries[4]], DEFAULT_STAGES, 'ru').Sheets['Слежка авто'];
+  const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 }).slice(1).map(row => row[0]);
+  assert.deepEqual(rows, ['sep-30', 'oct-02a', 'oct-20']);
 });
 
 test('Excel paste with the team header maps every column', () => {
