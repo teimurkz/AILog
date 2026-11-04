@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  amountInWords, emptyTtnItem, integerInWords, linesFromPdfItems, linesFromSheetRows, massInWords, toNumber, ttnTotals, waybillDetails, waybillGoods,
+  amountInWords, consigneeLine, emptyTtnItem, findConsignee, integerInWords, linesFromPdfItems, linesFromSheetRows, massInWords, toNumber, ttnTotals, waybillDetails, waybillGoods,
   type PdfTextItem,
 } from '../shared/ttn';
 
@@ -144,4 +144,17 @@ test('sender, receiver and the releasing position are read from the З-2 header'
     consignee: 'Товарищество с ограниченной ответственностью Получатель-1',
     releasedBy: 'Заместитель генерального директора',
   });
+});
+
+test('the consignee named on a waybill is found in the directory with its requisites', () => {
+  const directory = [
+    { id: '1', name: 'ТОО «Альфа Трейд-7»', bin: '123456789012', address: 'г. Астана, ул. Примерная 1' },
+    { id: '2', name: 'ТОО "Бета"', address: 'г. Шымкент' },
+  ];
+  const found = findConsignee(directory, 'Товарищество с ограниченной ответственностью Альфа Трейд-7');
+  assert.equal(found?.id, '1');
+  assert.equal(consigneeLine(found!), 'ТОО «Альфа Трейд-7», БИН 123456789012, г. Астана, ул. Примерная 1');
+  assert.equal(findConsignee(directory, 'ТОО Гамма'), undefined);
+  assert.equal(findConsignee(directory, 'ТОО'), undefined);
+  assert.equal(consigneeLine({ name: 'ТОО "Бета"', bin: ' ', address: 'г. Шымкент' }), 'ТОО "Бета", г. Шымкент');
 });

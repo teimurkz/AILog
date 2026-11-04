@@ -19,13 +19,14 @@ import { useSavedTrucks } from '../../hooks/useSavedTrucks';
 import { DataLoadNotice } from '../common/DataLoadNotice';
 import { useSectionText } from '../../i18n/useSectionText';
 import { DIRECTORIES_TEXTS } from './directories-i18n';
+import { ConsigneesDirectory } from './ConsigneesDirectory';
 
 export const DirectoriesManager: React.FC = () => {
   const { text, locale } = useSectionText(DIRECTORIES_TEXTS);
   // City names and trailer types are stored in Russian; only their labels follow the language.
   const cityName = (name: string) => (text.cities as Record<string, string>)[name] ?? name;
   const truckTypeName = (type: string) => (text.truckTypes as Record<string, string>)[type] ?? type;
-  const [activeTab, setActiveTab] = useState<'contacts' | 'trucks' | 'cities'>('contacts');
+  const [activeTab, setActiveTab] = useState<'contacts' | 'trucks' | 'cities' | 'consignees'>('contacts');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -192,6 +193,18 @@ export const DirectoriesManager: React.FC = () => {
           >
             <Building2 className="w-4 h-4" />
             <span>{text.tabs.cities}</span>
+          </button>
+
+          <button
+            onClick={() => { setActiveTab('consignees'); setSearchQuery(''); }}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+              activeTab === 'consignees'
+                ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>{text.tabs.consignees}</span>
           </button>
         </div>
       </div>
@@ -543,6 +556,8 @@ export const DirectoriesManager: React.FC = () => {
           )}
         </div>
       )}
+
+      {activeTab === 'consignees' && <ConsigneesDirectory searchQuery={searchQuery} />}
 
       {/* TAB 3: CITIES & HUBS */}
       {activeTab === 'cities' && (

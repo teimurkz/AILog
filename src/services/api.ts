@@ -13,6 +13,7 @@ import {
 
 import { firebaseFetch } from './firebase-fetch';
 import type { StatusChangeOptions } from '../../shared/regional-order-status';
+import type { TtnConsignee } from '../../shared/ttn';
 import { readCrmCollection, readCrmDocument, readShipmentLogs, saveCrmDocument, deleteCrmDocument, addShipmentLog } from './firestore-collections';
 const BASE_URL = '/api';
 
@@ -131,6 +132,11 @@ export const contactsApi = {
     saveCrmDocument<SavedDeliveryContact>('saved_delivery_contacts', contact, contact.id),
   deleteContact: (id: string) =>
     deleteCrmDocument('saved_delivery_contacts', id)
+};
+
+export const consigneesApi = {
+  save: (consignee: Partial<TtnConsignee>) => saveCrmDocument<TtnConsignee>('ttn_consignees', consignee, consignee.id),
+  delete: (id: string) => deleteCrmDocument('ttn_consignees', id),
 };
 
 // ---------------------------------------------------------------------------

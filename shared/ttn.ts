@@ -41,8 +41,11 @@ export interface TtnDocument {
   items: TtnItem[];
 }
 
+/** We ship every TTN ourselves: the shipper is always our company with its legal address. */
+export const TTN_SHIPPER = 'Товарищество с ограниченной ответственностью "MehKaz"(МехКаз),040800, Республика Казахстан, г.Конаев, Проспект Д.А.Кунаева, дом № 18г';
+
 /** The fields that stay the same from one TTN to the next: they are remembered and offered again. */
-export const TTN_REMEMBERED_FIELDS = ['carrier', 'customer', 'shipper', 'loadingPoint', 'releasedBy', 'transportKind'] as const;
+export const TTN_REMEMBERED_FIELDS = ['carrier', 'customer', 'loadingPoint', 'releasedBy', 'transportKind'] as const;
 export type TtnRemembered = Partial<Pick<TtnDocument, typeof TTN_REMEMBERED_FIELDS[number]>>;
 
 export const emptyTtnItem = (): TtnItem => ({
@@ -339,4 +342,43 @@ export function waybillDetails(lines: GridLine[]): WaybillDetails {
     if (position && lines[releasedAt - 1].length <= 2) details.releasedBy = position.text;
   }
   return details;
+}
+
+/* ---------- Consignees directory ---------- */
+
+/** A receiving company with the requisites 1C takes from its own directory: the waybill only names it. */
+export interface TtnConsignee {
+  id: string;
+  name: string;
+  bin?: string;
+  address?: string;
+  /** Where the goods are unloaded, when it differs from the legal address. */
+  unloadingPoint?: string;
+  createdAt?: string;
+}
+
+/** The consignee as printed on the TTN: "name, БИН …, address". */
+export function consigneeLine(consignee: Pick<TtnConsignee, 'name' | 'bin' | 'address'>) {
+  return [consignee.name.trim(), consignee.bin?.trim() ? `БИН ${consignee.bin.trim()}` : '', consignee.address?.trim() || '']
+    .filter(Boolean).join(', ');
+}
+
+/** Company names compared without legal form, quotes and spacing: "ТОО «Альфа Трейд-7»" = "Товарищество … Альфа Трейд-7". */
+export function companyKey(name: string) {
+  return name.toLowerCase()
+    .replace(/товарищество\s+с\s+ограниченной\s+ответственностью/g, ' ')
+    // Legal forms as whole words only: "ип" inside "типография" stays.
+    .replace(/(^|[^a-zа-яё])(тоо|ип|ао|llp)(?=[^a-zа-яё]|$)/g, '$1 ')
+    .replace(/[^0-9a-zа-яёәғқңөұүһі]+/g, '');
+}
+
+/** The directory entry for a company named on a waybill, if there is one. */
+export function findConsignee(directory: TtnConsignee[], name: string) {
+  const key = companyKey(name);
+  if (key.length < 3) return undefined;
+  return directory.find(entry => companyKey(entry.name) === key)
+    ?? directory.find(entry => {
+      const entryKey = companyKey(entry.name);
+      return entryKey.length >= 3 && (key.includes(entryKey) || entryKey.includes(key));
+    });
 }

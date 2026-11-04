@@ -1,14 +1,16 @@
 import React from 'react';
-import { Download, FileText, Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { BookPlus, CheckCircle2, Download, FileText, Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import type { RegionalTruckOrder } from '../../types';
 import {
-  TTN_REMEMBERED_FIELDS, amountInWords, emptyTtnItem, massInWords, toNumber, ttnTotals,
-  type TtnDocument, type TtnItem, type TtnRemembered,
+  TTN_REMEMBERED_FIELDS, TTN_SHIPPER, amountInWords, consigneeLine, emptyTtnItem, findConsignee, massInWords, toNumber, ttnTotals,
+  type TtnConsignee, type TtnDocument, type TtnItem, type TtnRemembered,
 } from '../../../shared/ttn';
 import { orderWaybills, readWaybill, type WaybillResult } from '../../utils/ttn-waybill';
 import { downloadTtn } from '../../utils/ttn-excel';
 import { useSectionText } from '../../i18n/useSectionText';
 import { TTN_TEXT } from './ttn-i18n';
+import { ConsigneeForm } from './ConsigneeForm';
+import { useTtnConsignees } from '../../hooks/useTtnConsignees';
 import { cn } from '../../lib/utils';
 
 const REMEMBERED_KEY = 'crm.ttn.remembered';
@@ -34,7 +36,7 @@ function newDocument(order: RegionalTruckOrder): TtnDocument {
   return {
     number: '', date: today(), vehicle: order.assignedTruckPlate || '', trailer: '', waybillSheet: '',
     carrier: remembered.carrier || '', driver: order.assignedDriver || '', transportKind: remembered.transportKind || 'АВТО',
-    customer: remembered.customer || '', shipper: remembered.shipper || '', consignee: point?.recipientName || '',
+    customer: remembered.customer || '', shipper: TTN_SHIPPER, consignee: point?.recipientName || '',
     loadingPoint: remembered.loadingPoint || '',
     unloadingPoint: [order.destinationCity, order.deliveryAddress || point?.address].filter(Boolean).join(', '),
     releasedBy: remembered.releasedBy || '', poaNumber: '', poaDate: '', poaIssuedBy: '', grossKg: null, items: [],
@@ -82,7 +84,14 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 /** «Печать ТТН»: form 1-Т for a regional order, goods read from the attached waybills, saved as Excel in the 1C layout. */
 export const TtnModal = ({ order, onClose }: { order: RegionalTruckOrder; onClose: () => void }) => {
   const { text: t } = useSectionText(TTN_TEXT);
-  const [document, setDocument] = React.useState<TtnDocument>(() => readStored<TtnDocument>(draftKey(order.id)) || newDocument(order));
+  const [document, setDocument] = React.useState<TtnDocument>(() => {
+    const draft = readStored<TtnDocument>(draftKey(order.id));
+    return draft ? { ...draft, shipper: draft.shipper || TTN_SHIPPER } : newDocument(order);
+  });
+  const { consignees, saveConsignee } = useTtnConsignees();
+  /** The receiving company as the waybill names it, to look up in the directory. */
+  const [waybillConsignee, setWaybillConsignee] = React.useState('');
+  const [addingConsignee, setAddingConsignee] = React.useState(false);
   const [reading, setReading] = React.useState(false);
   const [results, setResults] = React.useState<WaybillResult[] | null>(null);
   const [saving, setSaving] = React.useState(false);
@@ -114,9 +123,9 @@ export const TtnModal = ({ order, onClose }: { order: RegionalTruckOrder; onClos
       items,
       // The waybill names the receiving company; the order only has a contact person.
       consignee: first('consignee') || current.consignee,
-      shipper: current.shipper || first('shipper'),
       releasedBy: current.releasedBy || first('releasedBy'),
     }));
+    setWaybillConsignee(first('consignee'));
     setReading(false);
   }, [document.items.length, t.replaceGoods, waybills]);
 
@@ -129,6 +138,19 @@ export const TtnModal = ({ order, onClose }: { order: RegionalTruckOrder; onClos
   }, [document.items.length, fillFromWaybills, waybills.length]);
 
   React.useEffect(() => { store(draftKey(order.id), document); }, [document, order.id]);
+
+  const applyConsignee = React.useCallback((entry: TtnConsignee) => setDocument(current => ({
+    ...current,
+    consignee: consigneeLine(entry),
+    unloadingPoint: entry.unloadingPoint || current.unloadingPoint,
+  })), []);
+
+  // Like 1C: the company named on the waybill brings its requisites from the directory.
+  const waybillMatch = React.useMemo(() => findConsignee(consignees, waybillConsignee), [consignees, waybillConsignee]);
+  React.useEffect(() => {
+    if (waybillMatch && document.consignee === waybillConsignee) applyConsignee(waybillMatch);
+  }, [applyConsignee, document.consignee, waybillConsignee, waybillMatch]);
+  const selectedConsignee = consignees.find(entry => consigneeLine(entry) === document.consignee);
 
   const totals = ttnTotals(document);
   const linesHaveMass = document.items.some(item => item.grossKg !== null);
@@ -188,7 +210,32 @@ export const TtnModal = ({ order, onClose }: { order: RegionalTruckOrder; onClos
               <Field label={t.carrier} value={document.carrier} onChange={set('carrier')} wide />
               <Field label={t.customer} value={document.customer} onChange={set('customer')} wide />
               <Field label={t.shipper} value={document.shipper} onChange={set('shipper')} wide />
-              <Field label={t.consignee} value={document.consignee} onChange={set('consignee')} wide />
+              <div className="space-y-1.5 sm:col-span-2">
+                <Field label={t.consignee} value={document.consignee} onChange={set('consignee')} />
+                <div className="flex gap-1.5">
+                  <select value={selectedConsignee?.id || ''} aria-label={t.pickConsignee}
+                    onChange={event => { const entry = consignees.find(item => item.id === event.target.value); if (entry) applyConsignee(entry); }}
+                    className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200">
+                    <option value="">{t.pickConsignee}</option>
+                    {consignees.map(entry => <option key={entry.id} value={entry.id}>{entry.name}{entry.bin ? ` · ${entry.bin}` : ''}</option>)}
+                  </select>
+                  {!selectedConsignee && !addingConsignee && (
+                    <button type="button" onClick={() => setAddingConsignee(true)}
+                      className="flex shrink-0 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/50 dark:text-blue-300">
+                      <BookPlus className="h-3.5 w-3.5" /> {t.toDirectory}
+                    </button>
+                  )}
+                </div>
+                {selectedConsignee && <p className="flex items-center gap-1 text-xs text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" /> {t.fromDirectory}</p>}
+                {!selectedConsignee && waybillConsignee && !waybillMatch && !addingConsignee && <p className="text-xs text-amber-600">{t.notInDirectory(waybillConsignee)}</p>}
+                {addingConsignee && (
+                  <ConsigneeForm
+                    initial={{ name: waybillConsignee || document.consignee, bin: '', address: '', unloadingPoint: '' }}
+                    onCancel={() => setAddingConsignee(false)}
+                    onSave={async draft => { applyConsignee(await saveConsignee(draft)); setAddingConsignee(false); }}
+                  />
+                )}
+              </div>
               <Field label={t.loadingPoint} value={document.loadingPoint} onChange={set('loadingPoint')} wide />
               <Field label={t.unloadingPoint} value={document.unloadingPoint} onChange={set('unloadingPoint')} wide />
             </Section>
