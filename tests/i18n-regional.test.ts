@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { translationProblems } from '../shared/i18n';
 import { REGIONAL_TEXT, formatRegionalDay, localizeGpsText } from '../src/components/regional/regional-i18n';
+import { TTN_TEXT } from '../src/components/regional/ttn-i18n';
 import { buildWhatsAppStatusMessage } from '../src/utils/whatsapp';
 
 test('regional orders texts are complete in Russian, English and Farsi', () => {
   assert.deepEqual(translationProblems(REGIONAL_TEXT), []);
+  assert.deepEqual(translationProblems(TTN_TEXT), []);
 });
 
 test('Russian GPS server texts are shown in the interface language', () => {

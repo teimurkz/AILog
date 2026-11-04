@@ -42,6 +42,8 @@ import { useRegionalOrders, playNotificationSound, triggerBrowserPush } from '..
 import { DataLoadNotice } from '../common/DataLoadNotice';
 import { RegionalTruckOrder, RegionalOrderStatus, InvoiceItem, DeliveryPoint } from '../../types';
 import { NewRegionalOrderModal } from './NewRegionalOrderModal';
+import { TtnModal } from './TtnModal';
+import { TTN_TEXT } from './ttn-i18n';
 import { RouteMapModal } from './RouteMapModal';
 import { RegionalOrdersReport } from './RegionalOrdersReport';
 import { generateWhatsAppLink, buildWhatsAppStatusMessage } from '../../utils/whatsapp';
@@ -93,6 +95,7 @@ const STATUS_CONFIG: Record<RegionalOrderStatus, { bg: string; text: string; bor
 export const RegionalOrders: React.FC = () => {
   const { t } = useLanguage();
   const { text, language, locale } = useSectionText(REGIONAL_TEXT);
+  const { text: ttnText } = useSectionText(TTN_TEXT);
   const o = text.orders;
   const day = (value: string) => formatRegionalDay(value, locale);
   const count = (value: number) => value.toLocaleString(locale);
@@ -198,6 +201,7 @@ export const RegionalOrders: React.FC = () => {
   // Modal for Assigning Truck / Updating Details
   const [editingOrder, setEditingOrder] = useState<RegionalTruckOrder | null>(null);
   const [selectedMapOrder, setSelectedMapOrder] = useState<RegionalTruckOrder | null>(null);
+  const [ttnOrder, setTtnOrder] = useState<RegionalTruckOrder | null>(null);
   const [assignedTruckPlate, setAssignedTruckPlate] = useState('');
   const [assignedDriver, setAssignedDriver] = useState('');
   const [editStatus, setEditStatus] = useState<RegionalOrderStatus>('new');
@@ -841,6 +845,15 @@ export const RegionalOrders: React.FC = () => {
                             <span>{o.logistics}</span>
                           </button>
 
+                          <button
+                            onClick={() => setTtnOrder(order)}
+                            className="px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1"
+                            title={ttnText.actionTitle}
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            <span>{ttnText.action}</span>
+                          </button>
+
                           {canDeleteOrder(order) && (
                             <button
                               onClick={() => {
@@ -1000,6 +1013,14 @@ export const RegionalOrders: React.FC = () => {
                             </button>
                           )}
                           <button
+                            onClick={() => setTtnOrder(order)}
+                            className="p-1 text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 rounded-lg transition-colors"
+                            title={ttnText.action}
+                            aria-label={ttnText.action}
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                          </button>
+                          <button
                             onClick={() => handleOpenEdit(order)}
                             className="px-2.5 py-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 rounded-lg hover:bg-blue-100 transition-colors"
                           >
@@ -1015,6 +1036,8 @@ export const RegionalOrders: React.FC = () => {
           })}
         </div>
       )}
+
+      {ttnOrder && <TtnModal order={ttnOrder} onClose={() => setTtnOrder(null)} />}
 
       {/* Modal 1: Create New Order Modal */}
       <NewRegionalOrderModal
