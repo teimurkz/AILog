@@ -107,7 +107,16 @@ export const TtnModal = ({ order, onClose }: { order: RegionalTruckOrder; onClos
     const read = await Promise.all(waybills.map(readWaybill));
     setResults(read);
     const items = read.flatMap(result => result.items);
-    if (items.length) setDocument(current => ({ ...current, items }));
+    const details = read.flatMap(result => result.status === 'ok' ? [result.details] : []);
+    const first = (key: keyof typeof details[number]) => details.find(entry => entry[key])?.[key] || '';
+    if (items.length) setDocument(current => ({
+      ...current,
+      items,
+      // The waybill names the receiving company; the order only has a contact person.
+      consignee: first('consignee') || current.consignee,
+      shipper: current.shipper || first('shipper'),
+      releasedBy: current.releasedBy || first('releasedBy'),
+    }));
     setReading(false);
   }, [document.items.length, t.replaceGoods, waybills]);
 

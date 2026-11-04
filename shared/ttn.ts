@@ -300,3 +300,43 @@ export function waybillGoods(lines: GridLine[], documentLabel = ''): TtnItem[] {
   }
   return items;
 }
+
+export interface WaybillDetails {
+  shipper: string;
+  consignee: string;
+  releasedBy: string;
+}
+
+const ORGANIZATION_LABEL = /^организация\s*\(|^предприниматель\)/i;
+
+/**
+ * Header of a З-2 waybill: the sender and the receiver organizations, printed in two columns under
+ * "…- отправитель" / "…- получатель", and the position above "Отпуск разрешил".
+ */
+export function waybillDetails(lines: GridLine[]): WaybillDetails {
+  const details: WaybillDetails = { shipper: '', consignee: '', releasedBy: '' };
+  const labelAt = lines.findIndex(line => line.some(cell => /отправитель|получатель/i.test(cell.text)));
+  if (labelAt >= 0) {
+    const labelLine = lines[labelAt];
+    const column = (pattern: RegExp) => labelLine.find(cell => pattern.test(cell.text));
+    // The goods table starts with its "Номер" / "Наименование" header.
+    const tableAt = lines.findIndex((line, at) => at > labelAt && line.some(cell => /^номер$|наименование/i.test(cell.text)));
+    const end = tableAt > labelAt ? tableAt : labelAt + 6;
+    const collect = (label: GridCell | undefined) => {
+      if (!label) return '';
+      // The name sits under its label.
+      return lines.slice(labelAt + 1, end)
+        .flatMap(line => line.filter(cell => center(cell) >= label.x - 15 && center(cell) <= label.right + 15 && !ORGANIZATION_LABEL.test(cell.text)))
+        .filter(cell => isText(cell.text) && !/^(номер|по|ответственный|транспортная)/i.test(cell.text))
+        .map(cell => cell.text).join(' ');
+    };
+    details.shipper = collect(column(/отправитель/i));
+    details.consignee = collect(column(/получатель/i));
+  }
+  const releasedAt = lines.findIndex(line => line.some(cell => /^отпуск разрешил/i.test(cell.text)));
+  if (releasedAt > 0) {
+    const position = lines[releasedAt - 1].find(cell => isText(cell.text) && !/прописью|сумм|теңге|тенге/i.test(cell.text));
+    if (position && lines[releasedAt - 1].length <= 2) details.releasedBy = position.text;
+  }
+  return details;
+}

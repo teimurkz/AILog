@@ -1,5 +1,7 @@
 import * as XLSX from 'xlsx';
-import { linesFromPdfItems, linesFromSheetRows, waybillGoods, type GridLine, type PdfTextItem, type TtnItem } from '../../shared/ttn';
+import {
+  linesFromPdfItems, linesFromSheetRows, waybillDetails, waybillGoods, type GridLine, type PdfTextItem, type TtnItem, type WaybillDetails,
+} from '../../shared/ttn';
 import type { InvoiceItem } from '../types';
 
 export interface WaybillFile {
@@ -10,7 +12,7 @@ export interface WaybillFile {
 }
 
 export type WaybillResult =
-  | { file: WaybillFile; status: 'ok'; items: TtnItem[] }
+  | { file: WaybillFile; status: 'ok'; items: TtnItem[]; details: WaybillDetails }
   | { file: WaybillFile; status: 'empty' | 'unsupported' | 'failed'; items: [] };
 
 /** Files attached to a regional order: the list of invoices, or the single file of older orders. */
@@ -76,7 +78,7 @@ export async function readWaybill(file: WaybillFile): Promise<WaybillResult> {
     const bytes = bytesOf(file.fileData);
     const lines = kind === 'pdf' ? await pdfLines(bytes) : excelLines(bytes);
     const items = waybillGoods(lines, file.label);
-    return items.length ? { file, status: 'ok', items } : { file, status: 'empty', items: [] };
+    return items.length ? { file, status: 'ok', items, details: waybillDetails(lines) } : { file, status: 'empty', items: [] };
   } catch (error) {
     console.error('Waybill read failed:', file.fileName, error);
     return { file, status: 'failed', items: [] };

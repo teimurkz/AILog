@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  amountInWords, emptyTtnItem, integerInWords, linesFromPdfItems, linesFromSheetRows, massInWords, toNumber, ttnTotals, waybillGoods,
+  amountInWords, emptyTtnItem, integerInWords, linesFromPdfItems, linesFromSheetRows, massInWords, toNumber, ttnTotals, waybillDetails, waybillGoods,
   type PdfTextItem,
 } from '../shared/ttn';
 
@@ -124,4 +124,24 @@ test('the TTN workbook follows the 1C form with one row per goods line', async (
   const zip = await JSZip.loadAsync(await workbook.xlsx.writeBuffer());
   const sheetXml = await zip.file('xl/worksheets/sheet1.xml')!.async('string');
   assert.doesNotMatch(sheetXml, /<pageSetUpPr[^>]*\/><outlinePr/);
+});
+
+test('sender, receiver and the releasing position are read from the З-2 header', () => {
+  const run = (str: string, x: number, right: number, y: number): PdfTextItem => ({ str, x, y, width: right - x });
+  const lines = linesFromPdfItems([
+    run('Организация (индивидуальный', 34, 123, 700), run('Организация (индивидуальный', 159, 248, 700), run('Ответственный за поставку (Ф.И.О.)', 268, 371, 696),
+    run('предприниматель) - отправитель', 32, 126, 690), run('предприниматель) - получатель', 158, 249, 690),
+    run('Товарищество с ограниченной', 35, 122, 680), run('Товарищество с ограниченной', 160, 246, 680),
+    run('Петров П.П.', 297, 341, 676),
+    run('ответственностью "Отправитель"', 26, 132, 670), run('ответственностью Получатель-1', 155, 252, 670),
+    run('Номер', 18, 37, 650), run('Количество', 303, 336, 650),
+    run('по', 24, 31, 640), run('Наименование, характеристика', 66, 156, 640),
+    run('Заместитель генерального директора', 30, 138, 300),
+    run('Отпуск разрешил', 15, 65, 290), run('/', 140, 142, 290), run('Петров П.П.', 227, 270, 290),
+  ]);
+  assert.deepEqual(waybillDetails(lines), {
+    shipper: 'Товарищество с ограниченной ответственностью "Отправитель"',
+    consignee: 'Товарищество с ограниченной ответственностью Получатель-1',
+    releasedBy: 'Заместитель генерального директора',
+  });
 });
