@@ -158,3 +158,43 @@ test('the consignee named on a waybill is found in the directory with its requis
   assert.equal(findConsignee(directory, 'ТОО'), undefined);
   assert.equal(consigneeLine({ name: 'ТОО "Бета"', bin: ' ', address: 'г. Шымкент' }), 'ТОО "Бета", г. Шымкент');
 });
+
+// «Накладная на перемещение» between our warehouses, as 1C saves it to Excel: no price column.
+const transferRows = (): unknown[][] => {
+  const row = (cells: Record<number, unknown>) => Array.from({ length: 31 }, (_, c) => cells[c] ?? null);
+  return [
+    row({}), row({}), row({ 1: 'Накладная на перемещение № 548 от 30 октября 2026 г.' }), row({}),
+    row({ 1: 'Отправитель:' }), row({ 1: 'Структурная единица:', 8: 'MehKaz ТОО' }), row({ 1: 'Склад:', 5: 'Склад Kusto' }), row({}),
+    row({ 1: 'Получатель:' }), row({ 1: 'Структурная единица:', 8: 'MehKaz ТОО' }), row({ 1: 'Склад:', 5: 'Склад Караганда' }), row({}),
+    row({ 1: '№', 3: 'Код', 7: 'Товар', 19: 'Количество', 25: 'Сумма' }),
+    row({ 1: 1, 3: '30003548 ', 7: 'Масло Kalleh 82% 20 кг', 19: 100, 23: 'кг', 25: 233781.43 }),
+    row({ 1: 2, 3: '30006684 ', 7: 'Молоко Port de Kalleh 3% 1 л', 19: 3600, 23: 'шт', 25: 1494409.37 }),
+    row({ 1: 'Итого:', 25: 1728190.8 }),
+  ];
+};
+const transferMerges = [12, 13, 14].flatMap(r => [
+  { s: { r, c: 1 }, e: { r, c: 2 } }, { s: { r, c: 3 }, e: { r, c: 6 } }, { s: { r, c: 7 }, e: { r, c: 18 } },
+  { s: { r, c: 19 }, e: { r, c: r === 12 ? 24 : 22 } }, { s: { r, c: 25 }, e: { r, c: 30 } },
+]);
+
+test('a transfer between our warehouses gives quantity and sum, the price is worked out', () => {
+  const items = waybillGoods(linesFromSheetRows(transferRows(), transferMerges), 'Накладная №548');
+  assert.deepEqual(items.map(item => [item.code, item.name, item.unit, item.quantity, item.price, item.sum]), [
+    ['30003548', 'Масло Kalleh 82% 20 кг', 'кг', 100, 2337.81, 233781.43],
+    ['30006684', 'Молоко Port de Kalleh 3% 1 л', 'шт', 3600, 415.11, 1494409.37],
+  ]);
+});
+
+test('a transfer names the sending and the receiving warehouse', () => {
+  assert.deepEqual(waybillDetails(linesFromSheetRows(transferRows(), transferMerges)), {
+    shipper: 'MehKaz ТОО, Склад Kusto', consignee: 'MehKaz ТОО, Склад Караганда', releasedBy: '',
+  });
+});
+
+test('the receiving warehouse is found in the directory before the company itself', () => {
+  const directory = [
+    { id: 'company', name: 'ТОО MehKaz' },
+    { id: 'karaganda', name: 'MehKaz Склад Караганда', address: 'г. Караганда' },
+  ];
+  assert.equal(findConsignee(directory, 'MehKaz ТОО, Склад Караганда')?.id, 'karaganda');
+});

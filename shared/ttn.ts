@@ -215,7 +215,8 @@ const center = (cell: GridCell) => (cell.x + cell.right) / 2;
 
 /** Header row: the line with "Наименование", plus where each known column sits. */
 function findHeader(lines: GridLine[]) {
-  const start = lines.findIndex(line => line.some(cell => /наименование/i.test(cell.text)));
+  // "Товар" alone heads the name column of a transfer; "Товарно-транспортная…" is not a header.
+  const start = lines.findIndex(line => line.some(cell => /наименование|^товар$/i.test(cell.text)));
   if (start < 0) return null;
   const columns = new Map<Column, number>();
   // Headers of З-2 wrap over a few lines: "Количество" / "подлежит отпуску" / "отпущено".
@@ -250,15 +251,26 @@ const isText = (text: string) => /[A-Za-zА-Яа-яЁёӘәҒғҚқҢңӨөҰұ�
 function quantityPriceSum(numbers: number[]) {
   for (let i = 0; i + 2 < numbers.length; i++) {
     const [quantity, price, sum] = numbers.slice(i, i + 3);
-    if (quantity > 0 && price > 0 && Math.abs(quantity * price - sum) <= Math.max(1, sum * 0.005)) return { quantity, price, sum, at: i };
+    if (quantity > 0 && price > 0 && Math.abs(quantity * price - sum) <= Math.max(1, sum * 0.005)) return { quantity, price, sum, at: i, cells: undefined as GridCell[] | undefined };
   }
   return null;
+}
+
+/** Quantity and sum under their headers, when the document has no price column. */
+function quantityAndSum(numbers: Array<{ cell: GridCell; value: number }>, columns: Map<Column, number>) {
+  if (columns.has('price') || !columns.has('quantity') || !columns.has('sum')) return null;
+  const quantity = numbers.find(entry => columnOf(entry.cell, columns) === 'quantity');
+  const sum = numbers.find(entry => columnOf(entry.cell, columns) === 'sum');
+  if (!quantity || !sum || quantity.value <= 0 || sum.value <= 0) return null;
+  return { quantity: quantity.value, price: round(sum.value / quantity.value, 2), sum: sum.value, at: -1, cells: [quantity.cell, sum.cell] };
 }
 
 /**
  * Goods lines of a waybill. Works on PDF text and on spreadsheet cells alike: the header row tells
  * which text is the name, code and unit; quantity, price and sum are the three numbers where
  * quantity × price = sum, so extra columns (VAT, "подлежит отпуску") do not confuse it.
+ * A transfer between our warehouses has no price column: there quantity and sum come from their
+ * columns and the price is the sum divided by the quantity.
  */
 export function waybillGoods(lines: GridLine[], documentLabel = ''): TtnItem[] {
   const header = findHeader(lines);
@@ -271,7 +283,7 @@ export function waybillGoods(lines: GridLine[], documentLabel = ''): TtnItem[] {
     if (line.some(cell => TOTAL_LINE.test(cell.text))) break;
     const numbers = line.map(cell => ({ cell, value: toNumber(cell.text) })).filter(entry => entry.value !== null) as Array<{ cell: GridCell; value: number }>;
     const words = line.filter(cell => toNumber(cell.text) === null);
-    const triple = quantityPriceSum(numbers.map(entry => entry.value));
+    const triple = quantityPriceSum(numbers.map(entry => entry.value)) ?? quantityAndSum(numbers, columns);
     const name = words.filter(cell => isText(cell.text) && !UNIT.test(cell.text)
       && (!columns.size || ['name', 'number', null].includes(columnOf(cell, columns))))
       .map(cell => cell.text).join(' ');
@@ -284,7 +296,7 @@ export function waybillGoods(lines: GridLine[], documentLabel = ''): TtnItem[] {
     }
     if (!name) { open = false; continue; }
 
-    const used = new Set(numbers.slice(triple.at, triple.at + 3).map(entry => entry.cell));
+    const used = new Set(triple.cells ?? numbers.slice(triple.at, triple.at + 3).map(entry => entry.cell));
     const unit = words.find(cell => UNIT.test(cell.text))?.text ?? '';
     const codeCell = line.find(cell => !used.has(cell) && cell.text !== unit && columns.size > 0 && columnOf(cell, columns) === 'code')
       ?? numbers.find(entry => !used.has(entry.cell) && /^\d{5,}$/.test(entry.cell.text.replace(/\s/g, '')))?.cell;
@@ -317,6 +329,7 @@ const ORGANIZATION_LABEL = /^организация\s*\(|^предпринима
  * "…- отправитель" / "…- получатель", and the position above "Отпуск разрешил".
  */
 export function waybillDetails(lines: GridLine[]): WaybillDetails {
+  if (lines.some(line => line.some(cell => /накладная на перемещение/i.test(cell.text)))) return transferDetails(lines);
   const details: WaybillDetails = { shipper: '', consignee: '', releasedBy: '' };
   const labelAt = lines.findIndex(line => line.some(cell => /отправитель|получатель/i.test(cell.text)));
   if (labelAt >= 0) {
@@ -376,9 +389,27 @@ export function companyKey(name: string) {
 export function findConsignee(directory: TtnConsignee[], name: string) {
   const key = companyKey(name);
   if (key.length < 3) return undefined;
-  return directory.find(entry => companyKey(entry.name) === key)
-    ?? directory.find(entry => {
-      const entryKey = companyKey(entry.name);
-      return entryKey.length >= 3 && (key.includes(entryKey) || entryKey.includes(key));
-    });
+  const exact = directory.find(entry => companyKey(entry.name) === key);
+  if (exact) return exact;
+  // The longest name that fits wins: "MehKaz, Склад Караганда" is the Karaganda warehouse, not MehKaz itself.
+  return directory
+    .map(entry => ({ entry, entryKey: companyKey(entry.name) }))
+    .filter(({ entryKey }) => entryKey.length >= 3 && (key.includes(entryKey) || entryKey.includes(key)))
+    .sort((a, b) => b.entryKey.length - a.entryKey.length)[0]?.entry;
+}
+
+/**
+ * «Накладная на перемещение» between our own warehouses: "Отправитель:" and "Получатель:" blocks,
+ * each with "Структурная единица:" and "Склад:". The receiving warehouse is what tells the consignees apart.
+ */
+function transferDetails(lines: GridLine[]): WaybillDetails {
+  const block = (label: RegExp) => {
+    const at = lines.findIndex(line => line.some(cell => label.test(cell.text)));
+    if (at < 0) return '';
+    const value = (field: RegExp) => lines.slice(at + 1, at + 4)
+      .find(line => line.some(cell => field.test(cell.text)))
+      ?.filter(cell => !field.test(cell.text)).map(cell => cell.text).join(' ') ?? '';
+    return [value(/^структурная единица:?$/i), value(/^склад:?$/i)].filter(Boolean).join(', ');
+  };
+  return { shipper: block(/^отправитель:?$/i), consignee: block(/^получатель:?$/i), releasedBy: '' };
 }
