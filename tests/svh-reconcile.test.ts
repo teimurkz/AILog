@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_STAGES } from '../shared/truck-tracking';
-import { parkingCost, parkingDays, parsePartnerSheet, partnerDate, partnerInvoice, reconcile } from '../shared/svh-reconcile';
+import { crmInvoiceKey, parkingCost, parkingDays, parsePartnerSheet, partnerDate, partnerInvoice, reconcile, repairYears } from '../shared/svh-reconcile';
 
 const today = '2026-10-30';
 const serial = (day: string) => Math.round((Date.parse(day) - Date.UTC(1899, 11, 30)) / 86400000);
@@ -62,10 +62,11 @@ test('sheet parsing skips month rows and reconciles with "Слежка авто"
   // Partner says arrival 03.10, we recorded 04.10: one day more to pay.
   assert.match(rows[1].issues[0], /Заезд: у партнёра 03\.10\.2026, в CRM 04\.10\.2026 \(-1 дн\.\)/);
   assert.equal(rows[1].partnerDays, 5); assert.equal(rows[1].crmDays, 4); assert.equal(rows[1].diff, 1);
-  // The SVH unloading date is a typo: that is what decides the parking days, the transfer date is not checked.
-  assert.ok(rows[2].issues.some(issue => issue.includes('непонятная дата «10/19/20»')));
+  // The SVH unloading year is a typo ("20" for "26"): the day and month stand, the row says it was corrected.
+  assert.ok(rows[2].notes.some(note => note.includes('«10/19/20», это опечатка в годе, считаем 19.10.2026')));
   assert.ok(!rows[2].issues.some(issue => issue.includes('вопрос')));
-  assert.equal(rows[2].partnerDays, null); // unreadable end dates: no guessed parking days
+  assert.equal(rows[2].partnerDays, 7);
+  assert.ok(rows[2].issues.some(issue => issue.includes('Выгрузка: в CRM нет даты (у партнёра 19.10.2026)')));
   assert.match(rows[3].issues[0], /Инвойса 999 нет/);
   assert.deepEqual(missing.map(item => item.invoice), ['500']);
   assert.equal(summary.ok, 1); assert.equal(summary.mismatch, 2); assert.equal(summary.notFound, 1); assert.equal(summary.noInvoice, 1);
@@ -184,4 +185,79 @@ test('issue texts follow the chosen language; Russian stays the default', () => 
     assert.doesNotMatch(issue, /[Ѐ-ӿ]/);
   }
   assert.match(issues('fa')[0], /03\.10\.2026.*04\.10\.2026.*-1/);
+});
+
+test('invoice numbers: parts of one invoice, a lost dash, text before the number', () => {
+  assert.equal(partnerInvoice('20260907-389.2'), '389.2');
+  assert.equal(partnerInvoice('20261010464'), '464');
+  assert.equal(partnerInvoice('2020905-379'), '379');
+  assert.equal(partnerInvoice('389.1'), '389.1');
+  assert.equal(partnerInvoice(''), null);
+  assert.equal(crmInvoiceKey('Mehkaz 389.2'), '389.2');
+  assert.equal(crmInvoiceKey('20260907-389'), '389');
+  assert.equal(crmInvoiceKey('без номера'), null);
+});
+
+test('a year typo is corrected from the other date of the row, anything else stays an error', () => {
+  const date = (value: string) => partnerDate(value, today);
+  // Arrival written as 2027, unloading a week later in 2026.
+  const future = repairYears({ arrived: date('9/22/27'), unloaded: date('9/28/26'), moved: date('') }, today);
+  assert.deepEqual([future.arrived.day, future.arrived.repaired, future.arrived.raw], ['2026-09-22', true, '9/22/27']);
+  // Unloading written as 2020.
+  const past = repairYears({ arrived: date('10/14/26'), unloaded: date('19.10.2020'), moved: date('') }, today);
+  assert.deepEqual([past.unloaded.day, past.unloaded.repaired, past.unloaded.bad], ['2026-10-19', true, false]);
+  // Over the New Year the unloading falls into the next year.
+  const winter = repairYears({ arrived: date('12/28/25'), unloaded: date('05.01.2020'), moved: date('') }, today);
+  assert.equal(winter.unloaded.day, '2026-01-05');
+  // Not a year typo: the day is before the arrival in every year.
+  const wrong = repairYears({ arrived: date('10/14/26'), unloaded: date('01.02.2020'), moved: date('') }, today);
+  assert.deepEqual([wrong.unloaded.day, wrong.unloaded.bad], [null, true]);
+  // Correct rows are left alone.
+  const fine = repairYears({ arrived: date('10/14/26'), unloaded: date('10/19/26'), moved: date('') }, today);
+  assert.equal(fine.arrived.repaired, undefined); assert.equal(fine.unloaded.repaired, undefined);
+});
+
+test('an end before the arrival is reported instead of counted as zero days', () => {
+  const partner = parsePartnerSheet([header, row(1, '10/14/26', '20260924-436', null, '10/10/26')], today);
+  const entries = [{ id: 'c', invoice: '436', productName: 'Cheese', status: 'unloaded', stageDates: { arrived: '2026-10-14', unloaded: '2026-10-16' } }];
+  const [item] = reconcile(partner, entries, DEFAULT_STAGES, today).rows;
+  assert.equal(item.partnerDays, null);
+  assert.ok(item.issues.some(issue => issue.includes('выгрузка 10.10.2026 раньше заезда 14.10.2026')));
+});
+
+test('several rows of the file on one CRM truck are pointed out', () => {
+  const partner = parsePartnerSheet([
+    header,
+    row(1, '10/5/26', '20260907-389.1', null, '10/8/26'),
+    row(2, '10/5/26', '20260907-389.2', null, '10/8/26'),
+    row(3, '10/6/26', '20260910-390', null, '10/9/26'),
+    row(4, '10/6/26', '20260910-390', null, '10/9/26'),
+    row(5, '10/7/26', '20260911-391.1', null, '10/9/26'),
+  ], today);
+  const entries = [
+    { id: 'a', invoice: '389', productName: 'Cream', status: 'unloaded', stageDates: { arrived: '2026-10-05', unloaded: '2026-10-08' } },
+    { id: 'b', invoice: '390', productName: 'Milk', status: 'unloaded', stageDates: { arrived: '2026-10-06', unloaded: '2026-10-09' } },
+    { id: 'c', invoice: '391.1', productName: 'Milk', status: 'unloaded', stageDates: { arrived: '2026-10-07', unloaded: '2026-10-09' } },
+    { id: 'd', invoice: '391.2', productName: 'Milk', status: 'unloaded', stageDates: { arrived: '2026-10-07', unloaded: '2026-10-09' } },
+  ];
+  const { rows, missing } = reconcile(partner, entries, DEFAULT_STAGES, today);
+  assert.deepEqual(rows.map(item => item.crm?.id), ['a', 'a', 'b', 'b', 'c']);
+  assert.ok(rows[0].issues.some(issue => issue.includes('несколько строк (№ 1, 2)')));
+  assert.ok(rows[3].issues.some(issue => issue.includes('несколько строк (№ 3, 4)')));
+  // A part kept under its own number in the CRM matches exactly and is no discrepancy.
+  assert.equal(rows[4].status, 'ok');
+  // The other part of that invoice is not "missing": the file has invoice 391.
+  assert.deepEqual(missing, []);
+});
+
+test('a tolerance in days turns small date shifts into remarks', () => {
+  const partner = parsePartnerSheet([header, row(1, '10/6/26', '20260914-398', null, '10/8/26')], today);
+  const entries = [{ id: 'b', invoice: '398', productName: 'Milk', status: 'unloaded', stageDates: { arrived: '2026-10-07', unloaded: '2026-10-08' } }];
+  const strict = reconcile(partner, entries, DEFAULT_STAGES, today).rows[0];
+  assert.equal(strict.status, 'mismatch');
+  const loose = reconcile(partner, entries, DEFAULT_STAGES, today, null, 'ru', { tolerance: 1 }).rows[0];
+  assert.equal(loose.status, 'ok');
+  assert.ok(loose.notes.some(note => note.includes('в пределах допуска')));
+  // The days still differ and are still shown: tolerance only stops the alarm.
+  assert.equal(loose.diff, 1);
 });

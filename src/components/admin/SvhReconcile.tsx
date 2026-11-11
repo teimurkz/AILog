@@ -18,11 +18,13 @@ const STATUS_TONE: Record<ReconcileStatus, string> = {
   ambiguous: 'bg-amber-50 text-amber-800 border-amber-200',
   'no-invoice': 'bg-slate-100 text-slate-600 border-slate-200',
 };
-type Filter = 'all' | 'problems' | ReconcileStatus;
+type Filter = 'all' | 'problems' | 'overbilled' | ReconcileStatus;
 const card = 'bg-white rounded-2xl border border-slate-200 shadow-sm';
 const days = (value: number | null, open: boolean) => value === null ? '?' : `${value}${open ? '+' : ''}`;
 const RATE_KEY = 'svh-reconcile-rate';
 const readRate = () => { try { return Number(localStorage.getItem(RATE_KEY)) || 0; } catch { return 0; } };
+const TOLERANCE_KEY = 'svh-reconcile-tolerance';
+const readTolerance = () => { try { return Math.max(0, Math.floor(Number(localStorage.getItem(TOLERANCE_KEY)) || 0)); } catch { return 0; } };
 // Persian and Arabic-Indic digits typed into the rate field.
 const latinDigits = (value: string) => value.replace(/[۰-۹]/g, digit => String(digit.charCodeAt(0) - 0x06f0)).replace(/[٠-٩]/g, digit => String(digit.charCodeAt(0) - 0x0660));
 
@@ -73,6 +75,13 @@ export const SvhReconcile = () => {
   const [period, setPeriod] = useState<{ from: string; to: string } | null>(null);
   // Parking price per truck per day, remembered in this browser.
   const [rate, setRate] = useState<number>(readRate);
+  // How many days two dates may differ and still count as the same; remembered in this browser.
+  const [tolerance, setTolerance] = useState<number>(readTolerance);
+  const changeTolerance = (value: string) => {
+    const next = Math.min(30, Math.max(0, Math.floor(Number(latinDigits(value)) || 0)));
+    setTolerance(next);
+    try { localStorage.setItem(TOLERANCE_KEY, String(next)); } catch { /* private window: keep it for this visit only */ }
+  };
   const today = todayDay();
   const tenge = (value: number) => `${Math.round(value).toLocaleString(locale)} ₸`;
 
@@ -99,7 +108,7 @@ export const SvhReconcile = () => {
   };
 
   const range = period && period.from > period.to ? { from: period.to, to: period.from } : period;
-  const result = useMemo(() => file ? reconcile(file.rows, entries, stages, today, range, language) : null, [file, entries, stages, today, range?.from, range?.to, language]);
+  const result = useMemo(() => file ? reconcile(file.rows, entries, stages, today, range, language, { tolerance }) : null, [file, entries, stages, today, range?.from, range?.to, language, tolerance]);
   const cost = useMemo(() => parkingCost(result?.rows || [], rate), [result, rate]);
   const months = useMemo(() => [...new Set((file?.rows || []).map(row => row.arrived.day?.slice(0, 7)).filter((month): month is string => Boolean(month)))].sort(), [file]);
   const monthRange = (month: string) => {
@@ -115,10 +124,13 @@ export const SvhReconcile = () => {
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return (result?.rows || []).filter(row =>
+    const rows = (result?.rows || []).filter(row =>
       (filter === 'all' ? true : filter === 'problems' ? row.status === 'mismatch' || row.status === 'not-found' || row.status === 'ambiguous'
+        : filter === 'overbilled' ? (row.diff || 0) > 0
         : filter === 'not-found' ? row.status === 'not-found' || row.status === 'ambiguous' : row.status === filter)
       && (!query || [row.partner.invoice, row.partner.invoiceRaw, row.partner.truck, row.partner.product, row.crm?.invoice].some(value => value?.toLowerCase().includes(query))));
+    // The biggest overcharge first: that is where the money is.
+    return filter === 'overbilled' ? [...rows].sort((a, b) => (b.diff || 0) - (a.diff || 0)) : rows;
   }, [result, filter, search]);
 
   const exportExcel = () => {
@@ -156,6 +168,7 @@ export const SvhReconcile = () => {
   const filters: { id: Filter; label: string; count: number }[] = result ? [
     { id: 'problems', label: text.filter.problems, count: result.summary.mismatch + result.summary.notFound },
     { id: 'mismatch', label: text.filter.mismatch, count: result.summary.mismatch },
+    { id: 'overbilled', label: text.filter.overbilled, count: result.summary.overbilled },
     { id: 'ok', label: text.filter.ok, count: result.summary.ok },
     { id: 'not-found', label: text.filter.notFound, count: result.summary.notFound },
     { id: 'no-invoice', label: text.filter.noInvoice, count: result.summary.noInvoice },
@@ -205,6 +218,10 @@ export const SvhReconcile = () => {
               <input type="text" inputMode="decimal" dir="ltr" className={`${input} w-28 font-semibold`} placeholder={text.ratePlaceholder}
                 value={rate ? rate.toLocaleString('ru-RU') : ''} onChange={event => changeRate(event.target.value)} />
             </label>
+            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600" title={text.toleranceTitle}>
+              {text.tolerance}
+              <input type="number" min={0} max={30} dir="ltr" className={`${input} w-16 font-semibold`} value={tolerance} onChange={event => changeTolerance(event.target.value)} />
+            </label>
           </div>
 
           <p className="text-xs text-slate-500">{text.file} <span className="font-semibold text-slate-700">{file.name}</span> ·{' '}
@@ -231,6 +248,10 @@ export const SvhReconcile = () => {
               </div>
             ))}
           </div>
+
+          {result.summary.repaired > 0 && (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs text-amber-900">{text.repairedCount(result.summary.repaired)}</p>
+          )}
 
           {result.summary.weekend > 0 && (
             <p className="rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-2 text-xs text-sky-800">{text.weekendCount(result.summary.weekend)}</p>

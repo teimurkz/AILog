@@ -11,6 +11,10 @@ const ru = {
   differs: (field: string, theirs: string, ours: string, shift: string) => `${field}: у партнёра ${theirs}, в CRM ${ours} (${shift} дн.)`,
   noCrmDate: (field: string, theirs: string) => `${field}: в CRM нет даты (у партнёра ${theirs})`,
   noPartnerDate: (field: string, ours: string) => `${field}: у партнёра нет даты (в CRM ${ours})`,
+  endBeforeArrival: (arrived: string, end: string) => `У партнёра выгрузка ${end} раньше заезда ${arrived}: дни не посчитать`,
+  yearFixed: (field: string, raw: string, fixed: string) => `${field}: у партнёра «${raw}», это опечатка в годе, считаем ${fixed}`,
+  sharedTruck: (rows: string) => `В файле партнёра на эту фуру несколько строк (№ ${rows}), в CRM она одна`,
+  withinTolerance: (line: string) => `${line}: в пределах допуска`,
   weekdays: ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'],
   weekendArrival: (weekday: string, theirs: string, ours: string) => `Заезд в выходной (${weekday} ${theirs}), в CRM записан понедельник ${ours}: прав партнёр, стоянка считается с ${theirs}`,
 };
@@ -23,6 +27,10 @@ const en: typeof ru = {
   differs: (field, theirs, ours, shift) => `${field}: partner ${theirs}, CRM ${ours} (${shift} days)`,
   noCrmDate: (field, theirs) => `${field}: no date in the CRM (partner: ${theirs})`,
   noPartnerDate: (field, ours) => `${field}: no date from the partner (CRM: ${ours})`,
+  endBeforeArrival: (arrived, end) => `The partner's unloading ${end} is before the arrival ${arrived}: days cannot be counted`,
+  yearFixed: (field, raw, fixed) => `${field}: the partner wrote "${raw}", a typo in the year, counted as ${fixed}`,
+  sharedTruck: rows => `The partner's file has several rows for this truck (No. ${rows}), the CRM has one`,
+  withinTolerance: line => `${line}: within the tolerance`,
   weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
   weekendArrival: (weekday, theirs, ours) => `Arrived on the weekend (${weekday} ${theirs}), CRM has the Monday ${ours}: the partner is right, parking counts from ${theirs}`,
 };
@@ -35,6 +43,10 @@ const fa: typeof ru = {
   differs: (field, theirs, ours, shift) => `${field}: طرف قرارداد ${theirs}، CRM ${ours} (${shift} روز)`,
   noCrmDate: (field, theirs) => `${field}: در CRM تاریخی ثبت نشده (طرف قرارداد: ${theirs})`,
   noPartnerDate: (field, ours) => `${field}: طرف قرارداد تاریخی ندارد (CRM: ${ours})`,
+  endBeforeArrival: (arrived, end) => `تخلیه ${end} در فایل طرف قرارداد پیش از ورود ${arrived} است: روزها قابل محاسبه نیست`,
+  yearFixed: (field, raw, fixed) => `${field}: طرف قرارداد «${raw}» نوشته، سال اشتباه تایپی است، ${fixed} محاسبه می‌شود`,
+  sharedTruck: rows => `در فایل طرف قرارداد برای این کامیون چند ردیف هست (شماره ${rows})، در CRM یکی است`,
+  withinTolerance: line => `${line}: در محدوده مجاز`,
   weekdays: ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'],
   weekendArrival: (weekday, theirs, ours) => `ورود در روز تعطیل (${weekday} ${theirs})، در CRM دوشنبه ${ours} ثبت شده: حق با طرف قرارداد است، توقف از ${theirs} محاسبه می‌شود`,
 };
