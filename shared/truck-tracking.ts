@@ -324,3 +324,20 @@ export function trackingExportRows<T extends TruckTrackingEntry>(entries: T[], s
 export function trackingMonths(entries: Pick<TruckTrackingEntry, 'stageDates'>[], stages: TruckStage[]): string[] {
   return [...new Set(entries.map(entry => arrivalOf(entry, stages).slice(0, 7)).filter(Boolean))].sort();
 }
+
+export type TrackingExportScope = 'selected' | 'found' | 'all';
+
+/**
+ * What an export can cover, the narrowest first: the ticked rows, then the rows the search left
+ * on screen, then everything. The first one is what the user expects when pressing Export.
+ */
+export function trackingExportScopes<T extends { id: string }>(
+  entries: T[], selectedIds: ReadonlySet<string>, found: T[], searching: boolean,
+): Array<{ scope: TrackingExportScope; entries: T[] }> {
+  const scopes: Array<{ scope: TrackingExportScope; entries: T[] }> = [];
+  const selected = entries.filter(entry => selectedIds.has(entry.id));
+  if (selected.length) scopes.push({ scope: 'selected', entries: selected });
+  if (searching) scopes.push({ scope: 'found', entries: found });
+  scopes.push({ scope: 'all', entries });
+  return scopes;
+}

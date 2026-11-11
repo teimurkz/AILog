@@ -1,7 +1,7 @@
 import React from 'react';
 import { Download, X } from 'lucide-react';
 import {
-  sortStages, stageDateLabel, stageLabel, trackingExportRows, trackingMonths, type TruckStage, type TruckTrackingEntry,
+  sortStages, stageDateLabel, stageLabel, trackingExportRows, trackingMonths, type TrackingExportScope, type TruckStage, type TruckTrackingEntry,
 } from '../../../shared/truck-tracking';
 import { downloadTruckTracking, downloadTruckTrackingAll } from '../../utils/truck-tracking-excel';
 import { COLOR_STYLES } from './statusStyles';
@@ -9,7 +9,8 @@ import { useTrackingText } from './useTrackingText';
 import { cn } from '../../lib/utils';
 
 interface ExportModalProps {
-  entries: TruckTrackingEntry[];
+  /** What can be exported, the narrowest first: ticked rows, search results, everything. */
+  scopes: Array<{ scope: TrackingExportScope; entries: TruckTrackingEntry[] }>;
   stages: TruckStage[];
   onClose: () => void;
 }
@@ -23,13 +24,17 @@ const monthEnd = (month: string) => {
 const chip = (active: boolean) => cn('rounded-lg border px-2.5 py-1.5 text-xs font-semibold',
   active ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50');
 
-/** Excel export of "Слежка авто": a period by arrival date, chosen statuses, one sheet or a sheet per status. */
-export const ExportModal = ({ entries, stages, onClose }: ExportModalProps) => {
+/** Excel export of "Слежка авто": ticked or found rows, a period by arrival date, chosen statuses, one sheet or a sheet per status. */
+export const ExportModal = ({ scopes, stages, onClose }: ExportModalProps) => {
   const { text: t, language } = useTrackingText();
+  const [scope, setScope] = React.useState<TrackingExportScope>(scopes[0].scope);
+  const entries = (scopes.find(entry => entry.scope === scope) ?? scopes[0]).entries;
+  const narrowed = scope !== 'all';
   const ordered = React.useMemo(() => sortStages(stages), [stages]);
   const months = React.useMemo(() => trackingMonths(entries, stages), [entries, stages]);
-  // The latest month is the usual choice.
-  const [period, setPeriod] = React.useState<Period>(() => months.length ? { kind: 'month', month: months[months.length - 1] } : { kind: 'all' });
+  // The latest month is the usual choice for everything; ticked and found rows go out whole, whatever their dates.
+  const [period, setPeriod] = React.useState<Period>(() => !narrowed && months.length ? { kind: 'month', month: months[months.length - 1] } : { kind: 'all' });
+  const chooseScope = (next: TrackingExportScope) => { setScope(next); setPeriod({ kind: 'all' }); };
   const [from, setFrom] = React.useState('');
   const [to, setTo] = React.useState('');
   const [statuses, setStatuses] = React.useState<string[]>(() => ordered.map(stage => stage.id));
@@ -61,6 +66,20 @@ export const ExportModal = ({ entries, stages, onClose }: ExportModalProps) => {
         </div>
 
         <div className="space-y-5 p-4 sm:p-5">
+          {scopes.length > 1 && (
+            <section className="space-y-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{t.exportScope}</h4>
+              <div className="flex flex-wrap gap-1.5">
+                {scopes.map(entry => (
+                  <button key={entry.scope} type="button" onClick={() => chooseScope(entry.scope)} className={chip(scope === entry.scope)}>
+                    {entry.scope === 'selected' ? t.exportScopeSelected(entry.entries.length)
+                      : entry.scope === 'found' ? t.exportScopeFound(entry.entries.length) : t.exportScopeAll(entry.entries.length)}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
           <section className="space-y-2">
             <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               {t.exportPeriod} <span className="font-normal normal-case tracking-normal text-slate-400">· {t.exportByDate(ordered[0] ? stageDateLabel(ordered[0], language) : '')}</span>

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as XLSX from 'xlsx';
 import {
   DEFAULT_STAGES, daysInStage, invoiceList, isTruckIdle, searchInvoiceList, normalizeEntry, parseStageStatus, parseTrackingDate, parseTruckTrackingPaste,
-  stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, trackingExportRows, trackingMonths, type TruckStage,
+  stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, trackingExportRows, trackingExportScopes, trackingMonths, type TruckStage,
 } from '../shared/truck-tracking';
 import { truckTrackingFullWorkbook, truckTrackingWorkbook } from '../src/utils/truck-tracking-excel';
 import { TRACKING_TEXT } from '../shared/truck-tracking-i18n';
@@ -201,4 +201,16 @@ test('SVH stage dates set arrival, unload date and status on the linked shipment
   const custom: TruckStage[] = [{ id: 'svh', label: 'СВХ', dateLabel: 'Разгрузка', color: 'blue', order: 0, shipmentSync: 'unloaded' }];
   assert.deepEqual(shipmentPatchFor(entry('svh', { svh: '2026-10-29' }), custom, shipment), { unl_date: '29.10.2026', status: 'Delivered' });
   assert.equal(stageShipmentSync({ id: 'arrived', shipmentSync: null }), null);
+});
+
+test('export covers the ticked rows first, then the search results, then everything', () => {
+  const all = ['a', 'b', 'c', 'd'].map(id => ({ id }));
+  const found = [all[0], all[1], all[2]];
+  const scopes = (selected: string[], searching: boolean) =>
+    trackingExportScopes(all, new Set(selected), found, searching).map(entry => [entry.scope, entry.entries.map(item => item.id).join('')]);
+  assert.deepEqual(scopes(['b', 'c'], true), [['selected', 'bc'], ['found', 'abc'], ['all', 'abcd']]);
+  assert.deepEqual(scopes([], true), [['found', 'abc'], ['all', 'abcd']]);
+  assert.deepEqual(scopes([], false), [['all', 'abcd']]);
+  // A ticked row that was deleted meanwhile is not exported.
+  assert.deepEqual(scopes(['zzz'], false), [['all', 'abcd']]);
 });

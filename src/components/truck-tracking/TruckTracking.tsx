@@ -3,7 +3,7 @@ import {
   AlertTriangle, ArrowDown, ArrowUp, ClipboardPaste, Columns3, Download, GripVertical, Link2, Loader2, Plus, Search, Settings2, Table2, Trash2, X,
 } from 'lucide-react';
 import {
-  daysInStage, formatTrackingDate, invoiceList, isTruckIdle, searchInvoiceList, stageDate, stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, todayIso,
+  daysInStage, formatTrackingDate, invoiceList, isTruckIdle, searchInvoiceList, stageDate, trackingExportScopes, stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, todayIso,
   type TruckStage, type TruckTrackingEntry, type TruckTrackingImportRow, type TruckTrackingPatch,
 } from '../../../shared/truck-tracking';
 import type { TrackingLanguage, TrackingText } from '../../../shared/truck-tracking-i18n';
@@ -678,7 +678,9 @@ export const TruckTracking = () => {
         )}
       </div>
 
-      {exportOpen && <ExportModal entries={entries} stages={stages} onClose={() => setExportOpen(false)} />}
+      {exportOpen && (
+        <ExportModal scopes={trackingExportScopes(entries, selected, searched, Boolean(search.trim()) || idleOnly)} stages={stages} onClose={() => setExportOpen(false)} />
+      )}
       {pasteText !== null && (
         <PasteImportModal initialText={pasteText} stages={stages} existingInvoices={existingInvoices} onClose={() => setPasteText(null)} onImport={importRows} />
       )}
