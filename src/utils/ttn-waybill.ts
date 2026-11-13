@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx';
 import {
   linesFromPdfItems, linesFromSheetRows, waybillDetails, waybillGoods, type GridLine, type PdfTextItem, type TtnItem, type WaybillDetails,
 } from '../../shared/ttn';
-import type { InvoiceItem } from '../types';
+import { orderAttachments, type OrderFileSource } from '../../shared/order-files';
 
 export interface WaybillFile {
   label: string;
@@ -15,17 +15,18 @@ export type WaybillResult =
   | { file: WaybillFile; status: 'ok'; items: TtnItem[]; details: WaybillDetails }
   | { file: WaybillFile; status: 'empty' | 'unsupported' | 'failed'; items: [] };
 
+type OrderFiles = { invoices?: OrderFileSource[]; invoiceNumber?: string; invoiceFileName?: string; invoiceFileData?: string; invoiceFileType?: string };
+
 /** Files attached to a regional order: the list of invoices, or the single file of older orders. */
-export function orderWaybills(order: { invoices?: InvoiceItem[]; invoiceNumber?: string; invoiceFileName?: string; invoiceFileData?: string; invoiceFileType?: string }): WaybillFile[] {
+export function orderWaybills(order: OrderFiles): WaybillFile[] {
   const label = (number?: string) => number ? `Накладная №${number.replace(/^накладная\s*№?\s*/i, '')}` : '';
-  const files = (order.invoices || [])
-    .filter(invoice => invoice.fileData)
-    .map(invoice => ({ label: label(invoice.invoiceNumber), fileName: invoice.fileName || '', fileType: invoice.fileType || '', fileData: invoice.fileData! }));
-  if (!files.length && order.invoiceFileData) {
-    files.push({ label: label(order.invoiceNumber), fileName: order.invoiceFileName || '', fileType: order.invoiceFileType || '', fileData: order.invoiceFileData });
-  }
-  return files;
+  return orderAttachments(order)
+    .filter(file => !file.missing)
+    .map(file => ({ label: label(file.invoiceNumber), fileName: file.fileName, fileType: file.fileType, fileData: file.fileData }));
 }
+
+/** Names of files the order lists but never stored: older orders dropped files that were too large. */
+export const lostWaybills = (order: OrderFiles) => orderAttachments(order).filter(file => file.missing).map(file => file.fileName);
 
 const bytesOf = (dataUrl: string) => {
   const binary = atob(dataUrl.slice(dataUrl.indexOf(',') + 1));

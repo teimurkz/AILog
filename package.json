@@ -9,7 +9,7 @@
     "test:reports": "node --import tsx --test tests/work-reports.test.ts",
     "test:access": "node --import tsx --test tests/access-policy.test.ts",
     "test:truck-tracking": "node --import tsx --test tests/truck-tracking.test.ts",
-    "test:ttn": "node --import tsx --test tests/ttn.test.ts",
+    "test:ttn": "node --import tsx --test tests/ttn.test.ts tests/order-files.test.ts",
     "test:regional-report": "node --import tsx --test tests/regional-orders-report.test.ts",
     "test:layout": "node --import tsx --test tests/responsive-table.test.tsx",
     "test:outlook": "node --import tsx --test tests/outlook-import.test.ts",

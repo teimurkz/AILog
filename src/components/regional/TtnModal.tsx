@@ -5,7 +5,7 @@ import {
   TTN_REMEMBERED_FIELDS, TTN_SHIPPER, amountInWords, consigneeLine, emptyTtnItem, findConsignee, massInWords, toNumber, ttnTotals,
   type TtnConsignee, type TtnDocument, type TtnItem, type TtnRemembered,
 } from '../../../shared/ttn';
-import { orderWaybills, readWaybill, type WaybillResult } from '../../utils/ttn-waybill';
+import { lostWaybills, orderWaybills, readWaybill, type WaybillResult } from '../../utils/ttn-waybill';
 import { downloadTtn } from '../../utils/ttn-excel';
 import { useSectionText } from '../../i18n/useSectionText';
 import { TTN_TEXT } from './ttn-i18n';
@@ -97,6 +97,7 @@ export const TtnModal = ({ order, onClose }: { order: RegionalTruckOrder; onClos
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const waybills = React.useMemo(() => orderWaybills(order), [order]);
+  const lost = React.useMemo(() => lostWaybills(order), [order]);
 
   const set = <K extends keyof TtnDocument>(key: K) => (value: TtnDocument[K]) => setDocument(current => ({ ...current, [key]: value }));
   const setItem = (index: number, patch: Partial<TtnItem>) => setDocument(current => ({
@@ -113,7 +114,12 @@ export const TtnModal = ({ order, onClose }: { order: RegionalTruckOrder; onClos
   const fillFromWaybills = React.useCallback(async (confirmReplace: boolean) => {
     if (confirmReplace && document.items.length && !window.confirm(t.replaceGoods)) return;
     setReading(true);
-    const read = await Promise.all(waybills.map(readWaybill));
+    let read: WaybillResult[];
+    try {
+      read = await Promise.all(waybills.map(readWaybill));
+    } finally {
+      setReading(false);
+    }
     setResults(read);
     const items = read.flatMap(result => result.items);
     const details = read.flatMap(result => result.status === 'ok' ? [result.details] : []);
@@ -126,7 +132,6 @@ export const TtnModal = ({ order, onClose }: { order: RegionalTruckOrder; onClos
       releasedBy: current.releasedBy || first('releasedBy'),
     }));
     setWaybillConsignee(first('consignee'));
-    setReading(false);
   }, [document.items.length, t.replaceGoods, waybills]);
 
   // A new TTN starts from the waybills straight away; a saved draft keeps its lines.
@@ -265,7 +270,8 @@ export const TtnModal = ({ order, onClose }: { order: RegionalTruckOrder; onClos
                 </button>
               </div>
             </div>
-            {!waybills.length && <p className="text-xs text-amber-600">{t.noWaybills}</p>}
+            {!waybills.length && !lost.length && <p className="text-xs text-amber-600">{t.noWaybills}</p>}
+            {lost.map(name => <p key={name} className="text-xs text-amber-600">{t.waybillLost(name)}</p>)}
             {results && (
               <ul className="space-y-0.5 text-xs">
                 {results.map((result, index) => (

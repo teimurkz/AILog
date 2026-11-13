@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ORDER_FILES_BUDGET, attachmentsSize } from '../../../shared/order-files';
 import { 
   X, 
   Truck, 
@@ -182,6 +183,13 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
     const sizeStr = fileSizeKb > 1024 ? n.sizeMb((fileSizeKb / 1024).toFixed(1)) : n.sizeKb(fileSizeKb);
 
     const updateInvoiceData = (fileName: string, type: string, dataUrl: string) => {
+      // All files are kept inside the order (one Firestore document): refuse what does not fit instead of losing it.
+      const others = attachmentsSize(invoiceList.filter((_, i) => i !== index));
+      if (others + dataUrl.length > ORDER_FILES_BUDGET) {
+        const kb = (chars: number) => Math.max(0, Math.round(chars * 0.75 / 1024));
+        setErrorMsg(n.filesTooLarge(file.name, kb(dataUrl.length), kb(ORDER_FILES_BUDGET - others)));
+        return;
+      }
       setInvoiceList(prev => prev.map((item, i) => {
         if (i === index) {
           return { ...item, fileName, fileType: type, fileSize: sizeStr, fileData: dataUrl };
@@ -227,10 +235,7 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
     } else {
       const reader = new FileReader();
       reader.onload = (event) => {
-        let dataUrl = event.target?.result as string;
-        if (dataUrl.length > 550000) {
-          dataUrl = ''; // Retain metadata only if too large
-        }
+        const dataUrl = event.target?.result as string;
         updateInvoiceData(file.name, file.type, dataUrl);
       };
       reader.readAsDataURL(file);
@@ -323,7 +328,8 @@ export const NewRegionalOrderModal: React.FC<NewRegionalOrderModalProps> = ({
         })),
         invoiceNumber: primaryInvoiceNumber,
         invoiceFileName: firstWithFile?.fileName || '',
-        invoiceFileData: firstWithFile?.fileData || '',
+        // The file itself is in the list below; a second copy here doubled the order and could break the 1 MB limit.
+        invoiceFileData: '',
         invoiceFileType: firstWithFile?.fileType || '',
         invoices: validInvoices.map(inv => ({
           id: inv.id,
