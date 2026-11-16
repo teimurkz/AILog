@@ -17,7 +17,8 @@ import {
   BellRing, 
   Volume2, 
   ExternalLink, 
-  Eye, 
+  Eye,
+  Loader2, 
   X, 
   LayoutGrid, 
   List, 
@@ -45,6 +46,7 @@ import { NewRegionalOrderModal } from './NewRegionalOrderModal';
 import { TtnModal } from './TtnModal';
 import { OrderFilesViewer } from './OrderFilesViewer';
 import { orderAttachments } from '../../../shared/order-files';
+import { ordersApi } from '../../services/api';
 import { TTN_TEXT } from './ttn-i18n';
 import { RouteMapModal } from './RouteMapModal';
 import { RegionalOrdersReport } from './RegionalOrdersReport';
@@ -211,6 +213,53 @@ export const RegionalOrders: React.FC = () => {
     setPreviewFileIndex(0);
     setPreviewTab(previewFiles.length ? 'files' : 'details');
   }, [activeInvoicePreview]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Lists come without file contents: the order is loaded whole when its waybills are opened.
+  const [loadingFilesFor, setLoadingFilesFor] = useState<string | null>(null);
+  const withFiles = async (order: RegionalTruckOrder): Promise<RegionalTruckOrder | null> => {
+    if (!order.filesOmitted) return order;
+    setLoadingFilesFor(order.id);
+    try {
+      return { ...order, ...(await ordersApi.getById(order.id)), filesOmitted: false };
+    } catch (error) {
+      console.error('Order files load failed:', order.id, error);
+      setNotificationToast(o.filesLoadFailed);
+      setTimeout(() => setNotificationToast(null), 6000);
+      return null;
+    } finally {
+      setLoadingFilesFor(null);
+    }
+  };
+  const openPreview = async (summary: RegionalTruckOrder) => {
+    const order = await withFiles(summary);
+    if (!order) return;
+    setActiveInvoicePreview({
+      title: text.common.orderTitle(order.invoiceNumber),
+      orderNumber: order.orderNumber,
+      invoiceNumber: order.invoiceNumber,
+      destinationCity: order.destinationCity,
+      deliveryAddress: order.deliveryAddress,
+      recipientPhone: order.recipientPhone,
+      deliveryPoints: order.deliveryPoints,
+      invoices: order.invoices,
+      shipmentDate: order.shipmentDate,
+      truckType: order.truckType,
+      palletsCount: order.palletsCount,
+      weight: order.weight,
+      cargoDescription: order.cargoDescription,
+      managerName: order.managerName,
+      managerPhone: order.managerPhone,
+      comments: order.comments,
+      assignedTruckPlate: order.assignedTruckPlate,
+      assignedDriver: order.assignedDriver,
+      fileName: order.invoiceFileName,
+      fileData: order.invoiceFileData,
+      fileType: order.invoiceFileType,
+    });
+  };
+  const openTtn = async (summary: RegionalTruckOrder) => {
+    const order = await withFiles(summary);
+    if (order) setTtnOrder(order);
+  };
   const showPreviewFile = (fileData?: string) => {
     const index = previewFiles.findIndex(file => file.fileData && file.fileData === fileData);
     if (index >= 0) { setPreviewFileIndex(index); setPreviewTab('files'); }
@@ -733,32 +782,10 @@ export const RegionalOrders: React.FC = () => {
 
                         <button
                           type="button"
-                          onClick={() => setActiveInvoicePreview({
-                            title: text.common.orderTitle(order.invoiceNumber),
-                            orderNumber: order.orderNumber,
-                            invoiceNumber: order.invoiceNumber,
-                            destinationCity: order.destinationCity,
-                            deliveryAddress: order.deliveryAddress,
-                            recipientPhone: order.recipientPhone,
-                            deliveryPoints: order.deliveryPoints,
-                            invoices: order.invoices,
-                            shipmentDate: order.shipmentDate,
-                            truckType: order.truckType,
-                            palletsCount: order.palletsCount,
-                            weight: order.weight,
-                            cargoDescription: order.cargoDescription,
-                            managerName: order.managerName,
-                            managerPhone: order.managerPhone,
-                            comments: order.comments,
-                            assignedTruckPlate: order.assignedTruckPlate,
-                            assignedDriver: order.assignedDriver,
-                            fileName: order.invoiceFileName,
-                            fileData: order.invoiceFileData,
-                            fileType: order.invoiceFileType,
-                          })}
+                          onClick={() => void openPreview(order)}
                           className="mt-1 text-[11px] font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1"
                         >
-                          <Eye className="w-3.5 h-3.5 text-purple-500" />
+                          {loadingFilesFor === order.id ? <Loader2 className="w-3.5 h-3.5 text-purple-500 animate-spin" /> : <Eye className="w-3.5 h-3.5 text-purple-500" />}
                           <span>{text.common.viewInvoices}</span>
                         </button>
                       </td>
@@ -864,7 +891,7 @@ export const RegionalOrders: React.FC = () => {
                           </button>
 
                           <button
-                            onClick={() => setTtnOrder(order)}
+                            onClick={() => void openTtn(order)}
                             className="px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1"
                             title={ttnText.actionTitle}
                           >
@@ -977,32 +1004,10 @@ export const RegionalOrders: React.FC = () => {
 
                       <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between">
                         <button
-                          onClick={() => setActiveInvoicePreview({
-                            title: text.common.orderTitle(order.invoiceNumber),
-                            orderNumber: order.orderNumber,
-                            invoiceNumber: order.invoiceNumber,
-                            destinationCity: order.destinationCity,
-                            deliveryAddress: order.deliveryAddress,
-                            recipientPhone: order.recipientPhone,
-                            deliveryPoints: order.deliveryPoints,
-                            invoices: order.invoices,
-                            shipmentDate: order.shipmentDate,
-                            truckType: order.truckType,
-                            palletsCount: order.palletsCount,
-                            weight: order.weight,
-                            cargoDescription: order.cargoDescription,
-                            managerName: order.managerName,
-                            managerPhone: order.managerPhone,
-                            comments: order.comments,
-                            assignedTruckPlate: order.assignedTruckPlate,
-                            assignedDriver: order.assignedDriver,
-                            fileName: order.invoiceFileName,
-                            fileData: order.invoiceFileData,
-                            fileType: order.invoiceFileType,
-                          })}
+                          onClick={() => void openPreview(order)}
                           className="text-[11px] font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1"
                         >
-                          <Eye className="w-3.5 h-3.5 text-purple-500" />
+                          {loadingFilesFor === order.id ? <Loader2 className="w-3.5 h-3.5 text-purple-500 animate-spin" /> : <Eye className="w-3.5 h-3.5 text-purple-500" />}
                           <span>{text.common.viewInvoices}</span>
                         </button>
 
@@ -1031,7 +1036,7 @@ export const RegionalOrders: React.FC = () => {
                             </button>
                           )}
                           <button
-                            onClick={() => setTtnOrder(order)}
+                            onClick={() => void openTtn(order)}
                             className="p-1 text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 rounded-lg transition-colors"
                             title={ttnText.action}
                             aria-label={ttnText.action}

@@ -102,6 +102,8 @@ export interface RegionalTruckOrder {
   invoiceFileData?: string;
   invoiceFileType?: string;
   invoices?: InvoiceItem[]; // Список нескольких накладных/документов
+  /** The list came without file contents; load the single order to see the files. */
+  filesOmitted?: boolean;
   shipmentDate: string; // YYYY-MM-DD or readable
   truckType: string; // e.g. "Фура 20т (Рефрижератор)"
   palletsCount?: string;

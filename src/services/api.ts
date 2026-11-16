@@ -39,7 +39,13 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     throw Object.assign(new Error(msg), { status: res.status });
   }
 
-  return res.json();
+  try {
+    return await res.json();
+  } catch (error) {
+    // The answer started but did not arrive in time: a raw "The user aborted a request" helps nobody.
+    console.error('Response body failed:', url, error);
+    throw new Error('Сервер не успел передать данные. Проверьте интернет и обновите страницу.');
+  }
 }
 
 // ---------------------------------------------------------------------------

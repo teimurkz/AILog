@@ -36,3 +36,15 @@ test('file size budget and blob decoding', () => {
   assert.equal(blob?.size, 5);
   assert.equal(dataUrlToBlob('https://example.com/a.pdf'), null);
 });
+
+test('order lists go without file contents; the names stay', async () => {
+  const { withoutFileData } = await import('../shared/order-files');
+  const order = { id: 'o', invoiceFileName: 'a.pdf', invoiceFileData: pdf('a'), invoices: [{ invoiceNumber: '1', fileName: 'a.pdf', fileData: pdf('a') }, { invoiceNumber: '2' }] };
+  const light = withoutFileData(order);
+  assert.equal(light.filesOmitted, true);
+  assert.equal(light.invoiceFileData, '');
+  assert.deepEqual(light.invoices?.map(invoice => [invoice.fileName, invoice.fileData]), [['a.pdf', ''], [undefined, undefined]]);
+  assert.equal(order.invoices[0].fileData, pdf('a')); // the stored order is not touched
+  const plain = { id: 'p', invoices: [{ invoiceNumber: '3' }] };
+  assert.equal(withoutFileData(plain), plain);
+});

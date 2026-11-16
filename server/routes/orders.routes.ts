@@ -5,6 +5,7 @@ import { broadcastRealtimeEvent } from './realtime.routes';
 import { updateCachedOrderStatus, stopOrderTracking } from '../services/telegram.service';
 import { isCrmAdmin, requireSameOrigin, requireSignedIn, getCrmUser } from '../services/crm-auth.service.js';
 import { withoutGps } from '../services/gps-access.service.js';
+import { withoutFileData } from '../../shared/order-files.js';
 import { randomUUID } from 'node:crypto';
 import { updateRegionalOrder, RegionalOrderUpdateError } from '../services/regional-order-update.service.js';
 
@@ -61,7 +62,9 @@ router.get('/regional', tracked((req, res) => {
       return tB - tA;
     });
 
-    return res.json(isCrmAdmin(req) ? orders : withoutGps(orders));
+    // File contents go with the single order only: inline they made the list too heavy to load.
+    const list = orders.map(order => withoutFileData(order));
+    return res.json(isCrmAdmin(req) ? list : withoutGps(list));
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

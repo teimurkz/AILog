@@ -27,6 +27,22 @@ export type AttachmentKind = 'image' | 'pdf' | 'excel' | 'other';
 /** Room for file data in one order, in data URL characters; the rest of the document needs the remainder. */
 export const ORDER_FILES_BUDGET = 900_000;
 
+/**
+ * The order without its file contents, for lists: with the files inline a list of a few hundred orders
+ * runs to tens of megabytes and staff browsers gave up loading it. Names stay; the contents are loaded
+ * with the single order when someone opens its waybills.
+ */
+export function withoutFileData<T extends { invoices?: OrderFileSource[]; invoiceFileData?: string }>(order: T): T & { filesOmitted?: boolean } {
+  const hasData = Boolean(order.invoiceFileData) || (order.invoices || []).some(invoice => invoice.fileData);
+  if (!hasData) return order;
+  return {
+    ...order,
+    invoiceFileData: '',
+    invoices: order.invoices?.map(invoice => invoice.fileData ? { ...invoice, fileData: '' } : invoice),
+    filesOmitted: true,
+  };
+}
+
 /** Every attached file of an order, in waybill order; older orders kept a single file outside the list. */
 export function orderAttachments(order: {
   invoices?: OrderFileSource[]; invoiceNumber?: string; invoiceFileName?: string; invoiceFileData?: string; invoiceFileType?: string;
