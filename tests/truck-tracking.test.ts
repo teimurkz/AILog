@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as XLSX from 'xlsx';
 import {
   DEFAULT_STAGES, daysInStage, invoiceList, isTruckIdle, searchInvoiceList, normalizeEntry, parseStageStatus, parseTrackingDate, parseTruckTrackingPaste,
-  stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, trackingExportRows, trackingExportScopes, trackingMonths, type TruckStage,
+  stageDateLabel, stageLabel, stagePatch, parkingDaysOf, statusAfterDateEdit, trackingExportRows, trackingExportScopes, trackingMonths, type TruckStage,
 } from '../shared/truck-tracking';
 import { truckTrackingFullWorkbook, truckTrackingWorkbook } from '../src/utils/truck-tracking-excel';
 import { TRACKING_TEXT } from '../shared/truck-tracking-i18n';
@@ -121,8 +121,8 @@ test('export has one date column per stage', () => {
     id: '1', invoice: 'INV-1', productName: 'Молоко', stageDates: { arrived: '2026-10-20', unloaded: '2026-10-21' }, status: 'unloaded',
   }], stages);
   const rows = XLSX.utils.sheet_to_json<string[]>(book.Sheets['Слежка авто'], { header: 1 });
-  assert.deepEqual(rows[0].slice(0, 6), ['Инвойс', 'Наименование продукта', 'Дата прибытия', 'Разгрузили на СВХ', 'Перемещено на склад', 'Статус']);
-  assert.deepEqual(rows[1].slice(0, 6), ['INV-1', 'Молоко', '20.10.2026', '21.10.2026', '', 'Выгружена на СВХ']);
+  assert.deepEqual(rows[0].slice(0, 7), ['Инвойс', 'Наименование продукта', 'Дата прибытия', 'Разгрузили на СВХ', 'Перемещено на склад', 'Дни стоянки', 'Статус']);
+  assert.deepEqual(rows[1].slice(0, 7), ['INV-1', 'Молоко', '20.10.2026', '21.10.2026', '', 1, 'Выгружена на СВХ']);
 });
 
 test('"Экспорт всё" puts every status into one workbook', () => {
@@ -213,4 +213,16 @@ test('export covers the ticked rows first, then the search results, then everyth
   assert.deepEqual(scopes([], false), [['all', 'abcd']]);
   // A ticked row that was deleted meanwhile is not exported.
   assert.deepEqual(scopes(['zzz'], false), [['all', 'abcd']]);
+});
+
+test('parking days: unloading at the SVH minus the arrival date', () => {
+  const now = new Date('2026-10-20T12:00:00');
+  const truck = (arrived: string, unloaded = '') => ({ stageDates: { arrived, ...(unloaded ? { unloaded } : {}) } });
+  assert.deepEqual(parkingDaysOf(truck('2026-10-05', '2026-10-13'), DEFAULT_STAGES, now), { days: 8, open: false });
+  assert.deepEqual(parkingDaysOf(truck('2026-10-05', '2026-10-05'), DEFAULT_STAGES, now), { days: 0, open: false });
+  // Still waiting: the days so far, marked open.
+  assert.deepEqual(parkingDaysOf(truck('2026-10-15'), DEFAULT_STAGES, now), { days: 5, open: true });
+  // A typo (unloaded before arrival) and a truck with no arrival give no number.
+  assert.deepEqual(parkingDaysOf(truck('2026-10-13', '2026-10-05'), DEFAULT_STAGES, now), { days: null, open: false });
+  assert.deepEqual(parkingDaysOf({ stageDates: {} }, DEFAULT_STAGES, now), { days: null, open: false });
 });

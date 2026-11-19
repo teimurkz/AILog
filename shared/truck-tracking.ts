@@ -152,6 +152,20 @@ export function daysInStage(entry: Pick<TruckTrackingEntry, 'status' | 'stageDat
   return null;
 }
 
+/**
+ * Parking days at the SVH: the unloading date (second stage) minus the arrival date (first stage).
+ * Not unloaded yet: the days so far, marked open. An unloading before the arrival is a typo: no days.
+ */
+export function parkingDaysOf(entry: Pick<TruckTrackingEntry, 'stageDates'>, stages: TruckStage[], today = new Date()): { days: number | null; open: boolean } {
+  const [arrival, unloading] = sortStages(stages);
+  const from = arrival ? stageDate(entry, arrival.id) : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return { days: null, open: false };
+  const to = unloading ? stageDate(entry, unloading.id) : '';
+  if (!to) return { days: daysSince(from, today), open: true };
+  const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000);
+  return Number.isFinite(days) && days >= 0 ? { days, open: false } : { days: null, open: false };
+}
+
 export function isTruckIdle(entry: Pick<TruckTrackingEntry, 'status' | 'stageDates'>, stages: TruckStage[], today = new Date()) {
   const limit = stages.find(stage => stage.id === entry.status)?.idleDays;
   const days = daysInStage(entry, stages, today);

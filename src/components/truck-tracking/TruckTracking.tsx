@@ -3,7 +3,7 @@ import {
   AlertTriangle, ArrowDown, ArrowUp, ClipboardPaste, Columns3, Download, GripVertical, Link2, Loader2, Plus, Search, Settings2, Table2, Trash2, X,
 } from 'lucide-react';
 import {
-  daysInStage, formatTrackingDate, invoiceList, isTruckIdle, searchInvoiceList, stageDate, trackingExportScopes, stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, todayIso,
+  daysInStage, formatTrackingDate, invoiceList, isTruckIdle, parkingDaysOf, sortStages, searchInvoiceList, stageDate, trackingExportScopes, stageDateLabel, stageLabel, stagePatch, statusAfterDateEdit, todayIso,
   type TruckStage, type TruckTrackingEntry, type TruckTrackingImportRow, type TruckTrackingPatch,
 } from '../../../shared/truck-tracking';
 import type { TrackingLanguage, TrackingText } from '../../../shared/truck-tracking-i18n';
@@ -24,7 +24,7 @@ import { cn } from '../../lib/utils';
 
 // Editable columns: fixed text fields plus one date column per stage ("date:<stageId>").
 type Field = 'invoice' | 'productName' | 'comment' | `date:${string}`;
-type SortKey = Field | 'status';
+type SortKey = Field | 'status' | 'parking';
 const PREFS_KEY = 'truck-tracking-prefs';
 
 const isDateField = (field: string): field is `date:${string}` => field.startsWith('date:');
@@ -104,6 +104,18 @@ const RulesNotice = ({ onRetry, text }: { onRetry: () => void; text: TrackingTex
   );
 };
 
+/** Unloading date minus arrival date; a truck still waiting shows its days so far in grey. */
+const ParkingDays = ({ entry, stages, text }: { entry: TruckTrackingEntry; stages: TruckStage[]; text: TrackingText }) => {
+  const { days, open } = parkingDaysOf(entry, stages);
+  const hasDates = stages.length > 1 && Boolean(stageDate(entry, sortStages(stages)[0].id) && stageDate(entry, sortStages(stages)[1].id));
+  if (days === null) return hasDates
+    ? <span className="text-xs font-semibold text-red-600" title={text.parkingBadDates}>!</span>
+    : <span className="text-slate-300">—</span>;
+  return open
+    ? <span className="text-sm italic text-slate-400" title={text.parkingOpen(days)}>{days}…</span>
+    : <span className="text-sm font-semibold tabular-nums text-slate-800" title={text.parkingDaysTitle}>{days}</span>;
+};
+
 export const TruckTracking = () => {
   const { canEdit: canEditSection } = useAuth();
   const { text, language, isRTL } = useTrackingText();
@@ -179,8 +191,11 @@ export const TruckTracking = () => {
   }, [entries, search, listSearch, idleOnly, stages]);
 
   const sorted = React.useMemo(() => [...searched].sort((a, b) => {
-    const value = (entry: TruckTrackingEntry) => sort.key === 'status'
-      ? String(stages.findIndex(stage => stage.id === entry.status)).padStart(3, '0') : fieldValue(entry, sort.key);
+    const value = (entry: TruckTrackingEntry) => {
+      if (sort.key === 'status') return String(stages.findIndex(stage => stage.id === entry.status)).padStart(3, '0');
+      if (sort.key === 'parking') { const { days } = parkingDaysOf(entry, stages); return days === null ? '' : String(days).padStart(5, '0'); }
+      return fieldValue(entry, sort.key);
+    };
     const [left, right] = [value(a), value(b)];
     if (!left && right) return 1;   // empty values always go last
     if (left && !right) return -1;
@@ -528,7 +543,7 @@ export const TruckTracking = () => {
             )}
 
             <div className="overflow-x-auto">
-              <table className="w-full text-sm" style={{ minWidth: 760 + stages.length * 150 }}>
+              <table className="w-full text-sm" style={{ minWidth: 850 + stages.length * 150 }}>
                 <thead className="bg-slate-50 text-start text-xs text-slate-500">
                   <tr>
                     <th className="w-12 px-2 py-2.5">
@@ -537,6 +552,7 @@ export const TruckTracking = () => {
                     {sortHeader(text.invoice, 'invoice', 'w-[150px]')}
                     {sortHeader(text.productName, 'productName')}
                     {stages.map(stage => sortHeader(stageDateLabel(stage, language), `date:${stage.id}`, 'w-[150px]'))}
+                    {sortHeader(text.parkingDays, 'parking', 'w-[90px]')}
                     {sortHeader(text.status, 'status', 'w-[220px]')}
                     {sortHeader(text.comment, 'comment', 'w-[200px]')}
                     <th className="w-10" />
@@ -561,7 +577,7 @@ export const TruckTracking = () => {
                           />
                         </td>
                       ))}
-                      <td className="px-2 py-2 text-xs text-slate-400" colSpan={stages.length + 1}>{text.quickAddHint(nameOf(stages[0].id))}</td>
+                      <td className="px-2 py-2 text-xs text-slate-400" colSpan={stages.length + 2}>{text.quickAddHint(nameOf(stages[0].id))}</td>
                       <td className="px-2 py-2">
                         <button onClick={() => void addQuick()} disabled={adding} className="rounded-md bg-blue-600 p-1.5 text-white hover:bg-blue-700 disabled:bg-slate-300" aria-label={text.add}>
                           {adding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
@@ -596,6 +612,7 @@ export const TruckTracking = () => {
                       </td>
                       <td className="px-1 py-1">{cell(entry, 'productName', visibleIds)}</td>
                       {stages.map(stage => <td key={stage.id} className="px-1 py-1">{cell(entry, `date:${stage.id}`, visibleIds)}</td>)}
+                      <td className="px-2 py-1"><ParkingDays entry={entry} stages={stages} text={text} /></td>
                       <td className="px-2 py-1">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <StatusSelect value={entry.status} stages={stages} language={language} label={text.status} disabled={!canEdit} onChange={status => void moveTo([entry.id], status)} />

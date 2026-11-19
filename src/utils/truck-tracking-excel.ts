@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { formatTrackingDate, sortOldToNew, stageDate, stageDateLabel, stageLabel, type TruckStage, type TruckTrackingEntry } from '../../shared/truck-tracking';
+import { formatTrackingDate, parkingDaysOf, sortOldToNew, stageDate, stageDateLabel, stageLabel, type TruckStage, type TruckTrackingEntry } from '../../shared/truck-tracking';
 import { TRACKING_TEXT, type TrackingLanguage } from '../../shared/truck-tracking-i18n';
 
 function entriesSheet(unsorted: TruckTrackingEntry[], stages: TruckStage[], language: TrackingLanguage) {
@@ -8,16 +8,18 @@ function entriesSheet(unsorted: TruckTrackingEntry[], stages: TruckStage[], lang
   const entries = sortOldToNew(unsorted, stages);
   const labels = Object.fromEntries(stages.map(stage => [stage.id, stageLabel(stage, language)]));
   const dateLabels = stages.map(stage => stageDateLabel(stage, language));
-  const header = [text.invoice, text.productName, ...dateLabels, text.status, text.comment, text.changedAt, text.changedBy];
+  const header = [text.invoice, text.productName, ...dateLabels, text.parkingDays, text.status, text.comment, text.changedAt, text.changedBy];
+  // Only finished parkings: a truck still waiting has no final number yet.
+  const parking = (entry: TruckTrackingEntry) => { const { days, open } = parkingDaysOf(entry, stages); return days === null || open ? '' : days; };
   const sheet = XLSX.utils.aoa_to_sheet([
     header,
     ...entries.map(entry => [
-      entry.invoice, entry.productName, ...stages.map(stage => formatTrackingDate(stageDate(entry, stage.id))),
+      entry.invoice, entry.productName, ...stages.map(stage => formatTrackingDate(stageDate(entry, stage.id))), parking(entry),
       labels[entry.status] || '', entry.comment || '',
       entry.updatedAt ? new Date(entry.updatedAt).toLocaleString(text.locale) : '', entry.updatedBy || '',
     ]),
   ]);
-  sheet['!cols'] = [18, 40, ...dateLabels.map(label => Math.max(15, label.length + 2)), 24, 40, 20, 24].map(wch => ({ wch }));
+  sheet['!cols'] = [18, 40, ...dateLabels.map(label => Math.max(15, label.length + 2)), 13, 24, 40, 20, 24].map(wch => ({ wch }));
   sheet['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: entries.length, c: header.length - 1 } }) };
   return sheet;
 }
