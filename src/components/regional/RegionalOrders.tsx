@@ -46,6 +46,7 @@ import { NewRegionalOrderModal } from './NewRegionalOrderModal';
 import { TtnModal } from './TtnModal';
 import { OrderFilesViewer } from './OrderFilesViewer';
 import { orderAttachments } from '../../../shared/order-files';
+import { buildCarrierRequest } from '../../../shared/carrier-request';
 import { ordersApi } from '../../services/api';
 import { TTN_TEXT } from './ttn-i18n';
 import { RouteMapModal } from './RouteMapModal';
@@ -129,6 +130,22 @@ export const RegionalOrders: React.FC = () => {
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [carrierExporting, setCarrierExporting] = useState(false);
+
+  /** Excel for a transport company: the ticked orders, or else every new order of the chosen city. */
+  const exportForCarrier = async () => {
+    if (carrierExporting) return;
+    const source = selectedOrderIds.length ? orders
+      : orders.filter(order => selectedCityFilter === 'all' || order.destinationCity === selectedCityFilter);
+    const request = buildCarrierRequest(source, { ids: selectedOrderIds, unknownPlace: text.common.notSpecified });
+    if (!request.rows.length) { showError(o.carrierExportEmpty); return; }
+    setCarrierExporting(true);
+    try {
+      const { downloadCarrierRequest } = await import('../../utils/carrier-request-excel');
+      downloadCarrierRequest(request, language);
+    } catch { showError(o.carrierExportFailed); }
+    finally { setCarrierExporting(false); }
+  };
 
   const handleToggleSelectOrder = (id: string) => {
     setSelectedOrderIds(prev => 
@@ -487,6 +504,12 @@ export const RegionalOrders: React.FC = () => {
             </div>
           )}
 
+          <button type="button" onClick={() => void exportForCarrier()} disabled={carrierExporting || loading}
+            title={o.carrierExportTitle}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+            {carrierExporting ? <Loader2 className="h-4 w-4 animate-spin text-emerald-600" /> : <Truck className="h-4 w-4 text-emerald-600" />}
+            {selectedOrderIds.length ? o.carrierExportSelected(selectedOrderIds.length) : o.carrierExport}
+          </button>
           <button type="button" onClick={() => setReportOpen(true)}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
             <FileSpreadsheet className="h-4 w-4 text-blue-600" />{o.report}
